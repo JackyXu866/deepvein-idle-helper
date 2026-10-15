@@ -67,12 +67,14 @@ export function createCrafting(data,planner) {
     })(id,qty,[]);
     return {missing,requirements};
   }
-  function available(p,job,tier,reserve={}) {
+  // Crafts of `job` at quality `tier` that owned quality materials support, up
+  // to `max` (a batch looks at 50; a whole stage looks further).
+  function available(p,job,tier,reserve={},max=50) {
     const recipe=craftRecipe(data,job,tier);if(!recipe)return 0;
     // Output already owned must not count as raw material for another batch.
     const before={...p,bank:{...p.bank,[recipe.output.itemId]:0},pack:p.pack.filter(i=>i.itemId!==recipe.output.itemId)};
     if(!Number.isFinite(estimate(before,recipe.output.itemId,recipe.output.qty,{reserve}).seconds))return 0;
-    let lo=0,hi=50;
+    let lo=0,hi=max;
     while(lo<hi) {const n=Math.ceil((lo+hi)/2);
       if(Number.isFinite(estimate(before,recipe.output.itemId,n*recipe.output.qty,{reserve}).seconds))lo=n;else hi=n-1;
     }

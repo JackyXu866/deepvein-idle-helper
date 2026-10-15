@@ -587,8 +587,21 @@ export function createPlanner(data) {
       // whole stage (to its target level) before crafting, rather than one
       // level at a time. Business and fixed trades keep their time-bounded batches.
       const stagePlan=prepareBatch&&!!goal.development&&!goal.manualTrade&&!goal.specialization;
-      const stageBatch=job=>Math.max(1,Math.ceil(Math.max(1,thresholds[Math.min(goal.target??lv[skill]+1,thresholds.length-1)]-
-        p.skills[skill])/jobEstimate(job).xp));
+      // Owned quality materials train through their own quality recipe
+      // (uncommon ore -> uncommon bars, more XP each); their XP is not
+      // gathered again as commons.
+      const qualityXp=job=>{
+        const key=`quality:${job.id}`;
+        if(!batchLimits.has(key))batchLimits.set(key,[1,2,3].reduce((n,tier)=>{
+          const recipe=craftRecipe(data,job,tier);
+          return recipe?n+api.crafting.available(p,job,tier,qualityReserve(),5000)*jobEstimate(recipe).xp:n;
+        },0));
+        return batchLimits.get(key);
+      };
+      const stageBatch=job=>{
+        const need=Math.max(1,thresholds[Math.min(goal.target??lv[skill]+1,thresholds.length-1)]-p.skills[skill]);
+        return Math.max(1,Math.ceil(Math.max(1,need-qualityXp(job))/jobEstimate(job).xp));
+      };
       const supplyBatch=job=>{
         if(stagePlan)return Math.max(carriedBatch(p,job),stageBatch(job));
         const seconds=jobTime(job)+job.inputs.reduce((n,i)=>n+i.qty*cost(i.itemId,trail),0);
@@ -666,7 +679,11 @@ export function createPlanner(data) {
       const betterSupply=cached?.inputs.length&&choices[0].inputs.some(i=>count(p,i.itemId)<i.qty*20&&
         Number.isFinite(api.marketUnitCost?.(p,i.itemId,Math.max(1,i.qty*20-count(p,i.itemId)))??Infinity))&&
         score(choices[0])>score(cached)*1.1;
-      const job=prepared??(betterQuality||betterSupply||changed&&!goal.specialization?choices[0]:(cached??choices[0]));
+      // A stage starts with the quality materials already owned (no gathering
+      // needed); quality drops found while preparing are crafted once the
+      // common batch is done, so gathering is not interrupted for a few.
+      const quality=stagePlan&&!preparation?choices.filter(j=>j.rarity>0).sort((a,b)=>score(b)-score(a))[0]:null;
+      const job=quality??prepared??(betterQuality||betterSupply||changed&&!goal.specialization?choices[0]:(cached??choices[0]));
       goal.recipeLevels[skill]=lv[skill];
       goal.recipes[skill]=job.id;
       goal.recipeRarities[skill]=job.rarity??0;
