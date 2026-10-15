@@ -203,7 +203,7 @@ export function createPlanner(data) {
     if(plots.some(f=>f.readyAt>p.lastTick))return null;
     const eligible=jobs.filter(j=>j.grow&&allowedCrop(j)&&level(p.skills.farming)>=j.levelReq&&
       (hasSeed(p,j)||plots.some(f=>f.job.id===j.id)||farmingChoice.mode==='manual'&&plots.length)).sort((a,b)=>b.xp/b.grow-a.xp/a.grow);
-    const stocks=farmStockMode(p)?farmingStocks(data,p,level(p.skills.farming)):null;
+    const stocks=farmStockMode(p)?farmingStocks(data,p,levels(p)):null;
     const job=stocks?stocks.find(row=>eligible.some(j=>j.id===row.job.id))?.job??busyCrop(p,eligible):eligible[0];
     farmTarget=job;farmTargetReason=null;
     if(stocks&&!job){farmDelayReason='农田已全解锁，作物库存充足且没有可续种的种子；先继续主任务';return null;}
@@ -241,7 +241,7 @@ export function createPlanner(data) {
       .sort((a,b)=>a.readyAt-b.readyAt);
     const fields=farmFields(p),empty=fields.filter(s=>!p.plots?.[s.id]);
     const eligible=jobs.filter(j=>j.grow&&allowedCrop(j)&&level(p.skills.farming)>=j.levelReq);
-    const stocks=farmStockMode(p)?farmingStocks(data,p,level(p.skills.farming),goal):null;
+    const stocks=farmStockMode(p)?farmingStocks(data,p,levels(p),goal):null;
     const demanded=j=>stocks?stocks.some(row=>row.job.id===j.id&&row.plannedMissing>0):
       (goal?.budget?.items?.[j.output.itemId]??0)>count(p,j.output.itemId);
     const rank=(a,b)=>Number(demanded(b))-Number(demanded(a))||b.xp/b.grow-a.xp/a.grow||
@@ -1170,6 +1170,12 @@ export function createPlanner(data) {
         return `${kind}${itemName}库存已足；收获后改种${busy?name(busy.output.itemId):'需要的作物'}`;
       }
       if(row.plannedMissing>0)return `当前计划需要${itemName}，还缺 ${row.plannedMissing}`;
+      if(row.reason==='herblore') {
+        const recipe=jobs.find(j=>j.id===row.herblore.recipeId);
+        return `配合现有${row.herblore.drops.map(id=>name(id)).join('、')}炼制${name(recipe.output.itemId)}（可做 ${row.herblore.potions} 瓶）：`+
+          `${itemName}库存 ${row.total}/${row.target}（在田作物计入后续供应）`;
+      }
+      if(herb)return `药水储备（约 50 瓶）：${itemName}库存 ${row.total}/${row.target}`;
       return `${kind}${itemName}：库存 ${row.total}/${row.target}（在田作物计入后续供应）`;
     }
     const need=goal?.budget?.items?.[job.output.itemId]??0,have=count(p,job.output.itemId);
@@ -1181,7 +1187,7 @@ export function createPlanner(data) {
   function farmStatus(p,goal=null) {
     farmState(p);
     const fields=farmFields(p),plots=farmPlots(p),empty=fields.filter(s=>!p.plots?.[s.id]).length;
-    const stocks=farmStockMode(p)?farmingStocks(data,p,level(p.skills.farming),goal):null;
+    const stocks=farmStockMode(p)?farmingStocks(data,p,levels(p),goal):null;
     const best=farmingChoice.mode==='manual'?manualFarmJob():farmTarget??
       (stocks?stocks[0]?.job:
         jobs.filter(j=>j.grow&&level(p.skills.farming)>=j.levelReq).sort((a,b)=>b.xp/b.grow-a.xp/a.grow)[0]);

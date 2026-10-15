@@ -46,8 +46,34 @@ test('crops already in the fields are listed with their reason', () => {
   assert.ok(row, JSON.stringify(status.crops));
   assert.equal(row.fields, fields.length);
   assert.ok(row.readyMinutes > 0);
-  assert.match(row.why, /炼药素材/);
-  assert.match(row.why, /库存 \d+\/500/);
+  assert.match(row.why, /药水储备/);
+  assert.match(row.why, /库存 \d+\/50$/);
+});
+
+test('herb priority: plan shortfall, then the next herblore recipe paired with held drops, then the potion floor', async () => {
+  const {farmingStocks} = await import('../src/planner/farming.js');
+  const planner = makePlanner(), d = planner.data;
+  const byName = n => Object.values(d.items).find(i => i.name === n).id;
+  const nightshade = byName('Nightshade'), sage = byName('Sage'), dust = byName('Wraith dust');
+  const levels = p => planner.levels(p);
+  // Herblore 50 with 200 wraith dust: Nourishing draught (nightshade + dust) is next.
+  const p = {...farmer(planner, 70), skills: {...farmer(planner, 70).skills, herblore: player(planner, {levels: {herblore: 50}}).skills.herblore},
+    bank: {[dust]: 200}};
+  const rows = farmingStocks(d, p, levels(p));
+  const night = rows.find(r => r.job.output.itemId === nightshade);
+  assert.equal(night.target, 200, 'paired with the dust held');
+  assert.equal(night.reason, 'herblore');
+  assert.equal(rows[0].job.output.itemId, nightshade, 'herblore pairing comes before reserves');
+  assert.equal(rows.find(r => r.job.output.itemId === sage).target, 50, 'potion floor');
+  // A plan shortfall still comes first.
+  const planned = farmingStocks(d, p, levels(p), {budget: {items: {[sage]: 30}}});
+  assert.equal(planned[0].job.output.itemId, sage);
+  assert.equal(planned[0].tier, 0);
+  // Without drops, nightshade only keeps the potion floor.
+  const bare = farmingStocks(d, {...p, bank: {}}, levels(p));
+  assert.equal(bare.find(r => r.job.output.itemId === nightshade).target, 50);
+  const why = planner.farmStatus({...p, plots: {}}).next.why;
+  assert.match(why, /配合现有.*炼制/);
 });
 
 test('with every stock met, ripe fields are still harvested and replanted at a task boundary', () => {

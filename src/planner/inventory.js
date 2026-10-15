@@ -74,7 +74,7 @@ export function inventoryBudget(data, planner, p, goal=null,consuming=false) {
   for(const item of Object.values(data.items))if(item.heals)reserve(item.id,Math.max(50,carry*3));
   // A replenishable pantry protects against disposal, not useful consumption.
   if(!consuming&&levels.farming>=Math.max(...data.farmUnlocks))for(const job of data.jobs.filter(j=>j.grow&&j.levelReq<=levels.farming))
-    reserve(job.output.itemId,cropReserve(data,p,job,levels.farming));
+    reserve(job.output.itemId,cropReserve(data,p,job,levels));
   return {items,coins:Math.max(0,...plans.map(plan=>plan.budget?.coins??0)),capacity,used,freeSlots:capacity-used,pressure,recoverableOverflow};
 }
 export function enhanceQuote(data, planner, p, itemId) {

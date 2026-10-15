@@ -3,13 +3,42 @@ import {foodEffects} from './supplies.js';
 
 // Ordinary and rare crops share a pantry reserve, but recipe demands keep
 // their exact quality IDs. Growing crops count only as future supply.
-export function cropReserve(data,p,job,level) {
+
+// Herbs for potions drunk while herblore is not being trained (one potion lasts
+// an hour); training itself makes potions, so this only bridges the gaps.
+export const POTION_FLOOR=50;
+
+const herbIds=data=>new Set(data.jobs.filter(j=>j.grow).map(j=>j.output.itemId));
+const held=(p,id)=>(p.bank[id]??0)+(p.overflow?.[id]??0)+p.pack.filter(i=>i.itemId===id).reduce((n,i)=>n+i.qty,0);
+
+// Herblore drives herb farming: each level band uses thousands of herbs, one
+// per potion. The next recipe is the best-experience unlocked one whose other
+// inputs (monster drops) are held; it can use as many herbs as those drops
+// allow, and growing more than that is wasted until more drops arrive.
+export function herbloreNeeds(data,p,levels) {
+  const herbs=herbIds(data);
+  const recipes=data.jobs.filter(j=>j.skill==='herblore'&&j.levelReq<=(levels.herblore??1));
+  const pairable=recipe=>{
+    const others=recipe.inputs.filter(i=>!herbs.has(i.itemId));
+    return others.length?Math.min(...others.map(i=>Math.floor(held(p,i.itemId)/i.qty))):0;
+  };
+  const next=[...recipes].sort((a,b)=>Number(pairable(b)>0)-Number(pairable(a)>0)||b.xp-a.xp||b.levelReq-a.levelReq)[0]??null;
+  const potions=next?pairable(next):0,recipe={},floor={};
+  if(next&&potions>0)for(const i of next.inputs)if(herbs.has(i.itemId))recipe[i.itemId]=potions*i.qty;
+  for(const r of recipes)for(const i of r.inputs)if(herbs.has(i.itemId))floor[i.itemId]=Math.max(floor[i.itemId]??0,POTION_FLOOR*i.qty);
+  return {next,potions,recipe,floor,drops:next?next.inputs.filter(i=>!herbs.has(i.itemId)).map(i=>i.itemId):[]};
+}
+
+// The reserve a crop keeps against sale and aims for when farming: herbs by
+// herblore needs, food crops by the food reserve unless a better crop replaces them.
+export function cropReserve(data,p,job,levels,herblore=herbloreNeeds(data,p,levels)) {
   const itemId=job.output.itemId,item=data.items[itemId];
-  if(data.jobs.some(j=>j.skill==='herblore'&&j.inputs.some(i=>i.itemId===itemId)))return 500;
+  if(data.jobs.some(j=>j.skill==='herblore'&&j.inputs.some(i=>i.itemId===itemId)))
+    return Math.max(herblore.recipe[itemId]??0,herblore.floor[itemId]??0);
   if(!item?.heals)return 0;
   const effects=foodEffects(data,itemId);
   const replaced=data.jobs.some(j=>{
-    if(!j.grow||j.id===job.id||j.levelReq>level)return false;
+    if(!j.grow||j.id===job.id||j.levelReq>levels.farming)return false;
     const other=data.items[j.output.itemId],buff=foodEffects(data,j.output.itemId);
     return other?.heals>=item.heals&&buff.fedTicks>=effects.fedTicks&&buff.rootedTicks>=effects.rootedTicks&&
       (other.heals>item.heals||buff.fedTicks>effects.fedTicks||buff.rootedTicks>effects.rootedTicks);
@@ -20,24 +49,34 @@ export function cropReserve(data,p,job,level) {
   return Math.max(500,carry*3);
 }
 
-export function farmingStocks(data,p,level,goal=null) {
+// Crops below target, in priority order: the current plan's shortfall, then
+// herbs for the next herblore recipe, then the potion floor and food reserve.
+// With nothing short, the planner keeps the fields busy on farming experience.
+export function farmingStocks(data,p,levels,goal=null) {
   const base=id=>id%data.plusScale%data.rarityScale,stock={...p.bank};
   for(const i of p.pack)stock[i.itemId]=(stock[i.itemId]??0)+i.qty;
   for(const [id,qty]of Object.entries(p.overflow??{}))stock[id]=(stock[id]??0)+qty;
-  return data.jobs.filter(j=>j.grow&&j.levelReq<=level).map(job=>{
+  const herblore=herbloreNeeds(data,p,levels);
+  return data.jobs.filter(j=>j.grow&&j.levelReq<=levels.farming).map(job=>{
     const itemId=job.output.itemId,future={};
     for(const plot of Object.values(p.plots??{}))if(base(plot.seedItemId)===job.inputs[0].itemId) {
       const id=itemId+Math.floor(plot.seedItemId%data.plusScale/data.rarityScale)*data.rarityScale;
       future[id]=(future[id]??0)+3; // Minimum confirmed native yield per field.
     }
+    const growing=Object.values(future).reduce((a,b)=>a+b,0);
     const demands=Object.entries(goal?.budget?.items??{}).filter(([id])=>base(+id)===itemId);
     const total=Object.entries(stock).reduce((n,[id,qty])=>n+(autoUsableMaterial(data,+id)&&base(+id)===itemId?qty:0),0);
-    const target=Math.max(cropReserve(data,p,job,level),demands.reduce((n,[,qty])=>n+qty,0));
+    const recipeNeed=herblore.recipe[itemId]??0;
+    const reserve=cropReserve(data,p,job,levels,herblore);
+    const target=Math.max(reserve,demands.reduce((n,[,qty])=>n+qty,0));
     const plannedMissing=demands.reduce((n,[id,qty])=>n+Math.max(0,qty-(stock[id]??0)),0);
     const plannedUncovered=demands.reduce((n,[id,qty])=>n+Math.max(0,qty-(stock[id]??0)-(future[id]??0)),0);
-    const missing=Math.max(plannedUncovered,target-total-Object.values(future).reduce((a,b)=>a+b,0));
-    return {job,total,target,plannedMissing,plannedUncovered,missing,short:Math.max(plannedMissing,target-total)};
-  }).filter(row=>row.short>0).sort((a,b)=>
-    Number(b.missing>0)-Number(a.missing>0)||Number(b.plannedUncovered>0)-Number(a.plannedUncovered>0)||
+    const missing=Math.max(plannedUncovered,target-total-growing);
+    const tier=plannedUncovered>0?0:recipeNeed-total-growing>0?1:missing>0?2:3;
+    return {job,total,target,plannedMissing,plannedUncovered,missing,tier,
+      reason:plannedMissing>0?'plan':recipeNeed>=reserve&&recipeNeed>0?'herblore':'reserve',
+      ...(recipeNeed>0?{herblore:{recipeId:herblore.next.id,potions:herblore.potions,drops:herblore.drops,need:recipeNeed}}:{}),
+      short:Math.max(plannedMissing,target-total)};
+  }).filter(row=>row.short>0).sort((a,b)=>a.tier-b.tier||
     b.missing/b.target-a.missing/a.target||b.short/b.target-a.short/a.target);
 }
