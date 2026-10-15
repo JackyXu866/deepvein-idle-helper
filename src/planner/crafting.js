@@ -1,0 +1,114 @@
+import {autoUsableMaterial, craftRecipe} from './professions.js';
+import {workEstimate} from './estimates.js';
+
+export function createCrafting(data,planner) {
+  function estimate(p,id,qty,{reserve={},buy=false,coins=0}={}) {
+    const stock={...p.bank},levels=planner.levels(p);
+    for(const item of p.pack)stock[item.itemId]=(stock[item.itemId]??0)+item.qty;
+    const keep={...reserve};
+    if(p.enhance?.itemId)keep[p.enhance.itemId]=Math.max(keep[p.enhance.itemId]??0,1);
+    for(const set of p.gearSets??[])for(const item of Object.values(set?.items??{}))
+      if(Number.isInteger(item))for(const key of Object.keys(stock))
+        if(+key%data.plusScale===item%data.plusScale)keep[key]=Math.max(keep[key]??0,1);
+    for(const [key,n]of Object.entries(keep))stock[key]=Math.max(0,(stock[key]??0)-n);
+    let money=0;
+    function supply(itemId,amount,trail=[]) {
+      if(!autoUsableMaterial(data,itemId))return Infinity;
+      const used=Math.min(amount,stock[itemId]??0);stock[itemId]=(stock[itemId]??0)-used;
+      const missing=amount-used;if(missing<=0)return 0;
+      if(trail.includes(itemId)||itemId>=data.plusScale)return Infinity;
+      const tier=Math.floor(itemId/data.rarityScale),base=planner.base(itemId);
+      const job=data.jobs.find(j=>j.output.itemId===base&&j.inputs.length&&!j.grow&&levels[j.skill]>=j.levelReq);
+      const recipe=job&&craftRecipe(data,job,tier);
+      if(recipe) {
+        const saved={...stock},beforeMoney=money;
+        const n=Math.ceil(missing/recipe.output.qty),next=[...trail,itemId];
+        let seconds=0;
+        for(const input of recipe.inputs)seconds+=supply(input.itemId,n*input.qty,next);
+        if(Number.isFinite(seconds)) {
+          const slot=Object.keys(data.toolSkills).find(s=>data.toolSkills[s]===job.skill);
+          const rate=workEstimate(data,recipe,levels[job.skill],{toolBonus:planner.equipmentStats(p.equipment[slot])?.bonus??0,
+            quick:p.perks?.quick??0,hands:p.perks?.hands??0});
+          stock[itemId]=(stock[itemId]??0)+n*recipe.output.qty-missing;
+          const travel=2*Math.min(...data.sites.filter(site=>site.jobIds.includes(job.id))
+            .map(site=>Math.max(Math.abs(p.x-site.x),Math.abs(p.y-site.y))))*data.tickMs/1000;
+          return seconds+n*rate.seconds/rate.success+travel;
+        }
+        for(const key of Object.keys(stock))delete stock[key];Object.assign(stock,saved);money=beforeMoney;
+      }
+      if(buy) {
+        const unit=itemId===id?Infinity:planner.marketUnitCost?.(p,itemId,missing)??Infinity;
+        if(Number.isFinite(unit)){money+=unit*missing*planner.coinRate(p);return unit*missing;}
+        // Ordinary missing fuel can be gathered; never grind random rare drops.
+        if(tier===0)return planner.routeEstimate({...p,bank:stock,pack:[]},{itemId},missing).seconds;
+      }
+      return Infinity;
+    }
+    const seconds=supply(id,qty);
+    return {seconds:money>(planner.marketAllowance?.(p,{budget:{coins}})??0)?Infinity:seconds,money,xp:0};
+  }
+  function available(p,job,tier,reserve={}) {
+    const recipe=craftRecipe(data,job,tier);if(!recipe)return 0;
+    // Output already owned must not count as raw material for another batch.
+    const before={...p,bank:{...p.bank,[recipe.output.itemId]:0},pack:p.pack.filter(i=>i.itemId!==recipe.output.itemId)};
+    if(!Number.isFinite(estimate(before,recipe.output.itemId,recipe.output.qty,{reserve}).seconds))return 0;
+    let lo=0,hi=50;
+    while(lo<hi) {const n=Math.ceil((lo+hi)/2);
+      if(Number.isFinite(estimate(before,recipe.output.itemId,n*recipe.output.qty,{reserve}).seconds))lo=n;else hi=n-1;
+    }
+    return lo;
+  }
+  function ingredients(id,seen=new Set()) {
+    if(seen.has(id))return [];seen.add(id);
+    const original=data.jobs.find(j=>j.output.itemId===planner.base(id)&&j.inputs.length&&!j.grow);
+    const job=original&&craftRecipe(data,original,Math.floor(id/data.rarityScale));
+    return job?[...new Set(job.inputs.flatMap(i=>[i.itemId,...ingredients(i.itemId,seen)]))]:[];
+  }
+  return {estimate,available,ingredients};
+}
+
+export function bankedGatheringLoad(data,before,p) {
+  const route=p.route,old=before?.route;
+  if(!before||before.id!==p.id||p.lastTick<=before.lastTick||!route||!old||route.errand||old.errand||
+    route.jobId!==old.jobId||route.siteId!==old.siteId||route.zoneId!==old.zoneId)return false;
+  const job=data.jobs.find(j=>j.id===route.jobId);
+  if(!job||job.inputs.length||!['mining','fishing','woodcutting'].includes(job.skill)||
+    data.items[job.output.itemId]?.stackable)return false;
+  const gained=id=>(p.bank[id]??0)-(before.bank[id]??0)-
+    Math.max(0,(before.overflow?.[id]??0)-(p.overflow?.[id]??0));
+  if(before.pack.some(item=>{
+    if(item.itemId%data.plusScale%data.rarityScale!==job.output.itemId)return false;
+    const count=pack=>pack.filter(i=>i.itemId===item.itemId).reduce((n,i)=>n+i.qty,0);
+    const moved=count(before.pack)-count(p.pack);
+    return moved>0&&gained(item.itemId)>=moved;
+  }))return true;
+  // A snapshot can arrive after banking and refilling the next partial pack.
+  // Its size need not decrease; gathering XP plus new shelved output still
+  // identifies the completed trip. Overflow moving back to shelves does not.
+  return (p.skills?.[job.skill]??0)>(before.skills?.[job.skill]??0)&&
+    Object.keys(p.bank).some(id=>id%data.plusScale%data.rarityScale===job.output.itemId&&gained(id)>0);
+}
+
+export function finishTaskReason(data,p) {
+  const route=p.route,original=data.jobs.find(j=>j.id===route?.jobId);
+  const job=original&&(original.inputs.length&&!original.grow?craftRecipe(data,original,p.workRarity??route?.rarity??0):original);
+  if (!job||job.grow||route.errand||!route.phase||route.phase==='toBank'||route.limit===0) return null;
+  const base=id=>id%data.plusScale%data.rarityScale;
+  const used=p.pack.reduce((n,i)=>n+(data.items[base(i.itemId)]?.stackable?1:i.qty),0);
+  const free=28+Math.max(0,p.perks?.pockets??0)-used;
+  const output=data.items[base(job.output.itemId)];
+  if (['mining','fishing','woodcutting'].includes(job.skill)&&!job.inputs.length&&!output?.stackable) {
+    return free>=job.output.qty?'继续当前采集，背包满或本批完成后再切换任务':null;
+  }
+  if (!['smithing','cooking','fletching','herblore','crafting'].includes(job.skill)||
+    route.limit!==null&&!(route.limit>0)) return null;
+  if(route.limit===null&&output?.stackable&&job.inputs.every(i=>data.items[base(i.itemId)]?.stackable))return null;
+  let freed=0;
+  for (const input of job.inputs) {
+    const count=p.pack.filter(i=>i.itemId===input.itemId).reduce((n,i)=>n+i.qty,0);
+    if (count<input.qty) return null;
+    freed+=data.items[base(input.itemId)]?.stackable?Number(count===input.qty):input.qty;
+  }
+  const extra=output?.stackable?Number(!p.pack.some(i=>i.itemId===job.output.itemId)):job.output.qty;
+  return free+freed>=extra?'完成背包中已备材料的当前批次，再切换任务':null;
+}

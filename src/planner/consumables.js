@@ -1,0 +1,222 @@
+import {autoUsableMaterial, professionSkill} from './professions.js';
+import {expectedAttacks, workEstimate} from './estimates.js';
+import {POTIONS, brewPower, foodEffects, potionRefillQty} from './supplies.js';
+import {inventoryBudget} from './inventory.js';
+
+export function swiftPotion(data,planner,p,plan,window,drinkQty) {
+  const itemId=225,next=plan?.intent,route=next??p.route;
+  if(!route||next&&!['walk','setRoute','fight'].includes(next.t))return null;
+  const job=data.jobs.find(j=>j.id===route.jobId);
+  const target=next?.t==='walk'?next:data.sites.find(s=>s.id===route.siteId)??data.zones.find(z=>z.id===route.zoneId);
+  if(!target||!next&&(!job||job.grow||route.limit===0))return null;
+  const distance=(a,b)=>Math.max(Math.abs(a.x-b.x),Math.abs(a.y-b.y)),tick=data.tickMs/1000;
+  const bank=point=>[...data.banks].sort((a,b)=>distance(point,a)-distance(point,b))[0].approach;
+  // Native mounts use different quality/enhancement scaling from work tools.
+  const mount=p.equipment.mount??0,mountBase=data.gear.find(g=>g.itemId===planner.base(mount)&&g.slot==='mount');
+  const mountBonus=(mountBase?.bonus??0)*([1,1.5,2.25,3.5,5][Math.floor(mount%data.plusScale/data.rarityScale)]??1)*
+    (1+.15*Math.floor(mount/data.plusScale));
+  const stride=(1000+Math.round(mountBonus*1000))*(1+.005*(p.masteries?.move??0));
+  const speed=Math.round(stride)/1000,boosted=Math.round(stride*1.2)/1000;
+  let remaining=Math.min(600,Math.max(0,window)),travel=0,position=p;
+  const move=to=>{const seconds=Math.min(remaining,distance(position,to)*tick/speed);
+    travel+=seconds;remaining-=seconds;position=to;};
+  // Drinking does not recompute an already generated path's strideSpeed.
+  if(!next&&p.activity==='walking'&&p.path?.length) {
+    remaining=Math.max(0,remaining-Math.max(0,p.path.length-(p.pathIndex??0))*tick/((p.strideSpeed??Math.round(stride))/1000));
+    position=p.path.at(-1);
+  }
+  if(next?.t==='walk')move(target);
+  else {
+    if(!next&&route.phase==='toBank'&&!p.path?.length)move(bank(position));
+    if(next)move(target);
+    else position=target;
+    if(job&&!job.inputs.length&&!job.grow&&['mining','fishing','woodcutting'].includes(job.skill)&&
+      !data.items[job.output.itemId]?.stackable&&(route.onFull??'bank')==='bank'&&
+      (next||!['toBank','banking'].includes(route.phase))) {
+      const slot=Object.keys(data.toolSkills).find(k=>data.toolSkills[k]===job.skill);
+      const seconds=workEstimate(data,job,planner.levels(p)[job.skill],{toolBonus:planner.equipmentStats(p.equipment[slot])?.bonus??0,
+        quick:p.perks?.quick??0,hands:p.perks?.hands??0}).seconds;
+      const capacity=28+Math.max(0,p.perks?.pockets??0);
+      let dose=drinkQty;
+      const freed=p.pack.filter(i=>i.itemId===itemId).reduce((slots,i)=>{
+        const used=Math.min(dose,i.qty);dose-=used;
+        return slots+(data.items[itemId]?.stackable?Number(used===i.qty):used);
+      },0);
+      const used=p.pack.reduce((sum,i)=>sum+(data.items[planner.base(i.itemId)]?.stackable?1:i.qty),0)-
+        freed;
+      let free=route.phase==='toBank'||route.phase==='banking'?capacity:Math.max(0,capacity-used);
+      let count=route.limit==null||next&&route.limit===0?Infinity:Math.max(0,route.limit);
+      while(remaining>0&&count>0) {
+        const batch=Math.min(count,Math.floor(free/job.output.qty));
+        remaining=Math.max(0,remaining-batch*seconds);count-=batch;
+        if(count<=0||remaining<=0)break; // The final finite batch stops in place.
+        move(bank(target));
+        if(!next)break; // Existing work may be replaced at this banking boundary.
+        remaining=Math.max(0,remaining-3*tick);move(target);free=capacity;
+      }
+    }
+  }
+  const saved=travel*(1-speed/boosted);
+  return travel>0?{intent:{t:'drink',itemId,qty:1},label:'使用疾行药剂',gain:saved,
+    reason:`移动速度 +20%；按未来 ${Math.ceil(Math.min(600,window))} 秒内本路线的新路程与中途存仓往返估算，`+
+      `可加速路程约 ${Math.floor(travel)} 秒，预计节省 ${Math.floor(saved)} 秒；不计当前已生成路径和未知后续任务`}:null;
+}
+
+// Keep applicable owned potions active for the actual next/current task,
+// not its supply-chain goal label. Surplus food retains its value check.
+export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
+  const report=(key,message)=>planner.reportConsumable?.(key,message);
+  if(!p.brews||!Number.isFinite(p.lastTick)) {
+    report('blocked','药水未喝：尚未取得有效的药效状态');
+    planner.watchPotions?.(p,[]);return null;
+  }
+  if(p.enhance||plan?.blocked||plan?.deferUntilTick) {
+    report('blocked','药水未喝：当前有强化或等待中的高优先级任务');
+    planner.watchPotions?.(p,[]);return null;
+  }
+  if(p.held||p.raidHeld||p.queue?.length) {
+    report('queue','药水未喝：玩家队列或搁置任务优先，等待队列完成');
+    planner.watchPotions?.(p,[]);return null;
+  }
+  const next=plan?.intent;
+  const route=next??p.route;
+  const job=data.jobs.find(j=>j.id===route?.jobId);
+  const budget=inventoryBudget(data,planner,p,goal,true),candidates=[];
+  const active=kind=>(p.brews[kind]??0)>p.lastTick;
+  const carried=id=>p.pack.some(i=>i.itemId===id&&i.qty>0);
+  const accessible=id=>carried(id)||planner.nearBank(p)&&(p.bank[id]??0)>0;
+  const potionVariants=id=>{
+    const base=id%data.plusScale%data.rarityScale;
+    return Array.from({length:data.rarityMultipliers.length},(_,tier)=>base+tier*data.rarityScale)
+      .filter(itemId=>autoUsableMaterial(data,itemId));
+  };
+  const potionQuantity=id=>p.pack.filter(i=>i.itemId===id&&i.qty>0).reduce((sum,i)=>sum+i.qty,0)+
+    (planner.nearBank(p)?p.bank[id]??0:0);
+  const potionReserve=id=>Math.max(0,budget.items[id]??0);
+  const usablePotion=id=>Math.min(potionQuantity(id),Math.max(0,planner.count(p,id)-potionReserve(id)));
+  const potionSurplus=id=>potionVariants(id).reduce((sum,itemId)=>
+    sum+usablePotion(itemId),0);
+  const ownedDose=(id,desired)=>potionVariants(id).map(itemId=>({itemId,power:data.rarityMultipliers[Math.floor(itemId%data.plusScale/data.rarityScale)],
+    qty:Math.min(desired,20,usablePotion(itemId))}))
+    .filter(choice=>choice.qty>0).sort((a,b)=>a.itemId-b.itemId)[0]??null;
+  const producing=id=>job?.output.itemId===id||p.activity==='working'&&
+    data.jobs.some(j=>[p.workJobId,p.route?.jobId].includes(j.id)&&j.output.itemId===id);
+  const surplus=id=>potionSurplus(id);
+  const useQty=(id,desired)=>Math.min(desired,surplus(id));
+  const restock=(id,desired,uncovered=[])=>planner.nearBank(p)&&p.activity==='idle'&&!p.route&&!p.path?.length?
+    planner.restockPotion?.(p,id,goal,desired,uncovered):null;
+  const choose=()=>{
+    const due=candidates.filter(({itemId})=>!producing(itemId))
+      .map(potion=>({...potion,desired:potionRefillQty(p,potion.kind)})).filter(potion=>potion.desired>0)
+      .sort((a,b)=>Number(active(a.kind))-Number(active(b.kind)));
+    const missing=due.filter(({itemId,desired})=>surplus(itemId)<desired);
+    const uncovered=missing.filter(({kind})=>!active(kind)).map(potion=>potion.itemId);
+    planner.watchPotions?.(p,missing.map(potion=>potion.itemId));
+    for(const {itemId,kind,action,desired,canDrink=true}of due)if(canDrink) {
+      const dose=planner.potionDose?.(p,itemId,goal,desired)??ownedDose(itemId,desired);
+      const qty=useQty(itemId,desired);
+      // Recover an expired effect immediately. If it is still active, a known
+      // same-kind purchase can complete the 20-hour batch before drinking.
+      if(active(kind)&&(dose?.qty??qty)>0&&(dose?.qty??qty)<desired) {
+        const refill=restock(itemId,desired,uncovered);if(refill)return refill;
+      }
+      if(dose)return {...action,intent:{t:'drink',itemId:dose.itemId,qty:dose.qty},
+        reason:`${action.reason}；品质药效倍率 ×${dose.power}，使用 ${dose.qty} 瓶补时，保留目标及原料`};
+      if(qty>0)return {...action,intent:{...action.intent,qty},
+        reason:`${action.reason}；药效剩余不超过 6 小时，使用 ${qty} 瓶，目标约 20 小时（库存不足则先补现货）`};
+    }
+    for(const {itemId,desired}of missing) {
+      const refill=restock(itemId,desired,uncovered);if(refill)return refill;
+      const status=planner.potionStatus?.(p,itemId,goal,desired);
+      report(status?.key??'stock',status?.message??`药水未喝：${data.items[itemId]?.name??itemId}库存不足，当前无法安全补货`);
+    }
+    return null;
+  };
+  const add=(potion,effect)=>candidates.push({...potion,canDrink:true,
+    action:{intent:{t:'drink',itemId:potion.itemId,qty:1},
+    label:`使用${potion.label}`,reason:`普通品质效果：${effect}；按当前实际任务使用药水，保留计划用量`}});
+  const swift=swiftPotion(data,planner,p,plan,window,useQty(225,potionRefillQty(p,'swift')));
+  if(swift)candidates.push({itemId:225,kind:'swift',action:swift});
+  if(next&&!['setRoute','fight'].includes(next.t)||!route)return choose();
+  if(route.errand||job?.grow) {
+    if(job?.grow&&route.errand&&(next||p.activity==='working')&&
+      planner.farmPlots(p).some(f=>f.readyAt<=p.lastTick))add(POTIONS.find(p=>p.kind==='hunter'),'返还种子的品质稀有倍率 +25%');
+    return choose();
+  }
+  const zone=data.zones.find(z=>z.id===route.zoneId),monster=data.monsters.find(m=>m.id===zone?.monsterId);
+  if(!job&&!monster)return choose();
+  if(!next&&route.limit===0)return choose();
+  const tick=data.tickMs/1000,lv=planner.levels(p),limit=route.limit>0?route.limit:Infinity;
+  const cap=Math.min(600,Math.max(0,window));
+  const slot=job&&Object.keys(data.toolSkills).find(k=>data.toolSkills[k]===job.skill);
+  const work=job&&workEstimate(data,job,lv[job.skill],{
+    toolBonus:planner.equipmentStats(p.equipment[slot])?.bonus??0,quick:p.perks?.quick??0,hands:p.perks?.hands??0});
+  const style=professionSkill(profession),gear=Object.values(p.equipment).map(planner.equipmentStats).filter(Boolean);
+  const stat=key=>gear.reduce((sum,g)=>sum+(key==='defence'||!g.style||g.style===style?1:-1)*(g[key]??0),0);
+  const weapon=planner.equipmentStats(p.equipment.weapon);
+  const fightSeconds=(warrior=brewPower(data,p,'warrior'),haste=brewPower(data,p,'haste'),fed=active('fed')?.25:0)=>{
+    const divisor=style==='magic'?4.5:weapon?.twoHanded?6:style==='ranged'&&weapon?.speed===5?5:8;
+    const baseHit=Math.max(1,1+Math.floor((lv[style]+stat('strength'))/divisor));
+    const maxHit=Math.ceil(baseHit*(1+.1*warrior+fed));
+    const accuracy=Math.max(1,10+lv[style]+stat('accuracy')+Math.round(10*warrior));
+    const hit=accuracy/(accuracy+10+monster.defence*(style==='magic'?.5:1));
+    return expectedAttacks(monster.hp,maxHit,hit)*(weapon?.speed??5)*tick/(1+.2*haste);
+  };
+  const seconds=job?work.seconds:fightSeconds(),duration=Math.min(cap,limit*seconds);
+  const coinRate=planner.coinRate(p);
+  const foodId=p.foodItemId>0?p.foodItemId:p.pack.find(i=>data.items[planner.base(i.itemId)]?.heals)?.itemId??60;
+  const food=data.items[planner.base(foodId)];
+  const meanHit=monster?(monster.maxHit+1)/2:0;
+  const rootedHit=monster?Array.from({length:monster.maxHit},(_,i)=>Math.max(1,Math.floor((i+1)*.8)))
+    .reduce((sum,damage)=>sum+damage,0)/monster.maxHit:0;
+  const damageReduction=meanHit?1-rootedHit/meanHit:0;
+  const enemyDps=monster?(10+monster.attack)/(20+monster.attack+lv.defence+stat('defence'))*
+    (active('rooted')?rootedHit:meanHit)/(monster.speed*tick):0;
+  const foodRarity=Math.floor(foodId%data.plusScale/data.rarityScale);
+  const rawHeal=Math.max(1,Math.round((food?.heals??0)*(data.foodHealingMultipliers??[1,1.2,1.5,2,3])[foodRarity]));
+  const maxHp=Math.floor(lv.hitpoints*(1+.005*(p.masteries?.hp??0)));
+  const gap=Math.max(1,maxHp-Math.floor(maxHp*(p.eatAt??.5)));
+  const healFor=power=>Math.max(1,Math.min(gap,Math.floor(rawHeal*(1+.025*(p.perks?.meals??0)+.25*power))));
+  const healing=healFor(brewPower(data,p,'nourish'));
+  const foodValue=food?.value??0;
+  for(const potion of POTIONS) {
+    const {kind}=potion;
+    let effect='';
+    if((kind==='gatherer'&&job&&!job.inputs.length&&['mining','fishing','woodcutting','thieving'].includes(job.skill))||
+      (kind==='elixir'&&(job||monster))) {
+      effect='经验 +10%';
+    } else if(kind==='warrior'&&monster) {
+      effect='命中 +10、最大伤害 +10%';
+    } else if(kind==='haste'&&monster) {
+      effect='攻击速度 +20%';
+    } else if(kind==='abyssal'&&monster) {
+      effect='击杀金币 +25%';
+    } else if(kind==='nourish'&&monster&&healFor(1)>healFor(0)) {
+      effect='食物治疗 +25%';
+    } else if(kind==='hunter'&&job&&!job.inputs.length&&job.output.itemId!==data.coinId) {
+      effect='产物的品质稀有倍率 +25%';
+    } else if(kind==='hunter'&&monster?.drop!=null) {
+      effect='掉落物的品质稀有倍率 +25%';
+    }
+    if(effect)add(potion,effect);
+  }
+  const potion=choose();if(potion)return potion;
+  if(!next&&p.activity!=='working'&&!planner.nearBank(p))return null;
+  if(duration<30)return null;
+  if(monster) {
+    const marketFood=planner.marketBuffFood?.(p,goal,{duration,enemyDps,healing,damageReduction,foodValue});
+    if(marketFood)return marketFood;
+  }
+  const options=[];
+  if(monster)for(const item of Object.values(data.items).filter(i=>i.heals)) {
+    const itemId=item.id,effects=foodEffects(data,itemId);
+    if(!effects.rootedTicks||active('rooted')||!accessible(itemId)||planner.count(p,itemId)<=Math.max(0,budget.items[itemId]??0))continue;
+    const covered=Math.min(duration,effects.rootedTicks*tick);
+    const savedFood=covered*enemyDps/healing*damageReduction*foodValue;
+    if(savedFood>item.value)options.push({intent:{t:'eat',itemId,qty:1,...(!carried(itemId)?{shelf:true}:{})},
+      label:'用盈余作物补充减伤',reason:`承伤 -20%，覆盖本批约 ${Math.ceil(covered)} 秒；`+
+        `预计节省食物估值 ${Math.floor(savedFood)}，消耗作物估值 ${item.value} 金币，保留正常补给和计划原料`,gain:(savedFood-item.value)/Math.max(.001,coinRate)});
+  }
+  options.sort((a,b)=>b.gain-a.gain||a.intent.itemId-b.intent.itemId);
+  return options[0]??null;
+}

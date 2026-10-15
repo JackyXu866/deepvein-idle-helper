@@ -287,3 +287,17 @@
 市场报价缺失时保留物品、继续练级并稍后重试；价格及成交量会变化，不能保证挂单成交。交易结果不明时保留记录、同步核实，不重复下单。留货按当前计划及周转储备计算，不保证覆盖未规划的公会、住房或未来切职业需求。公会捐赠、Town 交货及任务点加点尚未自动执行。阶段成长会牺牲部分总经验，供料和后台农业仍可能让个别技能领先，不保证等级完全相同。
 
 本仓库只分发完整脚本、更新元数据与安装说明。脚本内置的 Acorn 保留其 MIT 许可声明。
+
+## 开发
+
+源码位于 `src/`（ES 模块），发布文件由 esbuild 生成，请勿直接修改根目录的 `*.user.js` / `*.meta.js`：
+
+```
+npm install
+npm run build
+```
+
+- `src/main/entry.js`：页面脚本入口；`src/worker/entry.js`：后台规划 Worker 入口（构建后以字符串内嵌）。
+- `src/planner/`、`src/economy/`、`src/runtime/`、`src/ui/`：规划、市场、运行时与界面模块；`src/data/game-data.json`：内置游戏数据。
+- 版本号取自 `package.json`；GitHub 与 Gcore CDN 两个发布版本只在更新地址和 `SCRIPT_DISTRIBUTION` 上不同。
+- 后续计划见 [docs/roadmap.md](docs/roadmap.md)。
