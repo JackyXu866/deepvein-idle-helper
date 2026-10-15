@@ -462,7 +462,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
   }
   function syncHotValidation() {
     const glyph=document.querySelector?.('[data-hot-pill] [data-hot-glyph]');
-    trainer.setHotDomSkill(glyph?.dataset?.skill??null);
+    trainer.setHotDomSkill(glyph?.dataset?.skill??null,document.visibilityState==='hidden');
   }
   window.getHotFollow=()=>trainer.getHotFollow();
   window.setHotFollow=patch=>{

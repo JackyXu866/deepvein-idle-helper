@@ -27,7 +27,7 @@ test('listing mode values output at the ask when buyers trade there', () => {
   const {market, p, item} = setup('list', {bids: [{price: 100, qty: 1000}], asks: [{price: 150, qty: 5}], trades: [recent(149, 200)]});
   const quote = market.opportunity(p, item, 50);
   assert.equal(quote.listed, true);
-  assert.equal(quote.net, net(149, 50));
+  assert.equal(quote.net, net(148, 50), 'one price step (2) under the 150 ask');
 });
 
 test('bid mode keeps the old instant-sale valuation', () => {
@@ -45,7 +45,7 @@ test('thin trading or a tiny spread falls back to the bid', () => {
 });
 
 test('the sell decision lists at the ask in listing mode and fills the bid in bid mode', () => {
-  for (const [pricing, expected] of [['list', 149], ['bid', 100]]) {
+  for (const [pricing, expected] of [['list', 148], ['bid', 100]]) {
     const {market, p, item, d} = setup(pricing, {bids: [{price: 100, qty: 1000}], asks: [{price: 150, qty: 5}], trades: [recent(149, 200)]});
     const atBank = {...p, x: d.banks[0].x, y: d.banks[0].y, bank: {[item]: 60}, route: null, path: null};
     const floor = Math.max(1, Math.floor(d.items[item].value * .4));

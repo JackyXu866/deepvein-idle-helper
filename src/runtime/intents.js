@@ -3,6 +3,7 @@ import {reserveWaitingGoals, reviewInventory, saleProtectionReason} from '../pla
 import {HOUSE_ACTIONS, validHomePortal} from '../planner/housing.js';
 import {nextPerkCost} from '../planner/perks.js';
 import {FALLBACK_SKILLS} from '../planner/fallback.js';
+import {onPriceStep} from '../economy/market.js';
 import {MASTERY_RANK_LIMIT, MASTERY_TRACKS} from '../engine/mastery-rules.js';
 
 export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mode='balanced',waitingGoals={}}={}) {
@@ -83,7 +84,7 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
       if(!row?.marketOnly||row.sellFromBank<intent.qty)return false;
     }
     return known&&Number.isInteger(intent.qty)&&intent.qty>0&&intent.qty<=1000000&&
-      Number.isInteger(intent.price)&&intent.price>0&&intent.price<=1000000000&&
+      onPriceStep(intent.price)&&intent.price<=1000000000&&
       Number.isSafeInteger(intent.qty*intent.price);
   }
   if (intent.t==='marketBooks') return Array.isArray(intent.itemIds)&&intent.itemIds.length>0&&intent.itemIds.length<=64&&

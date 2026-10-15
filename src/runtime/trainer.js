@@ -16,7 +16,7 @@ export const STATE_REFUSALS=new Set(['not-at-bank','bank-full','storage-full','p
   'nothing-to-sell','nothing-to-deposit','nothing-to-withdraw','nothing-to-eat','cannot-afford',
   'cannot-enhance','cannot-fight','cannot-set-route','cannot-wield','cannot-equip','level-too-low']);
 export const MARKET_ACTIONS=new Set(['marketBuy','marketSell','marketCancel']);
-export const MARKET_REFUSALS=new Set([...STATE_REFUSALS,'not-tradable','too-many-orders','price-changed','below-floor','no-such-order']);
+export const MARKET_REFUSALS=new Set([...STATE_REFUSALS,'not-tradable','too-many-orders','price-changed','below-floor','no-such-order','market-price-step']);
 // The helper sends no guild commands. These reviewed codes belong to the
 // game's guild UI, which shares our connection. Revisit if guild automation is added.
 export const GUILD_REFUSALS=new Set(['guild-name','guild-tag','guild-name-taken','guild-tag-taken',
@@ -230,20 +230,28 @@ export class Trainer {
   hotWindows(count=4) {
     return hotWindows(this.data,this.player?.lastTick??0,count);
   }
-  setHotDomSkill(skill) {
-    const local=hotSkillAt(this.data,this.player?.lastTick);
-    if(!skill||!local) {
-      this.hotFollowValidation=null;
+  // The game's hot-skill badge is repainted by a page timer, which browsers
+  // throttle in background tabs, so it can lag a window change by minutes.
+  // Skip hidden tabs, accept the neighbouring window near a change, and stop
+  // hot follow only after a mismatch has lasted two minutes.
+  setHotDomSkill(skill,hidden=false) {
+    const tick=this.player?.lastTick,local=hotSkillAt(this.data,tick);
+    if(!skill||!local||hidden) {
+      this.hotFollowValidation=null;this.hotMismatchSince=null;
       return;
     }
-    if(skill!==local.skill) {
+    const slack=Math.ceil(120000/this.data.tickMs);
+    const nearby=[tick-slack,tick+slack].map(t=>hotSkillAt(this.data,t)?.skill);
+    if(skill!==local.skill&&!nearby.includes(skill)) {
       const now=this.now();
+      this.hotMismatchSince??=now;
+      if(now-this.hotMismatchSince<120000)return;
       this.hotFollowValidation={expected:local.skill,actual:skill};
       if(now-this.hotFollowLogAt>=600000) {
         this.hotFollowLogAt=now;
         this.log('热门技能校验不一致：游戏显示 '+skill+'，本地计算 '+local.skill+'；已停用热门跟随');
       }
-    } else this.hotFollowValidation=null;
+    } else {this.hotFollowValidation=null;this.hotMismatchSince=null;}
   }
   hotMainSkill() {
     return this.mainTrade==='combat'?'combat':this.mainTrade;
