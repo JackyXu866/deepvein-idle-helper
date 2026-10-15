@@ -838,7 +838,7 @@ export function createPlanner(data) {
           .filter(c=>c.investment.affordable).sort((a,b)=>{
             if(goal.growth&&owned.includes(a.id)!==owned.includes(b.id))return Number(owned.includes(b.id))-Number(owned.includes(a.id));
             if(goal.growth)return b.investment.after-a.investment.after||a.investment.seconds-b.investment.seconds;
-            const value=c=>(c.investment.after??1)*(goal.horizon??strategy.horizon)-
+            const value=c=>(c.investment.after??1)*(c.investment.horizon??goal.horizon??strategy.horizon)-
               (c.investment.seconds??0)*(c.investment.after??1);
             return value(b)-value(a);
           });
@@ -896,8 +896,24 @@ export function createPlanner(data) {
         after=strategy.routeEstimate(next,task,50).rate?.xp??0;
       }
       const gain=after-before,payback=gain>0?Math.max(cost,(cost*after-(preparation.xp??0))/gain):Infinity;
-      return {affordable:goal.growth||stageUpgrade?stageReady&&gain>0:Number.isFinite(payback)&&cost<=horizon&&payback<=horizon,
-        seconds:cost,payback,before,after,horizon};
+      // Judge gear over the time it will actually be worn, not the planner's
+      // 30-minute rolling window.
+      const wear=Math.max(horizon,wearHorizon(id,slot,skill,after));
+      return {affordable:goal.growth||stageUpgrade?stageReady&&gain>0:Number.isFinite(payback)&&cost<=wear&&payback<=wear,
+        seconds:cost,payback,before,after,horizon:wear};
+    }
+    // Seconds until this piece is outgrown: XP to the next wear tier in the
+    // same slot at the current rate, clamped to [30 min, 24 h]. Unknown rates
+    // or the top tier use the full day.
+    function wearHorizon(id,slot,skill,xpRate) {
+      const DAY=86400,requirement=gearRequirement(id);
+      const nextLevel=data.gear.filter(g=>g.slot===slot&&(!g.style||g.style===equipmentStats(id)?.style))
+        .map(g=>gearRequirement(g.itemId)).filter(r=>r.skill===requirement.skill&&r.level>requirement.level)
+        .map(r=>r.level).sort((a,b)=>a-b)[0];
+      if(nextLevel==null)return DAY;
+      if(requirement.skill!==skill||!(xpRate>0))return DAY;
+      const xp=Math.max(0,(thresholds[Math.min(nextLevel,thresholds.length-1)]??0)-(p.skills[skill]??0));
+      return Math.min(DAY,Math.max(1800,xp/xpRate));
     }
     function fight(style, requiredItem=null, prepareGear=true) {
       const fixedMonster=requiredItem===null&&goal.fixedMonsterId!=null?monsters.find(m=>m.id===goal.fixedMonsterId):null;
