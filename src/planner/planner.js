@@ -56,6 +56,10 @@ export function createPlanner(data) {
       luck:(g.luck??0)*tier*scale};
   }
   const name = id => data.items[base(id)]?.name ?? jobs.find(j=>j.output.itemId===base(id))?.name ?? `物品 ${id}`;
+  const RARITY_NAMES = ['','罕见','稀有','史诗','传说'];
+  // With quality and enhancement, e.g. "史诗 Steel blade +2".
+  const fullName = id => `${RARITY_NAMES[Math.floor(id%data.plusScale/data.rarityScale)]?`${RARITY_NAMES[Math.floor(id%data.plusScale/data.rarityScale)]} `:''}`+
+    `${name(id)}${id>=data.plusScale?` +${Math.floor(id/data.plusScale)}`:''}`;
   const distance = (a,b) => Math.max(Math.abs(a.x-b.x),Math.abs(a.y-b.y));
   const levels = p => Object.fromEntries(data.skills.map(s=>[s,level(p.skills[s])]));
   // Count exact quality IDs; raw materials of different qualities are not interchangeable.
@@ -1133,13 +1137,25 @@ export function createPlanner(data) {
         const stock=count(p,id)>0;
         const supply=stock?{seconds:0,unlocks:[],budget:{items:{}}}:recipe?
           strategy.routeEstimate(p,recipe,1,{style:profession}):{seconds:Infinity,unlocks:[],budget:{items:{}}};
-        return {id,name:name(id),wear:gearRequirement(id),owned:stock,requirements:supply.unlocks??[],
-          materials:Object.fromEntries(Object.entries(supply.budget.items).map(([item,qty])=>[item,Math.max(0,qty-count(p,+item))]).filter(([,qty])=>qty>0)),
-          seconds:supply.seconds};
+        const all=Object.fromEntries(Object.entries(supply.budget.items).map(([item,qty])=>[item,Math.max(0,qty-count(p,+item))]).filter(([,qty])=>qty>0));
+        // The item's own recipe, apart from what training to its unlock level
+        // and the supply chain consume (often far larger).
+        const own=recipe&&!stock?Object.fromEntries(recipe.inputs.map(i=>[i.itemId,Math.max(0,i.qty-count(p,i.itemId))]).filter(([,qty])=>qty>0)):{};
+        const rest=Object.fromEntries(Object.entries(all).map(([item,qty])=>[item,qty-(own[item]??0)]).filter(([,qty])=>qty>0));
+        return {id,name:fullName(id),wear:gearRequirement(id),owned:stock,requirements:supply.unlocks??[],
+          materials:own,chainMaterials:rest,seconds:supply.seconds};
       };
       const available=candidates.filter(wearable).sort((a,b)=>score(b)-score(a)||a-b);
       const future=candidates.filter(id=>!wearable(id)).sort((a,b)=>gearRequirement(a).level-gearRequirement(b).level||score(b)-score(a));
-      return {slot,current:current==null?null:{id:current,name:name(current)},upgrade:describe(available[0]),next:describe(future[0])};
+      // Higher tiers whose ordinary piece is weaker than a rarer or enhanced
+      // current item: name the lowest rarity of each that would still be better.
+      const skipped=current!=null&&matches(current)?data.gear.filter(g=>matches(g.itemId)&&
+        gearRequirement(g.itemId).level>gearRequirement(current).level&&score(g.itemId)<=score(current))
+        .sort((a,b)=>gearRequirement(a.itemId).level-gearRequirement(b.itemId).level).map(g=>{
+          const rarity=[1,2,3].find(r=>score(g.itemId+r*data.rarityScale)>score(current));
+          return {id:g.itemId,name:name(g.itemId),wear:gearRequirement(g.itemId),rarity:rarity??null};
+        }):[];
+      return {slot,current:current==null?null:{id:current,name:fullName(current)},upgrade:describe(available[0]),next:describe(future[0]),skipped};
     });
   }
   function planAtBoundary(p,goal,style='magic',completedLoad=false) {

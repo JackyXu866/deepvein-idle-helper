@@ -232,7 +232,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
     }
     send();
   });
-  let planningView=null,planningViewKey='',planningFailures=0,planningStarted=0,planningError='';
+  let planningView=null,planningViewKey='',planningFailures=0,planningError='';
   const background=typeof Worker==='function'?createPlanningClient(()=>{
     const url=URL.createObjectURL(new Blob([PLANNING_WORKER_SOURCE],{type:'text/javascript'}));
     try{return new Worker(url);}finally{URL.revokeObjectURL(url);}
@@ -265,7 +265,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
   if(background)trainer.scheduleAdvance=deferBoss=>{
     if(background.busy)return;
     const input=planningInput(deferBoss),guard=planningGuard(trainer,planner,market,planningSettings());
-    const ledger=JSON.stringify(input.storage),requested=Date.now();planningStarted=requested;
+    const ledger=JSON.stringify(input.storage),requested=Date.now();
     background.request('advance',input).then(result=>{
       noteEngine(result.engine);
       // Native work continues while computing. Do not stop it to acquire a lock.
@@ -283,7 +283,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
         if(++planningFailures>=2)trainer.pauseError(`后台规划连续失败：${error.message}；游戏当前任务继续，点击开始可重试`);
         else trainer.log(`后台规划重试：${error.message}；游戏当前任务继续`);
       }
-    }).finally(()=>{planningStarted=0;render();});
+    }).finally(()=>render());
   };
   function inspectPlanning() {
     if(!background||background.busy||checking||!trainer.player||!dataReady)return;
@@ -2624,7 +2624,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
     const equipmentOpen=panel.querySelector('[data-equipment-details]').open;
     const houseText=p?planner.housingStatus(p):'等待房屋状态';
     const hotFollow=trainer.getHotFollow();
-    const signature=JSON.stringify([planningStarted,planningError,updates.state,autoSell,potionRestock,capacitySales,itemTarget,targetChoices,targetSearch,review,metrics,farmText,houseText,farming,preference,choices,marketText,growth,business,mainJobs,trainer.mainJobId,mainMonsters,trainer.mainMonsterId,boss,hot,hotFollow,buffs,quests,activity,equipmentOpen,checking,compatibilityMessage,trainer.style,trainer.mode,trainer.mainTrade,trainer.active,trainer.message,trainer.goal,trainer.plan?.label,trainer.plan?.reason,lv,trainer.history,trainer.blockedReasons,rejections,rejectionsSaved,
+    const signature=JSON.stringify([planningError,updates.state,autoSell,potionRestock,capacitySales,itemTarget,targetChoices,targetSearch,review,metrics,farmText,houseText,farming,preference,choices,marketText,growth,business,mainJobs,trainer.mainJobId,mainMonsters,trainer.mainMonsterId,boss,hot,hotFollow,buffs,quests,activity,equipmentOpen,checking,compatibilityMessage,trainer.style,trainer.mode,trainer.mainTrade,trainer.active,trainer.message,trainer.goal,trainer.plan?.label,trainer.plan?.reason,lv,trainer.history,trainer.blockedReasons,rejections,rejectionsSaved,
       trainer.pausedError,trainer.recovery,p?.fallback??null,trainer.fallbackOwned,autoFallback,sellCrafted]);
     if (signature===rendered) return;
     rendered=signature;
@@ -2896,13 +2896,18 @@ import {fallbackOwnership} from '../planner/fallback.js';
       const describe=(g,label)=>{
         if(!g)return '';
         const needs=g.requirements.filter(r=>(lv[r.skill]??0)<r.target).map(r=>`${NAMES[r.skill]??r.skill} ${r.target}`);
-        const materials=Object.entries(g.materials).map(([id,qty])=>`${GAME_DATA.items[planner.base(+id)]?.name??id} ×${qty}`).join('、');
+        const list=items=>Object.entries(items??{}).map(([id,qty])=>`${GAME_DATA.items[planner.base(+id)]?.name??id} ×${fmt(qty)}`).join('、');
+        const own=list(g.materials),chain=list(g.chainMaterials);
         return `\n${label}：${g.name}（${g.wear.skill==='none'?'无等级门槛':`${NAMES[g.wear.skill]??g.wear.skill} ${g.wear.level}`}）`+
           (g.owned?' · 已持有':needs.length?`\n先解锁：${needs.join('、')}`:`\n${Number.isFinite(g.seconds)?'前置技能已满足':'需掉落或市场来源'}`)+
-          (materials?`\n缺料：${materials}`:'');
+          (own?`\n制作缺料：${own}`:'')+
+          (chain?`\n${needs.length?'练级至解锁及供料链约需':'供料链约需'}：${chain}`:'');
       };
+      const RARITY=['','罕见','稀有','史诗'];
+      const skippedText=s=>(s.skipped??[]).map(k=>`\n${k.name}（${NAMES[k.wear.skill]??k.wear.skill} ${k.wear.level}）：普通品质不如当前装备，`+
+        (k.rarity?`${RARITY[k.rarity]}及以上才是升级`:'史诗以下都不是升级')).join('');
       panel.querySelector('[data-equipment]').textContent=(background?planningView?.equipment??[]:planner.equipmentStatus(p,trainer.style)).map(s=>
-        `${slots[s.slot]??s.slot}：${s.current?.name??'未装备'}${describe(s.upgrade,'当前可穿')}${describe(s.next,'下一档')}`).join('\n\n');
+        `${slots[s.slot]??s.slot}：${s.current?.name??'未装备'}${skippedText(s)}${describe(s.upgrade,'当前可穿')}${describe(s.next,'下一档')}`).join('\n\n');
     }
     {
       const error=!trainer.active&&!trainer.recovery?trainer.pausedError:null,box=panel.querySelector('[data-pause-error]');
@@ -2957,7 +2962,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
       `${e.name} +${e.fromPlus}→+${e.toPlus}：${e.recommendation}\n${e.benefit}\n${e.gold} 金币 + ${e.shards} 碎片；成功率 ${(e.chance*100).toFixed(1)}%${e.affordable?'':'；当前材料不足'}`
     ).join('\n\n'):'等待装备状态';
     panel.querySelector('[data-blocked]').textContent=Object.entries(trainer.blockedReasons).map(([skill,why])=>`暂缓${NAMES[skill]}：${why}`).join('；');
-    panel.querySelector('[data-client]').textContent=compatibilityMessage+`；${engine.message}；${background?'后台 Worker 规划':'当前浏览器不支持 Worker，使用兼容计算'}${planningStarted?' · 正在计算，原任务继续':''}${planningError?' · '+planningError:''}`;
+    panel.querySelector('[data-client]').textContent=compatibilityMessage+`；${engine.message}；${background?'后台 Worker 规划':'当前浏览器不支持 Worker，使用兼容计算'}${planningError?' · '+planningError:''}`;
     panel.querySelector('[data-start]').disabled=checking||trainer.active||!!trainer.recovery||!p||!trainer.compatible;
     panel.querySelector('[data-pause]').disabled=!checking&&!trainer.active&&!trainer.recovery;
     panel.querySelector('section').setAttribute('data-running',String(checking||trainer.active||!!trainer.recovery));
