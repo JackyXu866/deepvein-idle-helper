@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Deep Vein Idle 自给成长与职业助手
 // @namespace    local.deepvein.balanced
-// @version      0.7.17
+// @version      0.8.0
 // @description  自主发展、经验优先、指定主业与收菜Boss辅助；连续发展计划、批量供料、装备与市场比价；默认暂停
 // @updateURL    https://gcore.jsdelivr.net/gh/ljyoukong-cpu/deepvein-idle-helper@main/deepvein-balanced-cdn.meta.js
-// @downloadURL  https://gcore.jsdelivr.net/gh/ljyoukong-cpu/deepvein-idle-helper@v0.7.17/deepvein-balanced-cdn.user.js
+// @downloadURL  https://gcore.jsdelivr.net/gh/ljyoukong-cpu/deepvein-idle-helper@v0.8.0/deepvein-balanced-cdn.user.js
 // @match        https://deepveinidle.com/*
 // @match        https://cn.deepveinidle.com/*
 // @run-at       document-start
@@ -16,7 +16,7 @@
 (function () {
 'use strict';
 // src/version.js
-var SCRIPT_VERSION = "0.7.17";
+var SCRIPT_VERSION = "0.8.0";
 var SCRIPT_DISTRIBUTION = "cdn";
 
 // src/data/game-data.json

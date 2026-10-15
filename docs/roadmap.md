@@ -1,73 +1,36 @@
-# Roadmap: modular rewrite
+# Roadmap
 
-The `src/` tree is a mechanical split of v0.7.17 with no behavior change; `npm run build` regenerates the published userscripts. Everything below is planned work on top of that.
+`npm run build` regenerates the published userscripts from `src/`. `npm test` runs the unit tests. The engine tests also need a local copy of the public client: `DVI_CLIENT=path/to/index-XXXX.js npm test`. The game's code is never committed.
 
-## Principles
+## Done in v0.8.0 (not yet tested on a live account)
 
-- **Use the game's own engine, not hand-copied formulas.** The live client already runs the full tick engine (`tick`, `predict`, `startFight`, `workChance`, `enhanceChance`, `hotSkill`, …) for client-side prediction, seeded from `welcome.seed` and `welcome.windows`. Score candidates by simulating them with that engine (synthetic seeds, expected-value drops), and never by peeking at the account's real future rolls.
-- **One objective setting.** Every candidate is simulated once; the chosen profile reads the result:
-  - Max XP: XP/hour, total or for selected skills.
-  - Max profit: net gold/hour. Drops are valued at the market bid after the 2% tax; food, potions and inputs at the ask.
-  - XP with a profit floor: maximize XP among options that earn at least X gold/hour.
-  - Goal: shortest time to a level, an item count, or a specific craft.
-
-## Priority stack (checked every tick)
-
-1. Safety: low HP, death, disconnect, unclear transactions.
-2. World boss: on `bossRose`, if it can be reached before it dies, interrupt immediately and keep the queue with `setAside`; resume on `bossGone`. Gathering and crafting are per-tick rolls, so stopping mid-action loses nothing. Use `bossNext` to avoid long trips just before a spawn and to bank beforehand.
-3. Manual input from the player.
-4. **Daily quests, always finished** (see below).
-5. Timed upkeep: harvests, potion refresh, quest claims, perk purchases.
-6. The planned activity.
-
-## Daily and weekly quests
-
-The user requires every daily to be completed; it is not gated by a time or profit threshold. The old script's 20-minute cap is replaced.
-
-Game rules (client 1.0.1189):
-
-| | Daily | Weekly |
+| Area | What changed | Where |
 |---|---|---|
-| Count | 3 per day | a weekly set |
-| Goals | gather 30, craft 15, kill 20 | ×8 (240, 120, 160) |
-| Quest points | +1 | +3 |
+| Build | Split into ES modules; parity with v0.7.17 verified by AST comparison, a Worker replay and a jsdom smoke test | `src/`, `scripts/build.mjs` |
+| Engine | The game's tick engine is extracted at runtime by name-independent fingerprints, checked for purity and size, smoke-tested, cached per client build, and run in the planning Worker. Every monster and unlocked job is simulated for 1 h from the real character and fed into the existing calibration path. Real measurements win; a simulated death zeroes a route; any failure falls back to formulas | `src/engine/*`, `src/worker/planning.js` |
+| Dailies | Mandatory: no time cap and no coin threshold; quickest first; applies in fixed-trade mode too; a hot window delays them only until urgent; input chains are priced so cheap market inputs beat long unlocks | `src/planner/quests.js`, `src/runtime/trainer.js` |
+| Quest board | Free reroll only for an impossible, unstarted daily; quest points go to the perk with the best measured gain per point. Both are soft actions: a refusal disables them for 6 h | `src/planner/quests.js`, `src/planner/perks.js` |
+| Mastery | Engine counts earned points and simulates the gain per point for each track; greedy allocation; offline hours are never bought | `src/engine/mastery*.js` |
+| Boss | The helper's own walks yield to a Boss; `bossNext` is tracked, and no home trip starts within 5 min of a spawn | `src/runtime/world-boss.js` |
+| Gear | Payback is judged over wear time (until the next tier, 30 min–24 h) instead of 30 min | `src/planner/planner.js` |
+| Objectives | 经验优先 gains a profit floor; business income counts sellable monster drops | `src/planner/strategy.js`, `src/planner/specialization.js` |
+| Fixes | Enhance chance now includes the Enhancing level factor | `src/planner/inventory.js` |
 
-- Quests come from the highest unlocked job per skill and the hardest safe monster.
-- One free reroll per day applies to an unstarted daily (`rerollQuest`).
-- Progress counts each successful action or kill of the exact job or monster.
-- Quest points buy permanent perks (`buyPerk`):
+## Before release
 
-  | Perk | Effect per rank | Max ranks | Cost |
-  |---|---|---|---|
-  | Deep pockets | +1 slot | 5 | 20 + 20n |
-  | Quick hands | 0.5% faster | 10 | 15 + 10n |
-  | Steady hands | burn and catch chance −3% | 10 | 10 + 8n |
-  | Hearty meals | food heals +2.5% | 10 | 10 + 8n |
-  | Quick rest | fountain heals a tick sooner | 4 | 30 + 30n |
+- **Live test on a real account.** Watch three things:
+  - the 数据 status line shows "引擎模拟已启用";
+  - dailies finish, including one that needs a bought input;
+  - one reroll, one perk purchase and one mastery allocation are each confirmed. Then check the 诊断 tab for refusals.
+- **Boss loot log.** Client 1.0.1189 pays world-boss shares over 30 s. Check that 掉落 still records exactly one entry per kill (`src/ui/boss-loot.js`).
+- **Distribution.** The update and download URLs still point to `ljyoukong-cpu/deepvein-idle-helper`. Decide where v0.8.0 is published before pushing.
 
-Planner behavior:
+## Open: decide what to include next
 
-- Finish each daily by its **cheapest path**. If supplying an input yourself takes long effort or needs an unlocked skill level, and the market sells it cheaply, buy it and craft. Example: wood for a fishing-rod daily when Woodcutting is too low.
-- Let quests complete for free when they match the planned activity. Otherwise schedule them before the reset, preferring a matching hot window or nearby sites.
-- Reroll only when a daily is truly impossible: no market supply and no realistic unlock.
-- Spend quest points on the perk with the best marginal value. Its value is measured with the engine: the gain in score/hour × horizon ÷ cost.
-
-## Buy versus make (all goals)
-
-For every required input, compare the market price with the time to self-supply × the current score rate. This applies to dailies, gear, crafts and item targets. A short craft step should never trigger a long unlock chain when the input is cheap on the market.
-
-## Gear
-
-- **When to re-check:** a level crosses a wear requirement; a new item arrives (drop, boss loot, finished craft); prices move noticeably; or a periodic sweep at batch boundaries.
-- **Candidates per slot:** owned items, craftable items (including the `upgrade` recipes for Drakestring, Emberwood, Abyssweave and Colossus), market listings at other rarities or + levels, and enhancing the current piece. Enhancement cost is the full-chain expected cost to the target +N.
-- **Value:** the gain in score/hour × expected use time, until the piece is outgrown, capped at about 24–48 h.
-- **Cost:** the price or crafting time, minus the resale of the old piece.
-- **Execute:** buy immediately, craft as a project, and equip at the next bank visit. The 30-minute payback horizon is removed.
-
-## Known issues found during review
-
-- `enhanceQuote` (`src/planner/inventory.js`) omits the game's enhancing-level factor `1 + 0.002 × (level − 1)`. It underestimates the chance by about 10% at level 50 and about 20% at level 100.
-- Combat income counts gold only. Drop value (normal, rare, pets, void shards, mounts) is ignored, which skews monster choice for profit.
-- `checkClient` always reports compatible, so formula drift after game patches goes undetected.
-- Client 1.0.1189 pays world-boss shares over 30 s. Verify that the Boss 掉落 log (`src/ui/boss-loot.js`) still records exactly one entry per kill.
-- Never sent: `upgrade`, `masteryConfirm`, `buyPerk`, `rerollQuest`, crafting orders (`order*`).
+- **Upgrade recipes** (`{t:"upgrade", recipeId, itemId}`): Drakestring and Emberwood at Fletching 95, the Abyssweave set at Crafting 99, Colossus pieces. This needs the upgrade table extracted (the engine already contains it), planner support, and validation.
+- **Crafting orders** (`order*`): tips as a new source of income and XP.
+- **Gear resale value** in the upgrade cost; market buys of + / rarity variants priced with the engine.
+- **Engine-based food and kill time.** Calibration currently replaces XP and gold rates only. Simulated seconds per kill and food per hour could also replace the formula's combat time and food logistics.
+- **Profit profile everywhere.** Value combat drops in all modes, not only 主业经营 / the profit floor.
+- **Hot-window planning.** The hot-skill schedule is deterministic (`hotSkill(tick)`), so batches could be scheduled into upcoming XP or rarity windows.
+- **Drift alarm.** Hash each fingerprinted function and warn when a game update changes one, so the simulation gets re-checked.
