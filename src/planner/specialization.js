@@ -41,6 +41,14 @@ export function createSpecialization(data,planner) {
           if(quote?.qty===saleQty&&Number.isFinite(quote.net)&&quote.net>0)proceeds=quote.net;
         }
       }
+      // Monster drops: only what current bids absorb after existing stock, net
+      // of tax, and never protected items (rare bonus drops, pets, shards kept).
+      if(c.monsterId!=null&&c.drops&&c.kills>0)for(const [id,perKill]of Object.entries(c.drops)) {
+        const qty=Math.floor(perKill*c.kills);
+        if(qty<1)continue;
+        const quote=planner.marketOpportunity?.(p,Number(id),qty);
+        if(quote?.qty===qty&&Number.isFinite(quote.net)&&quote.net>0)proceeds+=quote.net;
+      }
       const coins=c.estimate.coins+proceeds;
       if(!(coins>0)||!Number.isFinite(c.estimate.seconds)||c.estimate.seconds<=0)continue;
       choices.push({...c,rate:{xp:c.rate.xp,coins:coins/c.estimate.seconds},marketProceeds:proceeds});
@@ -155,8 +163,11 @@ export function createSpecialization(data,planner) {
     // dozens of equipment recipes cannot hide every gathering opportunity.
     const groups=data.skills.map(skill=>candidates.filter(c=>c.skill===skill&&c.output?.itemId!==data.coinId));
     const ids=[];
-    for(let i=0;i<Math.max(0,...groups.map(g=>g.length));i++)for(const group of groups)
+    for(let i=0;i<Math.max(0,...groups.map(g=>g.length));i++)for(const group of groups) {
       if(group[i]?.output?.itemId)ids.push(group[i].output.itemId);
+      // A monster's common drop is its sellable "output".
+      else if(group[i]?.monsterId!=null)ids.push(data.monsters.find(m=>m.id===group[i].monsterId)?.drop);
+    }
     const preferred=candidates.find(c=>c.recipeId===focus?.recipeId)?.output?.itemId;
     planner.watchMarket?.(p,[preferred,...ids].filter(Boolean),preferred);
     const choices=incomeChoices(p,candidates,style);

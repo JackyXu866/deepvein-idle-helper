@@ -46,8 +46,21 @@ export function combatEstimate(data, monster, stats) {
   // Continuous DPS is a conservative approximation: the final player hit can
   // prevent an enemy attack. No regeneration or damage-reduction buffs counted.
   const damage=seconds/(monster.speed*data.tickMs/1000)*enemyHit*(monster.maxHit+1)/2;
+  const shards=Math.min(.2,.08+monster.level*.0013)*(1+Math.floor(monster.level/30));
   return {seconds,attacks,maxHit,hitChance,effectiveDefence,damage,mainXp:monster.xp,
-    xp:monster.xp+2*Math.max(1,Math.floor(monster.xp/3)),
-    shards:Math.min(.2,.08+monster.level*.0013)*(1+Math.floor(monster.level/30)),
-    coins:(monster.gold[0]+monster.gold[1])/2};
+    xp:monster.xp+2*Math.max(1,Math.floor(monster.xp/3)),shards,
+    coins:(monster.gold[0]+monster.gold[1])/2,drops:combatDrops(data,monster,stats.luck??0,shards)};
+}
+
+// Expected item drops per kill, keyed by exact item id (quality included).
+// Valuing them is the caller's job: protected and unsellable items earn nothing.
+export function combatDrops(data,monster,luck=0,shards=0) {
+  const drops={},add=(id,qty)=>{if(id!=null&&qty>0)drops[id]=(drops[id]??0)+qty;};
+  const c=data.rarityChance,cumulative=[1,...['uncommon','rare','epic','legendary'].map(k=>Math.min(1,c[k]*(1+luck))),0];
+  const dropChance=Math.max(0,Math.min(1,monster.dropChance??1));
+  if(monster.drop!=null)for(let tier=0;tier<5;tier++)
+    add(monster.drop+tier*data.rarityScale,dropChance*(cumulative[tier]-cumulative[tier+1]));
+  if(monster.bonus)add(monster.bonus.itemId,Math.min(1,monster.bonus.chance*(1+luck)));
+  add(data.shardId,shards);
+  return drops;
 }

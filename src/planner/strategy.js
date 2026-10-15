@@ -48,7 +48,8 @@ export function createStrategy(data, planner) {
       .map(m=>({monster:m,zone:data.zones.find(z=>z.monsterId===m.id),
         ...calibrated(p,`combat:${m.id}`,combatEstimate(data,m,{style,level:lv[style],
           accuracy:stat('accuracy'),strength:stat('strength'),defence:stat('defence'),
-          defenceLevel:lv.defence,speed:w.speed??5,twoHanded:w.twoHanded}),lv)}));
+          defenceLevel:lv.defence,speed:w.speed??5,twoHanded:w.twoHanded,
+          luck:planner.equipmentStats(p.equipment.amulet)?.luck??0}),lv)}));
   }
   function supplyCost(p,id,trail=[]) {
     if (trail.includes(id)) return Infinity;
@@ -251,8 +252,9 @@ export function createStrategy(data, planner) {
       const estimate=routeEstimate(fighter,{monsterId:c.monster.id},Math.max(1,Math.floor(supplies.horizonKills)),routeOptions);
       estimate.seconds+=preparation.seconds;estimate.xp+=preparation.xp;estimate.coins+=preparation.coins;
       estimate.rate={xp:estimate.xp/estimate.seconds,coins:estimate.coins/estimate.seconds};
-      if (Number.isFinite(estimate.seconds)) candidates.push({skill,monsterId:c.monster.id,
-        mainXpRate:c.mainXp*Math.max(1,Math.floor(supplies.horizonKills))/estimate.seconds,
+      const kills=Math.max(1,Math.floor(supplies.horizonKills));
+      if (Number.isFinite(estimate.seconds)) candidates.push({skill,monsterId:c.monster.id,kills,drops:c.drops,
+        mainXpRate:c.mainXp*kills/estimate.seconds,
         estimate,rate:estimate.rate,horizon,budget:routeEstimate(fighter,{monsterId:c.monster.id},20,{style}).budget,
         recipes:estimate.recipes,target:lv[skill]+1,stage:lv[skill]+1});
     }
