@@ -4,7 +4,12 @@ import {combatEstimate, workEstimate} from '../planner/estimates.js';
 import {enhanceQuote, inventoryBudget, reviewInventory} from '../planner/inventory.js';
 import {planEnhancement} from '../planner/enhancement.js';
 
-export function createEconomy(data,planner,{autoSell=false,capacitySales=false}={}) {
+// Items made by crafting skills (cooking, smithing, fletching, crafting).
+// Potions are protected separately and never sold.
+const CRAFT_SKILLS=new Set(['cooking','smithing','fletching','crafting']);
+
+export function createEconomy(data,planner,{autoSell=false,capacitySales=false,sellCrafted=true}={}) {
+  const craftedIds=new Set(data.jobs.filter(j=>CRAFT_SKILLS.has(j.skill)&&!j.grow).map(j=>j.output.itemId));
   let lastGoal=null,lastPlayer=null,lastStyle=null,lastMode=null,lastMain=null,lastJob=null,lastMonster=null,investmentGoal=null,gearDeferredUntil=0,recovery=null;
   planner.pendingEquipmentPlan=(p,style)=>p.id===lastPlayer&&style===lastStyle?investmentGoal:null;
   const budget=(p,goal)=>inventoryBudget(data,planner,p,goal);
@@ -173,7 +178,11 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false}=
     const capacitySale=autoSell!==true&&capacitySales===true&&capacity.freeSlots<=0;
     // A task chosen for its sale income sells those outputs even with everyday
     // selling off; the usual keep amounts and protections still apply.
-    const profitItems=new Set(goal?.saleItems??[]);
+    // Crafted training output: only common quality (higher rarities are always
+    // kept) and only the surplus above plan needs, working stock and reserves.
+    const craftedSurplus=sellCrafted===true&&autoSell!==true&&!capacitySale?
+      inspected.items.filter(i=>i.sell>0&&!i.marketOnly&&i.itemId===planner.base(i.itemId)&&craftedIds.has(i.itemId)).map(i=>i.itemId):[];
+    const profitItems=new Set([...(goal?.saleItems??[]),...craftedSurplus]);
     const profitSale=autoSell!==true&&!capacitySale&&profitItems.size>0;
     const saleFlags=capacitySale?{capacitySale:true}:profitSale?{profitSale:true}:{};
     const rows=autoSell===true||capacitySale?inspected.items.filter(i=>i.sell>0):
@@ -256,5 +265,5 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false}=
     return {lastGoal,lastPlayer,lastStyle,lastMode,lastMain,lastJob,lastMonster,investmentGoal,gearDeferredUntil,recovery};
   }
   return {runtime,maintenance,budget,review,investment,investmentBudget,setAutoSell:enabled=>{autoSell=enabled===true;},
-    setCapacitySales:enabled=>{capacitySales=enabled===true;}};
+    setCapacitySales:enabled=>{capacitySales=enabled===true;},setSellCrafted:enabled=>{sellCrafted=enabled===true;}};
 }

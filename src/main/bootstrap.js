@@ -43,6 +43,10 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     potionRestock=localStorage.getItem(potionRestockKey)!=='false';
     capacitySales=localStorage.getItem(capacitySalesKey)!=='false';
   }catch{potionRestock=false;capacitySales=false;}
+  // Sell surplus crafted output (common quality only; higher rarities kept). Default on.
+  const sellCraftedKey='deepvein-sell-crafted-v1';
+  let sellCrafted=true;
+  try {sellCrafted=localStorage.getItem(sellCraftedKey)!=='false';}catch{}
   // How sales are priced: 'list' at the ask (wait for buyers) or 'bid' (sell now).
   const salePricingKey='deepvein-sale-pricing-v1';
   let salePricing='list';
@@ -58,7 +62,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     write:value=>{try {localStorage.setItem('deepvein-enhancement-training-v1',JSON.stringify(value));}catch{}}
   };
   planner.enhancementTraining=createEnhancementTraining(GAME_DATA,planner,enhancementStorage);
-  let economy=createEconomy(GAME_DATA,planner,{autoSell,capacitySales});
+  let economy=createEconomy(GAME_DATA,planner,{autoSell,capacitySales,sellCrafted});
   planner.maintenance=(...args)=>economy.maintenance(...args);
   planner.investmentBudget=(...args)=>economy.investmentBudget(...args);
   const market=createMarket(GAME_DATA,planner,{now:()=>Date.now(),storage:localStorage,autoSell,capacitySales,salePricing});
@@ -225,7 +229,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     const url=URL.createObjectURL(new Blob([PLANNING_WORKER_SOURCE],{type:'text/javascript'}));
     try{return new Worker(url);}finally{URL.revokeObjectURL(url);}
   }):null;
-  const planningSettings=()=>({autoSell,capacitySales,potionRestock,profitFloor,salePricing,hotFollow:trainer.getHotFollow()});
+  const planningSettings=()=>({autoSell,capacitySales,sellCrafted,potionRestock,profitFloor,salePricing,hotFollow:trainer.getHotFollow()});
   function planningStorage() {
     return Object.fromEntries(['deepvein-market-v1','deepvein-enhancement-training-v1'].map(key=>[key,localStorage.getItem(key)]));
   }
@@ -367,7 +371,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
         trainer.mainJobId=validMainJob(trainer.mainJobId,trainer.mainTrade);
         trainer.mainMonsterId=validMainMonster(trainer.mainMonsterId,trainer.mainTrade);
         trainer.telemetry.level=planner.level;trainer.telemetry.rates={};trainer.telemetry.previous=null;
-        economy=createEconomy(GAME_DATA,planner,{autoSell,capacitySales});planner.maintenance=(...args)=>economy.maintenance(...args);
+        economy=createEconomy(GAME_DATA,planner,{autoSell,capacitySales,sellCrafted});planner.maintenance=(...args)=>economy.maintenance(...args);
         planner.investmentBudget=(...args)=>economy.investmentBudget(...args);
         trainer.goal=null;trainer.plan=null;
       }
@@ -1685,6 +1689,8 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
                   <label>平时也出售多余物品<input type="checkbox" data-auto-sell aria-label="平时也出售多余物品"></label>
                   <p class="fine-print">开启：每次回仓时，把所有超出保留量的普通物品按下方“出售方式”挂单或卖出。关闭：只出售为赚钱而选择的工作的产出（主业经营、最低收益按售价选中的工作，其收益本就按出售计算），其他物品只在仓库满时按“满仓时出售普通盈余”清理。保留量：当前计划和供料链需要的材料、每种 50 件周转材料、3 趟战斗食物、种子与作物储备；药水、稀有／特殊掉落、坐骑宠物、传说物品、强化材料和装备方案一律不卖。关闭时会撤回助手自己尚未成交的挂单，不动你的手动挂单。</p>
                   <label>满仓时出售普通盈余<input type="checkbox" data-capacity-sales aria-label="满仓时出售普通盈余"></label>
+                  <label>出售制作产出（保留更高品质）<input type="checkbox" data-sell-crafted aria-label="出售制作产出，保留更高品质"></label>
+                  <p class="fine-print">烹饪、锻造、制箭、制作的普通品质产出，超出计划用量、周转库存和口粮储备的部分会出售；罕见及以上品质全部保留，药水不卖。平时出售关闭时也生效。</p>
                   <label>出售方式<select data-sale-pricing aria-label="出售方式"><option value="list">挂单：按卖盘价等待成交</option><option value="bid">直接卖给买单：立即成交</option></select></label>
                   <p class="fine-print">挂单：比最低卖价低一档挂出，税后须比最高买单多 5% 以上，且近 2 小时成交量足以消化同价排队卖量，否则直接卖给买单；同一批挂两轮仍未卖完时改为卖给买单。商人（系统回收，基础价值 40%）始终可卖，是所有估值的下限：为赚钱选中的工作，市场无法高于商人价时直接卖给商人。城镇回购：每小时读取回购记录；上次被回购的普通物品按其实付均价（约商人价的倍数）估值，挂单价不超过商人价 1.5 倍并低于最低卖价一档，保留到下次回购后才复核，未成交转商人；同时最多 2 笔，留出挂单槽。收益规划也按同样方式估值。</p>
                   <p data-market class="muted"></p>
@@ -1809,6 +1815,12 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
       try {localStorage.setItem(potionRestockKey,String(potionRestock));}
       catch {potionRestock=false;trainer.log('补药设置无法保存，自动补药已关闭');}
       if(!potionRestock&&trainer.player)market.watchPotions(trainer.player,[]);
+      render();
+    };
+    panel.querySelector('[data-sell-crafted]').onchange=event=>{
+      sellCrafted=event.currentTarget.checked===true;economy.setSellCrafted(sellCrafted);
+      try {localStorage.setItem(sellCraftedKey,String(sellCrafted));}
+      catch {trainer.log('出售制作产出设置无法保存，刷新后恢复为开启');}
       render();
     };
     panel.querySelector('[data-sale-pricing]').onchange=event=>{
@@ -2780,6 +2792,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     panel.querySelector('[data-auto-sell]').checked=autoSell;
     panel.querySelector('[data-potion-restock]').checked=potionRestock;
     panel.querySelector('[data-capacity-sales]').checked=capacitySales;
+    panel.querySelector('[data-sell-crafted]').checked=sellCrafted;
     panel.querySelector('[data-sale-pricing]').value=salePricing;
     panel.querySelector('[data-mode-info]').textContent=modeInfo[trainer.mode];
     panel.querySelector('[data-training-policy]').textContent=trainer.mode==='assist'?
