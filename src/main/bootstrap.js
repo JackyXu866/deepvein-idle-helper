@@ -2903,11 +2903,8 @@ import {fallbackOwnership} from '../planner/fallback.js';
           (own?`\n制作缺料：${own}`:'')+
           (chain?`\n${needs.length?'练级至解锁及供料链约需':'供料链约需'}：${chain}`:'');
       };
-      const RARITY=['','罕见','稀有','史诗'];
-      const skippedText=s=>(s.skipped??[]).map(k=>`\n${k.name}（${NAMES[k.wear.skill]??k.wear.skill} ${k.wear.level}）：普通品质不如当前装备，`+
-        (k.rarity?`${RARITY[k.rarity]}及以上才是升级`:'史诗以下都不是升级')).join('');
       panel.querySelector('[data-equipment]').textContent=(background?planningView?.equipment??[]:planner.equipmentStatus(p,trainer.style)).map(s=>
-        `${slots[s.slot]??s.slot}：${s.current?.name??'未装备'}${skippedText(s)}${describe(s.upgrade,'当前可穿')}${describe(s.next,'下一档')}`).join('\n\n');
+        `${slots[s.slot]??s.slot}：${s.current?.name??'未装备'}${describe(s.upgrade,'当前可穿')}${describe(s.next,'下一档')}`).join('\n\n');
     }
     {
       const error=!trainer.active&&!trainer.recovery?trainer.pausedError:null,box=panel.querySelector('[data-pause-error]');

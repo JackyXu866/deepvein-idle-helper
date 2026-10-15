@@ -1128,12 +1128,19 @@ export function createPlanner(data) {
       const current=p.equipment[slot],score=id=>gearScore(id,data.toolSkills[slot]??skill);
       const matches=id=>{const g=gear.get(base(id));return g?.slot===slot&&
         (slot!=='weapon'||matchesProfessionWeapon(g,profession))&&(!g.style||g.style===skill);};
-      const candidates=[...new Set([...data.gear.map(g=>g.itemId),...owned])].filter(id=>matches(id)&&id!==current&&
-        (current==null||!matches(current)||score(id)>score(current)));
+      const better=id=>current==null||!matches(current)||score(id)>score(current);
+      // Each piece in its lowest quality that beats the current item: an epic
+      // steel blade is improved by a rare cobalt blade at the same wear level,
+      // long before the next tier's requirement. Legendary is never planned.
+      const variant=g=>[0,1,2,3].map(r=>g.itemId+r*data.rarityScale).find(better)??null;
+      const candidates=[...new Set([...data.gear.filter(g=>matches(g.itemId)).map(variant).filter(id=>id!=null),
+        ...owned.filter(id=>matches(id)&&autoUsableMaterial(data,id)&&better(id))])].filter(id=>id!==current);
       const wearable=id=>{const r=gearRequirement(id);return r.skill==='none'||lv[r.skill]>=r.level;};
       const describe=id=>{
         if(id==null)return null;
-        const recipe=jobs.find(j=>j.output.itemId===base(id));
+        const job=jobs.find(j=>j.output.itemId===base(id));
+        // A rarer piece is made from the same rarity of materials.
+        const recipe=job&&craftRecipe(data,job,rarity(id));
         const stock=count(p,id)>0;
         const supply=stock?{seconds:0,unlocks:[],budget:{items:{}}}:recipe?
           strategy.routeEstimate(p,recipe,1,{style:profession}):{seconds:Infinity,unlocks:[],budget:{items:{}}};
@@ -1145,17 +1152,10 @@ export function createPlanner(data) {
         return {id,name:fullName(id),wear:gearRequirement(id),owned:stock,requirements:supply.unlocks??[],
           materials:own,chainMaterials:rest,seconds:supply.seconds};
       };
+      // Best piece wearable now, then the improvement at the next wear level.
       const available=candidates.filter(wearable).sort((a,b)=>score(b)-score(a)||a-b);
       const future=candidates.filter(id=>!wearable(id)).sort((a,b)=>gearRequirement(a).level-gearRequirement(b).level||score(b)-score(a));
-      // Higher tiers whose ordinary piece is weaker than a rarer or enhanced
-      // current item: name the lowest rarity of each that would still be better.
-      const skipped=current!=null&&matches(current)?data.gear.filter(g=>matches(g.itemId)&&
-        gearRequirement(g.itemId).level>gearRequirement(current).level&&score(g.itemId)<=score(current))
-        .sort((a,b)=>gearRequirement(a.itemId).level-gearRequirement(b.itemId).level).map(g=>{
-          const rarity=[1,2,3].find(r=>score(g.itemId+r*data.rarityScale)>score(current));
-          return {id:g.itemId,name:name(g.itemId),wear:gearRequirement(g.itemId),rarity:rarity??null};
-        }):[];
-      return {slot,current:current==null?null:{id:current,name:fullName(current)},upgrade:describe(available[0]),next:describe(future[0]),skipped};
+      return {slot,current:current==null?null:{id:current,name:fullName(current)},upgrade:describe(available[0]),next:describe(future[0])};
     });
   }
   function planAtBoundary(p,goal,style='magic',completedLoad=false) {
