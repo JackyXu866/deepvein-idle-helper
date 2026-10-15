@@ -8,6 +8,7 @@ import {NAMES} from '../planner/planner.js';
 import {Telemetry} from './telemetry.js';
 import {hotSkillAt, hotWindows, normalizeHotFollow} from './hot-follow.js';
 import {createWorldBoss} from './world-boss.js';
+import {fallbackKey, fallbackOwnership} from '../planner/fallback.js';
 
 // State-dependent refusals in the reviewed client sr() message table. Unknown
 // codes remain a stop, not an invitation to replay a command.
@@ -24,7 +25,7 @@ export const GUILD_REFUSALS=new Set(['guild-name','guild-tag','guild-name-taken'
 export function isGuildRefusal(code) {return GUILD_REFUSALS.has(code);}
 // Optional quest-board actions. Their refusal codes are not reviewed, so a
 // refusal disables the action for a while instead of pausing the helper.
-export const SOFT_ACTIONS=new Set(['rerollQuest','buyPerk','masteryConfirm']);
+export const SOFT_ACTIONS=new Set(['rerollQuest','buyPerk','masteryConfirm','setFallback']);
 export const ROUTE_STOPS=new Set(['noMaterials','storageFull','unreachable','levelTooLow','noSuchSite']);
 export const quantity=(p,id)=>(p.bank[id]??0)+(p.overflow?.[id]??0)+p.pack.filter(i=>i.itemId===id).reduce((n,i)=>n+i.qty,0);
 export const equipmentProject=goal=>goal?.upgrade?.priority||goal?.toolUpgrade?.upgrade?.priority;
@@ -114,6 +115,8 @@ export function acknowledged(before, p, intent, data=null) {
     case 'rerollQuest': return before.quests?.day===p.quests?.day&&
       before.quests?.daily?.some(q=>q.id===intent.id)===true&&!p.quests?.daily?.some(q=>q.id===intent.id);
     case 'buyPerk': return (p.perks?.[intent.id]??0)>(before.perks?.[intent.id]??0);
+    case 'setFallback': return fallbackKey(p.fallback?.task)===fallbackKey(intent.fallback?.task)&&
+      !!p.fallback?.onStorageFull===!!intent.fallback?.onStorageFull;
     case 'masteryConfirm': return Object.entries(intent.ranks??{}).every(([id,n])=>(p.masteries?.[id]??0)===n)&&
       Object.entries(intent.ranks??{}).some(([id,n])=>n>(before.masteries?.[id]??0));
     case 'enhance': return p.enhance?.itemId===intent.itemId || p.skills.enhancing>before.skills.enhancing;
@@ -127,6 +130,8 @@ export class Trainer {
     this.active=false; this.player=null; this.received=0; this.goal=null;
     this.pending=null; this.recentDeposit=null; this.served={}; this.deferred={}; this.questDeferred={}; this.waitingGoals={}; this.blockedReasons={}; this.sequence=0;
     this.softRefused={};
+    // Native fallback activity: on/off, the one the helper set per player, last check.
+    this.autoFallback=true; this.fallbackOwned={}; this.fallbackCheckedAt=0;
     this.nextSync=0; this.nextAction=0; this.goalSince=0; this.bankedLoad=false;
     this.snapshotSequence=0; this.syncAfter=0; this.lastSync=-Infinity;
     this.message='等待登录后的游戏状态；安装后请刷新游戏';
@@ -431,6 +436,11 @@ export class Trainer {
             if(this.pending.intent.t==='marketBuy')this.plan=null;
           }
           if(this.pending.intent.t==='vendorBuy')this.plan=null;
+          // Remember the fallback the helper set: any other one is the player's.
+          if(this.pending.intent.t==='setFallback') {
+            this.fallbackOwned={...this.fallbackOwned,[this.player.id]:fallbackKey(this.pending.intent.fallback?.task)};
+            this.onFallbackOwned?.(this.fallbackOwned);
+          }
           this.nextAction=Math.min(this.nextAction,this.pending.sentAt+1000);
           this.log(`已确认：${this.pending.label}`); this.pending=null;this.resolution=null;
         }
@@ -577,6 +587,19 @@ export class Trainer {
     if(intent.t==='enhance')this.planner.enhancementTraining?.issued(this.player,intent);
     this.send(intent);this.nextSync=Math.min(this.nextSync,this.now()+2000);
   }
+  // Keep the game's fallback activity on a gathering job that feeds the plan
+  // (else the best experience). Never touches a fallback the player set or
+  // cleared; checked at most every ten minutes.
+  fallbackUpkeep(p) {
+    if(!this.autoFallback||this.mode==='assist')return null;
+    const ownership=fallbackOwnership(p,this.fallbackOwned);
+    if(!['none','helper'].includes(ownership)||this.now()-this.fallbackCheckedAt<600000)return null;
+    this.fallbackCheckedAt=this.now();
+    const choice=this.planner.chooseFallback?.(p,reserveWaitingGoals(this.goal,this.waitingGoals),this.style);
+    if(!choice||fallbackKey(choice.task)===fallbackKey(p.fallback?.task))return null;
+    return {intent:{t:'setFallback',fallback:{task:choice.task,onStorageFull:false}},label:`设置后备活动 · ${choice.job.name}`,
+      reason:`${choice.reason}；计划做完或缺料时游戏自动开始，手动停止、跳过或阵亡后不会启动`};
+  }
   watchProgress(p) {
     if(!p.route&&!p.path?.length){this.progress=null;this.stallCheck=null;return false;}
     const job=this.data.jobs.find(j=>j.id===p.route?.jobId);
@@ -717,7 +740,12 @@ export class Trainer {
     }
     if(this.resolution&&this.snapshotSequence>this.resolution.sequence){
       const pending=this.pending,reason=this.resolution.reason,code=this.resolution.code;
-      if(pending&&MARKET_ACTIONS.has(pending.intent.t)) {
+      if(pending&&SOFT_ACTIONS.has(pending.intent.t)) {
+        // Optional upkeep: an unconfirmed result disables it for a while, never pauses.
+        this.softRefused[pending.intent.t]=now+6*3600000;
+        this.pending=null;this.resolution=null;this.plan=null;this.nextAction=now+1000;
+        this.log(`${pending.label} 未得到确认；6 小时内不再尝试，继续当前任务`);
+      } else if(pending&&MARKET_ACTIONS.has(pending.intent.t)) {
         // The market ledger retains an ambiguous attempt across disconnects and
         // reloads. Resume self-supply without replaying that transaction.
         this.pending=null;this.resolution=null;this.plan=null;this.nextAction=now+1000;
@@ -825,6 +853,8 @@ export class Trainer {
     if(reroll?.intent)return this.issue(reroll);
     // Quest points are left to the player: pocket space and small speed perks
     // cannot be valued reliably enough to spend them automatically.
+    const fallback=softReady('setFallback')&&this.fallbackUpkeep(p);
+    if(fallback?.intent)return this.issue(fallback);
     const mastery=softReady('masteryConfirm')&&this.planner.masteryPurchase?.(p,this.goal,this.style);
     if(mastery?.intent)return this.issue(mastery);
     if(this.goal?.enhancementProject&&this.goal.enhancement&&

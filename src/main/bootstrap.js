@@ -19,6 +19,7 @@ import {createUpdateChecker} from '../ui/update-checker.js';
 import {gameLabel, translateGameText} from '../ui/labels-zh.js';
 import {createBossLootChat, createBossLootHistory} from '../ui/boss-loot.js';
 import {applyPlanning, createPlanningClient, planningGuard, planningState} from '../worker/planning.js';
+import {fallbackOwnership} from '../planner/fallback.js';
 
 // Runs in the page at document-start. Uses the game's existing connection;
 // Never reads credentials or opens a second game connection. Update checks read
@@ -47,6 +48,13 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
   const sellCraftedKey='deepvein-sell-crafted-v1';
   let sellCrafted=true;
   try {sellCrafted=localStorage.getItem(sellCraftedKey)!=='false';}catch{}
+  const autoFallbackKey='deepvein-auto-fallback-v1',fallbackOwnedKey='deepvein-fallback-owned-v1';
+  let autoFallback=true;
+  try {autoFallback=localStorage.getItem(autoFallbackKey)!=='false';}catch{}
+  function saveFallbackOwned(owned) {
+    try {localStorage.setItem(fallbackOwnedKey,JSON.stringify(owned));}
+    catch {/* Without it, a helper-set fallback later reads as the player's and is left alone. */}
+  }
   // How sales are priced: 'list' at the ask (wait for buyers) or 'bid' (sell now).
   const salePricingKey='deepvein-sale-pricing-v1';
   let salePricing='list';
@@ -137,7 +145,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
       item:id?{id,bank:p.bank[id]??0,pack:p.pack.filter(i=>i.itemId===id).reduce((n,i)=>n+i.qty,0),overflow:p.overflow?.[id]??0}:null};
   }
   const allowed=new Set([...readOnly,'setRoute','fight','walk','wear','equipFromBank','deposit',
-    'eatAt','eat','drink','chooseFood','foodMaxTier','carryFood','enhance','clearRoute','marketDump','depositItem','dropItem','withdraw','marketBuy','marketSell','marketCancel','vendorBuy','claimQuest','rerollQuest','buyPerk','masteryConfirm',
+    'eatAt','eat','drink','chooseFood','foodMaxTier','carryFood','enhance','clearRoute','marketDump','depositItem','dropItem','withdraw','marketBuy','marketSell','marketCancel','vendorBuy','claimQuest','rerollQuest','buyPerk','masteryConfirm','setFallback',
     'setAside','attackWorldBoss','leaveWorldBoss','startQueued','portal',...HOUSE_ACTIONS]);
   function rememberRequest(intent) {
     const list=recentRequests[readOnly.has(intent.t)?'queries':'actions'];
@@ -229,7 +237,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     const url=URL.createObjectURL(new Blob([PLANNING_WORKER_SOURCE],{type:'text/javascript'}));
     try{return new Worker(url);}finally{URL.revokeObjectURL(url);}
   }):null;
-  const planningSettings=()=>({autoSell,capacitySales,sellCrafted,potionRestock,profitFloor,salePricing,hotFollow:trainer.getHotFollow()});
+  const planningSettings=()=>({autoSell,capacitySales,sellCrafted,autoFallback,potionRestock,profitFloor,salePricing,hotFollow:trainer.getHotFollow()});
   function planningStorage() {
     return Object.fromEntries(['deepvein-market-v1','deepvein-enhancement-training-v1'].map(key=>[key,localStorage.getItem(key)]));
   }
@@ -402,6 +410,12 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     const saved=localStorage.getItem(mainTradeKey);
     trainer.mainTrade=Object.hasOwn(MAIN_TRADES,saved)?saved:'auto';
   } catch { trainer.mainTrade='auto'; }
+  trainer.autoFallback=autoFallback;trainer.onFallbackOwned=saveFallbackOwned;
+  try {
+    const owned=JSON.parse(localStorage.getItem(fallbackOwnedKey)||'null');
+    if(owned&&typeof owned==='object'&&!Array.isArray(owned))
+      trainer.fallbackOwned=Object.fromEntries(Object.entries(owned).filter(([,key])=>typeof key==='string'));
+  } catch {trainer.fallbackOwned={};}
   try {trainer.setHotFollow(JSON.parse(localStorage.getItem(hotFollowKey)||'null')??{});}
   catch {trainer.setHotFollow({});}
   try {trainer.mainJobId=validMainJob(JSON.parse(localStorage.getItem(mainJobKey)||'null'),trainer.mainTrade);}
@@ -1652,6 +1666,8 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
                 <label>战斗职业<select data-profession aria-label="战斗职业">${Object.entries(PROFESSIONS).map(([id,name])=>`<option value="${id}">${name}</option>`).join('')}</select></label>
                 <p data-profession-info class="muted"></p>
                 <p data-training-policy class="muted"></p>
+                <label>自动设置后备活动<input type="checkbox" data-auto-fallback aria-label="自动设置后备活动"></label>
+                <p class="fine-print">游戏自带的后备活动：计划做完或缺料时自动开始，手动停止、跳过或阵亡后不会启动；用于关闭页面、离线或暂停时不空闲。助手选能供应当前计划的采集，否则选经验最高的采集；你自己设置或清除的后备活动不会被改动。<span data-fallback-status></span></p>
                 <p class="fine-print">切换成长策略／职业后点击“开始”。开始后断线或本页刷新自动恢复；暂停取消恢复。保持电脑运行和标签页打开。</p>
               </div>
             </details>
@@ -1815,6 +1831,17 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
       try {localStorage.setItem(potionRestockKey,String(potionRestock));}
       catch {potionRestock=false;trainer.log('补药设置无法保存，自动补药已关闭');}
       if(!potionRestock&&trainer.player)market.watchPotions(trainer.player,[]);
+      render();
+    };
+    panel.querySelector('[data-auto-fallback]').onchange=event=>{
+      autoFallback=event.currentTarget.checked===true;trainer.autoFallback=autoFallback;
+      // Turning it back on resumes management of a fallback the player had cleared.
+      if(autoFallback&&trainer.player&&!trainer.player.fallback&&trainer.fallbackOwned[trainer.player.id]) {
+        const {[trainer.player.id]:cleared,...rest}=trainer.fallbackOwned;trainer.fallbackOwned=rest;saveFallbackOwned(rest);
+      }
+      trainer.fallbackCheckedAt=0;
+      try {localStorage.setItem(autoFallbackKey,String(autoFallback));}
+      catch {trainer.log('后备活动设置无法保存，刷新后恢复为开启');}
       render();
     };
     panel.querySelector('[data-sell-crafted]').onchange=event=>{
@@ -2790,6 +2817,15 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     panel.querySelector('[data-potion-restock]').checked=potionRestock;
     panel.querySelector('[data-capacity-sales]').checked=capacitySales;
     panel.querySelector('[data-sell-crafted]').checked=sellCrafted;
+    panel.querySelector('[data-auto-fallback]').checked=autoFallback;
+    {
+      const p=trainer.player,task=p?.fallback?.task;
+      const name=task?task.kind==='job'?gameLabel(GAME_DATA.jobs.find(j=>j.id===task.jobId)?.name??'未知工作'):
+        gameLabel(GAME_DATA.zones.find(z=>z.id===task.zoneId)?.name??'战斗'):null;
+      const owner=p?fallbackOwnership(p,trainer.fallbackOwned):null;
+      panel.querySelector('[data-fallback-status]').textContent=!p?'':
+        `当前：${name??'未设置'}${owner==='player'?'（你设置的，保持不变）':owner==='helper'?'（助手设置）':owner==='cleared'?'（你已清除；重新勾选可恢复自动设置）':''}`;
+    }
     panel.querySelector('[data-sale-pricing]').value=salePricing;
     panel.querySelector('[data-mode-info]').textContent=modeInfo[trainer.mode];
     panel.querySelector('[data-training-policy]').textContent=trainer.mode==='assist'?

@@ -12,8 +12,9 @@ import {planView} from '../planner/plan-view.js';
 // transaction journal, Boss lifecycle and every actual command submission.
 export const decisionFields=['goal','served','deferred','questDeferred','waitingGoals','blockedReasons','sequence',
   'goalSince','bankedLoad','message','plan','history','farmJobId','progress','stallCheck','failures','failureKey','itemTarget','buffRefill',
-  'hotFollow','hotParkedGoal','hotFollowValidation'];
-export const inputFields=[...decisionFields,'player','active','style','mode','mainTrade','mainJobId','mainMonsterId','softRefused',
+  'hotFollow','hotParkedGoal','hotFollowValidation','fallbackCheckedAt'];
+// fallbackOwned is read-only here: only a confirmed snapshot on the page changes it.
+export const inputFields=[...decisionFields,'player','active','style','mode','mainTrade','mainJobId','mainMonsterId','softRefused','fallbackOwned',
   'snapshotSequence','syncAfter','nextSync','lastSync'];
 export const planningState=trainer=>Object.fromEntries(inputFields.map(key=>[key,trainer[key]]));
 
@@ -61,6 +62,7 @@ export function runPlanning(data,input,inspectOnly=false) {
   Object.assign(trainer,input.trainer);
   trainer.hotFollow=normalizeHotFollow(input.settings.hotFollow??trainer.hotFollow);
   trainer.hotParkedGoal=input.trainer.hotParkedGoal??null;
+  trainer.autoFallback=input.settings.autoFallback!==false;
   trainer.market=market;
   trainer.boss={status:()=>input.boss,cancel:()=>{}};
   let proposal=null;

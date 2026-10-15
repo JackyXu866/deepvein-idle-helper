@@ -12,6 +12,7 @@ import {createQuests} from './quests.js';
 import {createHousing} from './housing.js';
 import {planGatheringSurplus} from './gathering-surplus.js';
 import {perkOverview} from './perks.js';
+import {chooseFallback} from './fallback.js';
 import {HOT_FOLLOW_SKILLS, hotSkillAt, hotWindows} from '../runtime/hot-follow.js';
 
 export const NAMES = {
@@ -1243,5 +1244,6 @@ export function createPlanner(data) {
     },
     questRead:quests.read,questClaim:quests.claim,questChooseGoal:quests.chooseGoal,questCompleted:quests.completed,
     questReroll:quests.reroll,questOverview:quests.overview,
-    perkOverview:p=>perkOverview(p)});
+    perkOverview:p=>perkOverview(p),
+    chooseFallback:(p,goal,style)=>chooseFallback(data,api,p,goal,style)});
 }
