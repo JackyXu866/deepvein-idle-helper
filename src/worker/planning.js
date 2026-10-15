@@ -72,7 +72,7 @@ export function runPlanning(data,input,inspectOnly=false) {
     equipment:input.details.equipment?planner.equipmentStatus(p,trainer.style):null,
     growth:trainer.mode==='balanced'?planner.growthStatus(p,trainer.style,trainer.deferred):null,
     business:trainer.mode==='business'?planner.specializationStatus(p,trainer.style,trainer.mainTrade,trainer.mainJobId,trainer.mainMonsterId):null,
-    farming:planner.farmStatus(p),
+    farming:planner.farmStatus(p,trainer.goal),
     plan:input.details.plan?planView(data,planner,trainer,p,{boss:input.boss,engineApi:engineApi()}):null
   };
   return {decision:Object.fromEntries(decisionFields.map(key=>[key,trainer[key]])),active:trainer.active,proposal,commands,

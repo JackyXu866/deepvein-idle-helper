@@ -1143,14 +1143,41 @@ export function createPlanner(data) {
     if (reason) return wait(reason);
     return plan(p,goal,style);
   }
-  function farmStatus(p) {
+  // Why a crop is (or would be) grown, by the same rules harvest() uses.
+  function cropWhy(p,job,goal,stocks) {
+    const itemName=name(job.output.itemId);
+    if(farmingChoice.mode==='manual')return job.id===farmingChoice.jobId?'手动指定的作物':'种下时的选择；成熟后改种手动指定作物';
+    if(stocks) {
+      const row=stocks.find(r=>r.job.id===job.id);
+      const herb=jobs.some(j=>j.skill==='herblore'&&j.inputs.some(i=>i.itemId===job.output.itemId));
+      const kind=herb?'炼药素材':data.items[job.output.itemId]?.heals?'食物储备':'原料';
+      if(!row)return `${kind}${itemName}库存已足，收获后不再补种`;
+      if(row.plannedMissing>0)return `当前计划需要${itemName}，还缺 ${row.plannedMissing}`;
+      return `${kind}${itemName}：库存 ${row.total}/${row.target}（在田作物计入后续供应）`;
+    }
+    const need=goal?.budget?.items?.[job.output.itemId]??0,have=count(p,job.output.itemId);
+    if(need>have)return `当前计划需要 ${need} 个${itemName}（现有 ${have}）`;
+    const best=jobs.filter(j=>j.grow&&level(p.skills.farming)>=j.levelReq).sort((a,b)=>b.xp/b.grow-a.xp/a.grow)[0];
+    if(best?.id===job.id)return `农业经验最高的已解锁作物（约 ${Math.round(job.xp/(job.grow*data.tickMs/60000))} 经验/分钟/块）`;
+    return `种下时的选择；成熟后按当前规则改种${best?name(best.output.itemId):'其他作物'}`;
+  }
+  function farmStatus(p,goal=null) {
     farmState(p);
     const fields=farmFields(p),plots=farmPlots(p),empty=fields.filter(s=>!p.plots?.[s.id]).length;
+    const stocks=farmStockMode(p)?farmingStocks(data,p,level(p.skills.farming),goal):null;
     const best=farmingChoice.mode==='manual'?manualFarmJob():farmTarget??
-      (farmStockMode(p)?farmingStocks(data,p,level(p.skills.farming))[0]?.job:
+      (stocks?stocks[0]?.job:
         jobs.filter(j=>j.grow&&level(p.skills.farming)>=j.levelReq).sort((a,b)=>b.xp/b.grow-a.xp/a.grow)[0]);
+    // One line per crop in the fields, with the reason it is there.
+    const groups=new Map();
+    for(const plot of plots) {
+      const row=groups.get(plot.job.id)??{name:plot.job.name,fields:0,readyAt:plot.readyAt,why:cropWhy(p,plot.job,goal,stocks)};
+      row.fields++;row.readyAt=Math.max(row.readyAt,plot.readyAt);groups.set(plot.job.id,row);
+    }
+    const crops=[...groups.values()].map(row=>({name:row.name,fields:row.fields,why:row.why,
+      readyMinutes:Math.max(0,Math.ceil((row.readyAt-p.lastTick)*data.tickMs/60000))}));
     const status={fields:fields.length,empty,planted:plots.length,preference:farmingPreference(),selectedName:best?.name??null,
-      seedStock:best?seedCount(p,best):0};
+      seedStock:best?seedCount(p,best):0,crops,next:best?{name:best.name,why:cropWhy(p,best,goal,stocks)}:null};
     const manualReason=manualFarmReason(p);
     if(manualReason)return {...status,crop:best?.name,reason:manualReason};
     if (!best) return {...status,reason:farmDelayReason??(farmStockMode(p)?'农田已全解锁，作物库存充足；先继续主任务':'暂无已解锁作物')};

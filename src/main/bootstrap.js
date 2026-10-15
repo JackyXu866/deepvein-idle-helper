@@ -2538,15 +2538,19 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     const metrics=trainer.telemetry.summary();
     const marketText=market.summary();
     const crops=p?planner.farmPlots(p):[], ready=crops.filter(c=>c.readyAt<=p.lastTick).length;
-    const farming=p?(background?planningView?.farming:planner.farmStatus(p)):null;
+    const farming=p?(background?planningView?.farming:planner.farmStatus(p,trainer.goal)):null;
     const preference=planner.farmingPreference(),choices=farmingChoices(p),selectedCrop=choices.find(j=>j.id===preference.jobId);
-    const farmText=farming?(crops.length&&!ready?`最近约 ${Math.max(1,Math.ceil((Math.min(...crops.map(c=>c.readyAt))-p.lastTick)*GAME_DATA.tickMs/60000))} 分钟成熟。`:'')+
-      (farming.reason??'等待下一次合批种收'):'登录角色后显示田地与种子库存。';
-    const farmingNote=(preference.mode==='auto'?`农田全开前兼顾解锁与原料；${Math.max(...GAME_DATA.farmUnlocks)} 级全开后按库存补种，不单独追农业等级。炼药素材及未被替代的高级食用作物各保留 500 份，计划需求更高则补足计划；已被高级作物覆盖的低级食物只按明确需求种。库存充足时暂缓种收。`:
+    // What is in each field and why, then the next crop to plant and why.
+    const farmText=farming?[
+      ...(farming.crops??[]).map(c=>`田里：${c.name} ×${c.fields}（${c.readyMinutes?`约 ${c.readyMinutes} 分钟成熟`:'已成熟'}）· ${c.why}`),
+      farming.next&&!(farming.crops??[]).some(c=>c.name===farming.next.name&&c.why===farming.next.why)?`下次补种：${farming.next.name} · ${farming.next.why}`:null,
+      farming.reason??'等待下一次合批种收',
+    ].filter(Boolean).join('\n'):'登录角色后显示田地与种子库存。';
+    const farmingNote=(preference.mode==='auto'?'':
       !p?'登录角色后核对作物等级与种子库存。':
       !selectedCrop?'未指定有效作物，等待重新选择。':selectedCrop.locked?`${selectedCrop.name}需农业 ${selectedCrop.level} 级；保留选择，解锁前暂停农田调度。`:
       selectedCrop.seeds===0?'缺种：可收获成熟作物，空田等待指定种子，不改种其他作物。':`下次可播种时使用${selectedCrop.name}，不改种其他作物。`)+
-      (trainer.mode==='assist'?' 辅助模式只用现有或收回种子，不买种、不采种。':'')+' 所有策略共用；下次农活生效，已开始的收种先完成。不铲除正在生长的作物。';
+      (trainer.mode==='assist'?' 辅助模式只用现有或收回种子，不买种、不采种。':'');
     const growth=p&&trainer.mode==='balanced'?(background?planningView?.growth:planner.growthStatus(p,trainer.style,trainer.deferred)):null;
     const business=p&&trainer.mode==='business'?(background?planningView?.business:planner.specializationStatus(p,trainer.style,trainer.mainTrade,trainer.mainJobId,trainer.mainMonsterId)):null;
     const mainJobs=GAME_DATA.jobs.filter(j=>!j.grow&&j.skill===trainer.mainTrade).sort((a,b)=>a.levelReq-b.levelReq||a.id-b.id)
