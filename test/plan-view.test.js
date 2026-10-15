@@ -39,10 +39,15 @@ test('plan view explains the layer, candidates and points', () => {
   const view = planView(d, planner, trainer, p);
   assert.equal(view.layer, '经验优先');
   assert.equal(view.goal.reason, 'test reason');
-  assert.equal(view.xpSkill, 'mining');
-  assert.ok(view.xpCandidates.length > 0);
-  assert.ok(view.xpCandidates.every(c => c.skill === 'mining'), 'XP is compared within the goal skill only');
+  // 经验优先 compares XP across all skills.
+  assert.equal(view.xpAcross, true);
+  assert.ok(new Set(view.xpCandidates.map(c => c.skill)).size > 1);
   assert.ok(view.xpCandidates.some(c => c.chosen), 'current goal is marked');
+  // Other modes compare XP only within the goal's skill.
+  const balanced = planView(d, planner, {...trainer, mode: 'balanced'}, p);
+  assert.equal(balanced.xpAcross, false);
+  assert.equal(balanced.xpSkill, 'mining');
+  assert.ok(balanced.xpCandidates.length > 0 && balanced.xpCandidates.every(c => c.skill === 'mining'));
   assert.ok(new Set(view.goldCandidates.map(c => c.skill)).size > 1, 'gold is compared across skills');
   assert.ok(view.goldCandidates.every((c, i, list) => i === 0 || list[i - 1].coinsH >= c.coinsH || c.chosen));
   assert.ok([...view.xpCandidates, ...view.goldCandidates].every(c => ['formula', 'simulated', 'measured'].includes(c.source)));

@@ -40,7 +40,7 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
   // Experience is not comparable between skills (each has its own XP scale and
   // level table), so XP is ranked only within the skill being levelled toward
   // its next unlock. Gold is comparable everywhere and is ranked across skills.
-  let xpSkill = null, xpCandidates = [], goldCandidates = [], frontier = [];
+  let xpSkill = null, xpAcross = false, xpCandidates = [], goldCandidates = [], frontier = [];
   try {
     const list = planner.candidates(p, style, trainer.deferred ?? {});
     const priced = new Map((planner.incomeChoices?.(p, list, style) ?? []).map(c => [keyOf(c), c.rate.coins]));
@@ -53,9 +53,11 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
       if (chosen && !shown.includes(chosen)) shown.push(chosen);
       return shown;
     };
-    xpSkill = goal?.quest || goal?.itemTarget ? null : goal?.mainSkill ?? goal?.skill ?? null;
-    const sameSkill = rows.filter(r => r.skill === xpSkill);
-    xpCandidates = top([...sameSkill].sort((a, b) => b.xpH - a.xpH), sameSkill);
+    // 经验优先 deliberately trades skills against each other on raw XP.
+    xpAcross = trainer.mode === 'experience';
+    xpSkill = xpAcross || goal?.quest || goal?.itemTarget ? null : goal?.mainSkill ?? goal?.skill ?? null;
+    const compared = xpAcross ? rows : rows.filter(r => r.skill === xpSkill);
+    xpCandidates = top([...compared].sort((a, b) => b.xpH - a.xpH), compared);
     goldCandidates = top([...rows].sort((a, b) => b.coinsH - a.coinsH), rows);
   } catch { /* A planner failure must not hide the rest of the panel. */ }
 
@@ -81,5 +83,5 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
         target: null, via: null, reason: goal.reason ?? null} :
       {label: goal.skill ? NAMES[goal.skill] ?? goal.skill : null, target: goal.target ?? null,
         via: goal.monsterId != null ? label(goal) : goal.recipeId != null ? jobName(goal.recipeId) : null, reason: goal.reason ?? null}) : null,
-    xpSkill, xpSkillName: xpSkill ? NAMES[xpSkill] ?? xpSkill : null, xpCandidates, goldCandidates, frontier, quests, perks, mastery};
+    xpSkill, xpSkillName: xpSkill ? NAMES[xpSkill] ?? xpSkill : null, xpAcross, xpCandidates, goldCandidates, frontier, quests, perks, mastery};
 }

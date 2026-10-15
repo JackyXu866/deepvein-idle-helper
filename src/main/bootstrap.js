@@ -92,7 +92,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
   const validMainMonster=(monsterId,trade)=>trade==='combat'&&Number.isInteger(monsterId)&&GAME_DATA.monsters.some(m=>m.id===monsterId)?monsterId:null;
   const TRAINING_MODE_LABELS=MODE_LABELS;
   const modeInfo={
-    balanced:'以全面成长为长期目标，先做值得投入的发展计划：结合库存、供料时间、解锁与收入连续推进，达标后复盘，再补长期落后的能力。',
+    balanced:'均衡发展：所有技能保持在最低技能以上 10 级以内（低等级经验便宜，每 10 级所需经验约为前 10 级的 3 倍）；范围内按速度、解锁与收入选择，原料技能落后时先练原料技能。',
     experience:'比较供料与往返后的总经验效率，允许技能等级拉开差距。',
     business:'主业、具体工作与战斗目标均可自动或手选；指定目标不会因其他工作收益更高而被替换，仍可安排必要供料与换装。',
     assist:'仅合批收菜、用现有种子补种与蹭世界 Boss；保留玩家队列，完成临时外出后继续原任务。'
@@ -2520,9 +2520,11 @@ import {fallbackOwnership} from '../planner/fallback.js';
             el('td',{},[el('span',{className:'plan-source',textContent:SOURCE_LABELS[c.source]??c.source})])]);
           row.dataset.chosen=String(c.chosen);row.lastChild.firstChild.dataset.source=c.source;return row;
         }))]):el('p',{className:'muted',textContent:'暂无可比较的工作（等级、装备或供料条件不足）'})];
-    fill('[data-plan-candidates]',JSON.stringify([view.xpSkill,view.xpCandidates,view.goldCandidates]),()=>[
-      ...(view.xpSkill?table(`${view.xpSkillName}：同技能内按经验/时比较`,['任务','经验/时','金币/时','来源'],view.xpCandidates,
-        c=>[fmt(c.xpH),fmt(c.coinsH)]):[]),
+    fill('[data-plan-candidates]',JSON.stringify([view.xpSkill,view.xpAcross,view.xpCandidates,view.goldCandidates]),()=>[
+      ...(view.xpAcross?table('经验优先：全部技能按经验/时比较',['任务','技能','经验/时','来源'],view.xpCandidates,
+        c=>[c.skillName,fmt(c.xpH)]):
+        view.xpSkill?table(`${view.xpSkillName}：同技能内按经验/时比较`,['任务','经验/时','金币/时','来源'],view.xpCandidates,
+          c=>[fmt(c.xpH),fmt(c.coinsH)]):[]),
       ...table('全部技能按金币/时比较',['任务','技能','金币/时','来源'],view.goldCandidates,c=>[c.skillName,fmt(c.coinsH)])]);
     fill('[data-plan-quests]',JSON.stringify(view.quests),()=>view.quests.length?view.quests.map(q=>el('p',{className:'muted',
       textContent:`${q.period==='daily'?'每日（必做）':'每周'} · ${translateGameText(q.title)} ${q.done}/${q.goal} · ${q.status}`+
@@ -2849,10 +2851,12 @@ import {fallbackOwnership} from '../planner/fallback.js';
     panel.querySelector('[data-activity]').textContent=`当前：${activity}`;
     panel.querySelector('[data-growth]').textContent=growth?
       (growth.project?`当前计划：${NAMES[growth.project.skill]} → ${growth.project.target} 级\n${growth.project.reason}\n`:'开始后选择发展计划\n')+
-      `已完成 ${growth.completed??0} 项计划；长期补齐参考：${growth.stage??'等待条件'} 级\n待补齐：${growth.remaining.map(s=>`${NAMES[s.skill]} ${s.level}`).join('、')||'无'}`+
+      `已完成 ${growth.completed??0} 项计划；均衡范围：最低 ${growth.lowestLevel??'—'} 级，各技能练到 ${growth.top??'—'} 级为止\n`+
+      `范围内：${growth.remaining.map(s=>`${NAMES[s.skill]} ${s.level}`).join('、')||'无'}`+
+      (growth.ahead?.length?`\n领先，等其他技能追上：${growth.ahead.map(s=>`${NAMES[s.skill]} ${s.level}`).join('、')}`:'')+
       (growth.alternatives?.length?`\n后续候选（完成后重评）：${growth.alternatives.map(g=>`${NAMES[g.skill]} → ${g.target}`).join('、')}`:'')+
       (growth.deferred.length?`\n生长／条件等待：${growth.deferred.map(s=>NAMES[s.skill]).join('、')}`:'')+
-      '\n每完成几项发展计划补一项长期落后的能力，不要求各技能同时同级。防御／生命自然提升；当前计划的有用装备强化目标 +5，逐次确认。':
+      '\n范围内按价值选（速度、其他技能用得上的解锁、收入）；下一档原料的技能落后时先练原料技能。防御／生命自然提升；当前计划的有用装备强化目标 +5，逐次确认。':
       trainer.mode==='experience'?'允许偏科；计入供料与旅行时间，以总经验效率选路线。农业仍在后台合批处理。':
       trainer.mode==='business'?(trainer.mainTrade!=='auto'?`指定主业：${mainTradeName}${selectedMainJob?` · 指定工作：${selectedMainJob.name}`:selectedMainMonster?` · 指定怪物：${selectedMainMonster.name}`:''}\n`:'')+
         (business?.skill?`当前主业：${NAMES[business.skill]??business.skill}\n${business.reason??''}`:

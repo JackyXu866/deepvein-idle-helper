@@ -1,6 +1,33 @@
 import {professionSkill} from './professions.js';
 import {workEstimate} from './estimates.js';
 import {planEnhancement} from './enhancement.js';
+import {NAMES} from './planner.js';
+
+// Skills train within this many levels of the lowest trainable skill.
+export const BAND=10;
+
+// Skills that make the inputs `skill` needs for the recipes it unlocks in
+// (from, to] but are still below the level those inputs need, lowest first.
+// A met producer is followed down its own inputs (crafting needs bars, bars
+// need ore), so a lagging raw-material skill is found behind a capable smith.
+export function laggingSuppliers(data,lv,skill,from,to) {
+  const needs=new Map();
+  const visit=(itemId,depth,seen)=>{
+    if(depth>3||seen.has(itemId))return;
+    seen.add(itemId);
+    const producer=data.jobs.filter(j=>j.output.itemId===itemId).sort((a,b)=>a.levelReq-b.levelReq)[0];
+    if(!producer)return;
+    if(producer.skill!==skill&&(lv[producer.skill]??0)<producer.levelReq) {
+      const known=needs.get(producer.skill);
+      if(!known||known.level<producer.levelReq)needs.set(producer.skill,{skill:producer.skill,level:producer.levelReq,itemId});
+      return;
+    }
+    for(const input of producer.inputs)visit(input.itemId,depth+1,seen);
+  };
+  for(const job of data.jobs.filter(j=>j.skill===skill&&j.levelReq>from&&j.levelReq<=to))
+    for(const input of job.inputs)visit(input.itemId,0,new Set());
+  return [...needs.values()].sort((a,b)=>(lv[a.skill]??0)-(lv[b.skill]??0)||a.skill.localeCompare(b.skill));
+}
 
 // Own a development project, not a sequence of equal-level turns. Execution,
 // material batching, market validation and equipment safety remain in planner.
@@ -34,10 +61,11 @@ export function createProgression(data,planner) {
     select(p,style);
     const lv=planner.levels(p),skills=skillsFor(p,style),eligible=skills.filter(s=>!deferred[s]);
     const lowestLevel=eligible.length?Math.min(...eligible.map(s=>lv[s])):null;
-    const stage=lowestLevel===null?null:Math.min(planner.thresholds.length-1,(Math.floor(lowestLevel/5)+1)*5);
+    const top=lowestLevel===null?null:Math.min(planner.thresholds.length-1,lowestLevel+BAND);
     const improvement=deferred.enhancing?null:planEnhancement(data,planner,p,style);
-    return {stage,lowestLevel,completed,project:focus,alternatives,
-      remaining:eligible.filter(s=>lv[s]<stage).map(skill=>({skill,level:lv[skill],target:stage})),
+    return {lowestLevel,top,completed,project:focus,alternatives,
+      ahead:eligible.filter(s=>lv[s]>=top).map(skill=>({skill,level:lv[skill]})),
+      remaining:eligible.filter(s=>lv[s]<top).map(skill=>({skill,level:lv[skill],target:top})),
       deferred:skills.filter(s=>deferred[s]).map(skill=>({skill,level:lv[skill]})),
       enhancement:improvement?.enhancement??null};
   }
@@ -49,8 +77,13 @@ export function createProgression(data,planner) {
     if(resume){focus=resume;focus.progressTick=p.lastTick;delete parked[resume.skill];return focus;}
     const lv=planner.levels(p),skills=skillsFor(p,style),maxLevel=planner.thresholds.length-1;
     const candidates=[...planner.candidates(p,style,deferred),...planner.candidates(p,style,deferred,{stockedBatch:true})],choices=[];
-    const middle=[...skills.map(s=>lv[s])].sort((a,b)=>a-b)[Math.floor(skills.length/2)];
-    for(const skill of skills.filter(s=>!deferred[s]&&lv[s]<maxLevel)) {
+    const open=skills.filter(s=>!deferred[s]&&lv[s]<maxLevel);
+    if(!open.length)return null;
+    // Level band: no skill trains past BAND levels above the lowest. Low levels
+    // are cheap (each 10 levels costs about 3x the previous 10), so the band
+    // keeps the cheap levels coming without forcing lockstep.
+    const lowest=Math.min(...open.map(s=>lv[s])),top=Math.min(maxLevel,lowest+BAND);
+    function project(skill,cap) {
       // Do not credit a workshop for experience gained fetching its ingredients.
       let best=candidates.filter(c=>c.skill===skill)
         .sort((a,b)=>(b.mainXpRate??b.rate.xp)-(a.mainXpRate??a.rate.xp))[0];
@@ -63,21 +96,24 @@ export function createProgression(data,planner) {
             rate:{xp:e.xp/(e.seconds+(job.grow??0)*data.tickMs/1000),coins:0},unpriced:true};
         } else if(skill===professionSkill(style))best={rate:{xp:0,coins:0},budget:{coins:0,items:{}},unpriced:true};
       }
-      if(!best)continue;
+      if(!best)return null;
       const unlocks=data.jobs.filter(j=>j.skill===skill&&j.levelReq>lv[skill]);
       const next=Math.min(...unlocks.map(j=>j.levelReq));
       const checkpoint=(Math.floor(lv[skill]/5)+1)*5;
-      const target=Math.min(skill==='farming'?farmLevel:maxLevel,next<=lv[skill]+10?next:checkpoint);
+      const target=Math.max(lv[skill]+1,Math.min(skill==='farming'?farmLevel:maxLevel,cap,next<=lv[skill]+10?next:checkpoint));
       const xpRate=best.mainXpRate??best.rate.xp;
       const seconds=!best.unpriced&&xpRate>0?(planner.thresholds[target]-p.skills[skill])/xpRate:Infinity;
-      const unlocked=unlocks.filter(j=>j.levelReq===target);
+      const unlocked=unlocks.filter(j=>j.levelReq<=target);
       const useful=unlocked.filter(j=>data.gear.some(g=>g.itemId===j.output.itemId)||
         data.jobs.some(other=>other.skill!==skill&&other.inputs.some(i=>i.itemId===j.output.itemId))).length;
-      const debt=Math.max(0,middle-lv[skill]);
       const progress=(target-lv[skill])/Math.max(300,seconds);
-      const score=best.unpriced?0:progress*(1+debt/10)*(1+Math.min(3,useful)*.25);
-      choices.push({...best,skill,target,stage:target,growth:true,development:true,horizon:Math.max(1800,Math.min(7200,seconds||1800)),
-        projectSeconds:seconds,score,unlockNames:unlocked.slice(0,3).map(j=>j.name),debt});
+      const score=best.unpriced?0:progress*(1+Math.min(3,useful)*.25);
+      return {...best,skill,target,stage:target,growth:true,development:true,horizon:Math.max(1800,Math.min(7200,seconds||1800)),
+        projectSeconds:seconds,score,unlockNames:unlocked.slice(0,3).map(j=>j.name)};
+    }
+    for(const skill of open.filter(s=>lv[s]<top)) {
+      const choice=project(skill,top);
+      if(choice)choices.push(choice);
     }
     // A renewable batch pays for replacing its inputs. Owned materials shorten
     // leveling time but are not free inputs in a repeatable business forecast.
@@ -95,19 +131,29 @@ export function createProgression(data,planner) {
       c.incomeRate=income?.rate.coins??0;
       c.score*=1+Math.min(1,c.incomeRate/coinRate)*.5;
     }
-    // Every fourth completed project can catch up the longest neglected skill.
-    // A complete project, not a ten-minute timer, advances this rotation.
-    const overdue=choices.filter(c=>completed-(visited[c.skill]??0)>=3);
-    const catchUp=overdue.length&&completed%4===3;
-    choices.sort((a,b)=>catchUp?((visited[a.skill]??0)-(visited[b.skill]??0)||b.debt-a.debt||b.score-a.score):b.score-a.score);
-    const best=choices[0];if(!best)return null;
-    const purpose=catchUp?'补齐长期未发展的能力':best.unlockNames.length?'解锁下一档生产能力':'集中提升当前能力';
+    // Within the band, value decides: speed, unlocks other skills use, income.
+    choices.sort((a,b)=>b.score-a.score||lv[a.skill]-lv[b.skill]);
+    let best=choices[0];if(!best)return null;
+    // Suppliers first: when the chosen skill's next recipes need a gathered or
+    // made input whose own skill is still below that tier, level that skill
+    // first (to the level the input needs), even above the band.
+    const supplier=laggingSuppliers(data,lv,best.skill,lv[best.skill],best.target).find(s=>!deferred[s.skill]&&lv[s.skill]<maxLevel);
+    let purpose=best.unlockNames.length?'解锁下一档生产能力':'均衡提升当前能力';
+    if(supplier) {
+      const feed=project(supplier.skill,Math.max(supplier.level,lv[supplier.skill]+1));
+      if(feed) {
+        feed.target=Math.max(feed.target,supplier.level);
+        purpose=`先补 ${NAMES[best.skill]??best.skill} 下一档所需的原料技能（${data.items[supplier.itemId]?.name??supplier.itemId} 需 ${supplier.level} 级）`;
+        best=feed;
+      }
+    }
     best.reason=`发展计划：${purpose}，${lv[best.skill]} → ${best.target} 级；`+
+      `各技能保持在最低 ${lowest} 级以上 ${BAND} 级以内；`+
       (best.unlockNames.length?`解锁 ${best.unlockNames.join('、')}；`:'')+
       (Number.isFinite(best.projectSeconds)?`按现有供料条件约 ${Math.max(1,Math.ceil(best.projectSeconds/60))} 分钟；`:'先补齐装备与供料条件；')+
       (best.incomeRate>0?`可持续收入估计 ${Math.round(best.incomeRate*60)} 金币/分；`:'')+
       '先准备本计划装备和整批材料，达标后再选下一项';
-    alternatives=choices.slice(1,4).map(c=>({skill:c.skill,target:c.target,seconds:c.projectSeconds}));
+    alternatives=choices.filter(c=>c.skill!==best.skill).slice(0,3).map(c=>({skill:c.skill,target:c.target,seconds:c.projectSeconds}));
     best.developmentFiller=Object.keys(parked).length>0;
     if(best.developmentFiller)best.reason=`等待原计划条件期间，使用现有装备推进；${best.reason}`;
     focus=best;observe(p,focus,style);return focus;
