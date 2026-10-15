@@ -132,6 +132,11 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
       (h.speed??0)<=(g.speed??0)&&
       (['bonus','accuracy','strength','defence','luck'].some(k=>(h[k]??0)>(g[k]??0))||(h.speed??0)<(g.speed??0)));
   }
+  // Of one piece of gear only the highest rarity (then enhancement) copy is a
+  // possible upgrade; lower copies are surplus even before they can be worn.
+  const rank=id=>Math.floor(id%data.plusScale/data.rarityScale)*1000+Math.floor(id/data.plusScale);
+  const superseded=id=>[...stock.values()].some(row=>row.itemId!==id&&planner.base(row.itemId)===planner.base(id)&&
+    row.bank+row.pack+row.worn+row.overflow>0&&rank(row.itemId)>rank(id));
   const items=[...stock.values()].map(row=>{
     const id=row.itemId,base=planner.base(id),g=planner.equipmentStats(id);
     const total=row.bank+row.pack+row.worn+row.overflow;
@@ -141,9 +146,11 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
     if(protectedReason)reason=protectedReason;
     else if(locked.has(id)||lockedVariants.has(id%data.plusScale))reason='装备方案／当前打造或强化目标';
     else if(marketOnly) {
-      if(dominated(g)) {
-        keep=row.worn;reason='已有属性全面更好且可穿戴的替代装备；按原品质和强化等级仅售市场';
-      } else reason='尚无可用装备完全替代，保留品质／强化装备';
+      keep=row.worn;
+      if(superseded(id))reason='已持有同款更高品质／强化的一件；按原品质和强化等级仅售市场';
+      else if(!relevant(g))reason='非所选职业装备，不会成为升级；按原品质和强化等级仅售市场';
+      else if(dominated(g))reason='已有属性全面更好且可穿戴的替代装备；按原品质和强化等级仅售市场';
+      else {keep=Math.max(1,keep);reason='同款最高品质且可能成为升级，保留一件；重复的仅售市场';}
     }
     else if(seeds.has(base))reason='种子用于持续补种，不作为普通盈余出售';
     else if(data.items[base]?.heals) {keep=Math.min(total,budget.items[base]??50);reason='保留至少三趟战斗食物及当前计划需要量';}
@@ -159,10 +166,11 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
     else if(base===70) {keep=0;category='可卖候选';reason='烧焦食物，出售回收金币';}
     else if(g) {
       keep=row.worn;
-      if(relevant(g)&&!dominated(g))keep=Math.max(1,keep);
+      if(relevant(g)&&!dominated(g)&&!superseded(id))keep=Math.max(1,keep);
       keep=Math.min(total,keep);
       category=keep<total?'可卖候选':'保留';
-      reason=!relevant(g)?'非所选职业的普通成品；已穿戴和套装引用另行保护':
+      reason=superseded(id)?'已持有同款更高品质的一件；普通品质的出售':
+        !relevant(g)?'非所选职业的普通成品；已穿戴和套装引用另行保护':
         dominated(g)?'已有同位置且可替代的更好装备；已穿戴的仍保留':
         '保留一件未被现有装备替代的工具／本职业装备，重复成品可处理';
     }

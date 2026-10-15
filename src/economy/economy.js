@@ -178,10 +178,11 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
     const capacitySale=autoSell!==true&&capacitySales===true&&capacity.freeSlots<=0;
     // A task chosen for its sale income sells those outputs even with everyday
     // selling off; the usual keep amounts and protections still apply.
-    // Crafted training output: only common quality (higher rarities are always
-    // kept) and only the surplus above plan needs, working stock and reserves.
+    // Crafted training output above plan needs, working stock and reserves.
+    // Of gear, one copy of the highest rarity that could still be an upgrade is
+    // kept; other rarity/enhanced copies go to the market only.
     const craftedSurplus=sellCrafted===true&&autoSell!==true&&!capacitySale?
-      inspected.items.filter(i=>i.sell>0&&!i.marketOnly&&i.itemId===planner.base(i.itemId)&&craftedIds.has(i.itemId)).map(i=>i.itemId):[];
+      inspected.items.filter(i=>i.sell>0&&(i.marketOnly||i.itemId===planner.base(i.itemId))&&craftedIds.has(planner.base(i.itemId))).map(i=>i.itemId):[];
     const profitItems=new Set([...(goal?.saleItems??[]),...craftedSurplus]);
     const profitSale=autoSell!==true&&!capacitySale&&profitItems.size>0;
     const saleFlags=capacitySale?{capacitySale:true}:profitSale?{profitSale:true}:{};

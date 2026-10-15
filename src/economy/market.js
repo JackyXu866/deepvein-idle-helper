@@ -747,7 +747,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     if(equipmentSale) {
       const row=reviewInventory(data,planner,before,equipmentSale.goal,equipmentSale.profession).items.find(i=>i.itemId===intent.itemId);
       const offer=equipmentOffer(before,intent.itemId,intent.qty,quotes.get(intent.itemId));
-      if(state.attempt||!salesEnabled&&!(capacitySalesEnabled&&plan.capacitySale)||!row?.marketOnly||row.sellFromBank<intent.qty||
+      if(state.attempt||!salesEnabled&&!(capacitySalesEnabled&&plan.capacitySale)&&plan.profitSale!==true||!row?.marketOnly||row.sellFromBank<intent.qty||
         !valid(intent.qty)||!offer||offer.price!==intent.price||offer.qty<intent.qty||!planner.nearBank(before)||
         before.route||before.path?.length||!slots(before)||hasOrder(intent.itemId))return false;
     }
