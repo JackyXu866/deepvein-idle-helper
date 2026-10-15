@@ -45,11 +45,18 @@ export function createWorldBoss(data,now=()=>Date.now()){
   let boss=null,run=null,external=false,externalUntil=null,ignored=null,lastDeath=null,lastResult=null;
   let tick=0,received=now(),fresh=false,playerId=null,snapshotAt=0,visibleBossId=null,observationSince=now();
   let nextRise=null; // server tick of the next announced spawn (`bossNext`)
+  // Rounds are counted explicitly: a new spawn always starts a new round, and
+  // `ignored` names a round, so a reused entity id or a stale key can never
+  // make a fresh spawn look already done. `restoredIgnoredKey` carries a done
+  // round across a page reload, matched once against the next announcement.
+  let round=0,restoredIgnoredKey=null;
   const currentTick=()=>tick+Math.max(0,now()-received)/(data.tickMs??600);
   const recentActivity=()=>fresh&&run?.stage==='fighting'&&Number.isFinite(run.lastActivityAt)&&
     now()>=run.lastActivityAt&&now()-run.lastActivityAt<=30000;
   const key=b=>b?`${b.name}:${b.until??`entity:${b.id}`}`:null;
-  const skipped=()=>!run&&!external&&!!boss&&fresh&&ignored===key(boss)&&
+  // Tag mode leaves after a confirmed hit: that round counts as joined, not skipped.
+  const participated=()=>!!boss&&lastResult?.round===round&&lastResult.hit===true;
+  const skipped=()=>!run&&!external&&!!boss&&fresh&&ignored===round&&!participated()&&
     (boss.until==null||currentTick()<boss.until);
   const ownQueue=p=>!!run&&p.id===run.playerId&&!!run.expectedQueue&&
     p.held===true&&p.raidHeld===true&&!p.route&&same(p.queue??[],run.expectedQueue);
@@ -68,10 +75,10 @@ export function createWorldBoss(data,now=()=>Date.now()){
     run.expectedQueue=copy(actual);run.savedConfirmed=true;return true;
   }
   function recordResult(reason){
-    if(run)lastResult={name:run.name,attackSent:run.attackSent??null,hit:run.hit===true,
+    if(run)lastResult={name:run.name,attackSent:run.attackSent??null,hit:run.hit===true,round:run.round,
       reason:run.reason??reason??'角色已返回工作或原任务状态已改变，结束本轮接管',endedAt:run.endedAt??now()};
   }
-  function finish(){recordResult();if(run)ignored=run.key;run=null;}
+  function finish(){recordResult();if(run)ignored=run.round;run=null;}
   function end(reason){
     if(!run||['ended','resuming'].includes(run.stage))return;
     run.stage='ended';run.reason=reason;run.endedAt=now();
@@ -79,7 +86,7 @@ export function createWorldBoss(data,now=()=>Date.now()){
   function cancel(reason='调度暂停或玩家接管，结束本轮自动参与'){
     recordResult(reason);
     if(run){
-      ignored=run.key;external=external||['fighting','dead'].includes(run.stage)||run.stage==='attacking'&&run.attackSent===true;
+      ignored=run.round;external=external||['fighting','dead'].includes(run.stage)||run.stage==='attacking'&&run.attackSent===true;
       if(external)externalUntil=run.until??externalUntil;
     }
     run=null;
@@ -108,10 +115,11 @@ export function createWorldBoss(data,now=()=>Date.now()){
       if(m.t==='bossRose'&&point(m)&&typeof m.name==='string'&&Number.isFinite(m.until)){
         const previous=boss;
         const sameRound=previous?.name===m.name&&(previous.until==null||previous.until===m.until);
-        if(!sameRound)visibleBossId=null;
+        if(!sameRound){visibleBossId=null;round++;}
         boss={name:m.name,x:m.x,y:m.y,until:m.until,id:sameRound?previous.id:null};fresh=true;
         const promoted=previous?.name===boss.name&&previous.until==null;
-        if(promoted&&ignored===key(previous))ignored=key(boss);
+        if(restoredIgnoredKey!==null){if(key(boss)===restoredIgnoredKey)ignored=round;restoredIgnoredKey=null;}
+        if(run&&run.round==null&&run.key===key(boss))run.round=round;
         if(promoted&&external)externalUntil=boss.until;
         if(run&&run.until==null&&run.name===boss.name){run.until=boss.until;run.key=key(boss);}
         if(run&&run.key!==key(boss))end('本轮世界 Boss 已结束');
@@ -120,6 +128,7 @@ export function createWorldBoss(data,now=()=>Date.now()){
       if(m.t==='enter'&&m.player?.kind==='boss'&&point(m.player)&&typeof m.player.name==='string'){
         const b=m.player;
         if(!(b.hpRemaining<=0)){
+          if(boss?.name!==b.name)round++; // first sighting of a new spawn
           boss={name:b.name,x:b.x,y:b.y,id:b.id,until:boss?.name===b.name?boss.until:null};fresh=true;
           visibleBossId=b.id;
           if(run&&run.name===b.name&&run.until!=null)boss.until=run.until;
@@ -131,13 +140,14 @@ export function createWorldBoss(data,now=()=>Date.now()){
       }
       if(m.t==='leave'&&m.id===visibleBossId)visibleBossId=null;
       if(m.t==='bossGone'||m.t==='bossHp'&&m.hpRemaining===0&&boss){
-        boss=null;fresh=false;external=false;visibleBossId=null;
+        // The round is over: nothing carries into the next spawn.
+        boss=null;fresh=false;external=false;visibleBossId=null;ignored=null;
         if(run)end('Boss 已结束，等待原生恢复原任务');
       }
       if(m.t==='raidHit'||m.t==='raidRejoined'){
         if(run&&['attacking','fighting'].includes(run.stage)){
           run.stage='fighting';run.lastActivityAt=now();if(m.damage>0)run.hit=true;
-        }else if(!run&&(m.t==='raidRejoined'||external||boss&&ignored!==key(boss)||ignored===null)){
+        }else if(!run&&(m.t==='raidRejoined'||external||boss&&ignored!==round||ignored===null)){
           // A late hit from our finished round is not proof of a new unbounded raid.
           external=true;externalUntil=boss?.until??null;
         }
@@ -218,7 +228,7 @@ export function createWorldBoss(data,now=()=>Date.now()){
       return action({t:'walk',x:boss.x,y:boss.y},'前往服务器公布的 Boss 出生位置');
     }
     if(external||p.raidHeld)return wait('玩家正在参加世界 Boss，助手不接管也不收菜打断');
-    if(!fresh||!boss||ignored===key(boss))return null;
+    if(!fresh||!boss||ignored===round)return null;
     const remaining=boss.until==null?null:boss.until-currentTick(),steps=Math.max(0,distance(p,boss)-3);
     if(remaining!==null&&remaining<Math.max(15,steps*2+10))return null;
     if(remaining===null&&steps>0)return null;
@@ -232,7 +242,7 @@ export function createWorldBoss(data,now=()=>Date.now()){
     if(!intent||!p)return;
     if(!run&&['setAside','walk','attackWorldBoss'].includes(intent.t)&&boss&&fresh){
       lastResult=null;
-      run={key:key(boss),name:boss.name,until:boss.until,playerId:p.id,stage:'ready',
+      run={key:key(boss),round,name:boss.name,until:boss.until,playerId:p.id,stage:'ready',
         startedAt:now(),startTick:p.lastTick,sentAt:now(),progressAt:now(),position:{x:p.x,y:p.y},
         beforeQueue:copy(p.queue??[]),expectedQueue:null,hit:false,attackSent:false,lastActivityAt:null};
       if(intent.t==='setAside'&&intent.raid&&p.route)run.expectedQueue=[savedTask(p),...copy(p.queue??[])];
@@ -251,10 +261,10 @@ export function createWorldBoss(data,now=()=>Date.now()){
   function manualAction(intent){
     if(!intent)return;
     if(intent.t==='attackWorldBoss'){cancel();external=true;externalUntil=boss?.until??externalUntil;return;}
-    if(intent.t==='leaveWorldBoss'){cancel();external=false;ignored=key(boss);return;}
+    if(intent.t==='leaveWorldBoss'){cancel();external=false;ignored=boss?round:null;return;}
     if(['queue','unqueue','moveQueued'].includes(intent.t)){cancel();return;}
     if(['walk','setRoute','fight','clearRoute','setAside','startQueued','skip','enhance'].includes(intent.t)){
-      cancel();external=false;ignored=key(boss);
+      cancel();external=false;ignored=boss?round:null;
     }
   }
   function retryNativeJoin(p){
@@ -276,27 +286,33 @@ export function createWorldBoss(data,now=()=>Date.now()){
     ownsDeath:value=>lastDeath?.playerId===playerId&&lastDeath.tick===(typeof value==='number'?value:value?.tick),
     status:()=>({participation,name:boss?.name??run?.name??null,active:!!boss&&fresh&&
       (boss.until==null||currentTick()<boss.until),visible:fresh&&visibleBossId!=null&&visibleBossId===boss?.id,
-      phase:run?.stage??(external?'manual':'watching'),skipped:skipped(),
+      phase:run?.stage??(external?'manual':'watching'),skipped:skipped(),participated:participated(),
       hit:run?.hit??false,recentActivity:recentActivity()===true,lastActivityAt:run?.lastActivityAt??null,
       owned:!!run,until:boss?.until??run?.until??null,lastResult:copy(lastResult),
       nextIn:nextRise!=null&&nextRise>currentTick()?(nextRise-currentTick())*(data.tickMs??600)/1000:null}),
-    save:()=>copy({v:1,participation,boss,run,external,externalUntil,ignored,lastDeath,playerId,lastResult}),
+    // Round numbers restart with the page, so a done round is saved by its key,
+    // and only an announced one (with an end time) is ever matched again.
+    save:()=>copy({v:1,participation,boss,run,external,externalUntil,lastDeath,playerId,lastResult,
+      ignoredKey:ignored!==null&&ignored===round&&boss?.until!=null?key(boss):null}),
     restore(value){
       if(value?.v!==1)return;
       setParticipation(value.participation);
       boss=null;fresh=false;visibleBossId=null;observationSince=now();
-      external=value.external===true;ignored=typeof value.ignored==='string'?value.ignored:null;
+      external=value.external===true;ignored=null;
+      const savedKey=typeof value.ignoredKey==='string'?value.ignoredKey:typeof value.ignored==='string'?value.ignored:null;
+      restoredIgnoredKey=savedKey&&!savedKey.includes(':entity:')?savedKey:null;
       externalUntil=Number.isFinite(value.externalUntil)?value.externalUntil:null;
       playerId=value.playerId??null;lastDeath=value.lastDeath??null;
       const result=value.lastResult;
       lastResult=result&&typeof result.name==='string'&&typeof result.reason==='string'&&
         Number.isFinite(result.endedAt)&&(result.attackSent===null||typeof result.attackSent==='boolean')&&
-        typeof result.hit==='boolean'?copy(result):null;
+        typeof result.hit==='boolean'?{...copy(result),round:null}:null;
       const r=value.run;
       if(r&&Number.isFinite(r.playerId)&&typeof r.key==='string'&&Number.isFinite(r.startedAt)&&
         ['ready','saving','moving','attacking','fighting','dead','ended','resuming'].includes(r.stage)&&
         Array.isArray(r.beforeQueue)&&(r.expectedQueue===null||Array.isArray(r.expectedQueue))){
         run=copy(r);
+        run.round=null; // re-linked when the announcement for run.key arrives
         // A queued UI callback dies with its page. Only an explicitly unsent
         // join can be retried after new welcome/Boss snapshots validate the run.
         if(run.stage==='attacking'&&run.nativeJoinPending&&run.attackSent===false){run.stage='ready';run.nativeJoinPending=false;}

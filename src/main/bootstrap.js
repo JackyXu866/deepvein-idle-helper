@@ -2863,7 +2863,8 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
         (boss.hit?'曾命中，等待新的参战回报':'等待新的参战回报'),dead:'本轮已阵亡，保留贡献并等待结束',
       ended:'本轮结束，等待恢复原任务',resuming:'恢复原任务中',manual:'玩家正在参战，助手让行',watching:'等待可参与机会'};
     const lastBoss=boss.lastResult;
-    panel.querySelector('[data-boss]').textContent=boss.name?`世界 Boss：${boss.name} · ${boss.skipped?'本轮已跳过，可手动重新尝试':bossPhase[boss.phase]??'等待状态'}`:
+    panel.querySelector('[data-boss]').textContent=boss.name?`世界 Boss：${boss.name} · ${boss.participated&&boss.phase==='watching'?'本轮已确认有效伤害并按策略离开，等待结算':
+      boss.skipped?'本轮已跳过，可手动重新尝试':bossPhase[boss.phase]??'等待状态'}`:
       lastBoss?`世界 Boss 上轮：${lastBoss.name} · ${lastBoss.hit?'服务器已确认命中':lastBoss.attackSent===true?'已请求加入，未收到有效命中确认':lastBoss.attackSent===false?'未请求加入':'旧版记录，加入请求未知'}；${lastBoss.reason}`:
       '世界 Boss：等待服务器公布';
     panel.querySelector('[data-boss-retry]').hidden=!boss.skipped;
