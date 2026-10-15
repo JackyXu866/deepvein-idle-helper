@@ -12,17 +12,26 @@ export function createStrategy(data, planner) {
     .sort((a,b)=>distance(p,a)-distance(p,b))[0];
   let measurements={};
   const setMeasurements=value=>{measurements=value??{};};
-  function calibrated(p,key,e,lv) {
+  // The measurement (real or simulated) that applies to this state, or null.
+  function usableMeasurement(p,key,lv=planner.levels(p)) {
     const m=measurements[key];
     const working=m?m.seconds-(m.travelSeconds??0):0;
-    if (!m||m.samples<3||working<60) return e;
+    if (!m||m.samples<3||working<60) return null;
     // Observed rates already include their buffs. Legacy records describe only
     // an unbuffed snapshot; never carry a temporary bonus into another state.
-    if((m.buffKey??buffKey(data,{...p,brews:{}}))!==buffKey(data,p))return e;
+    if((m.buffKey??buffKey(data,{...p,brews:{}}))!==buffKey(data,p))return null;
     const equipmentKey=JSON.stringify(Object.keys(p.equipment).sort().map(k=>[k,p.equipment[k]]));
     const job=key.startsWith('job:')&&jobs.find(j=>j.id===Number(key.split(':')[1]));
     const levelsKey=JSON.stringify((job?[job.skill]:['melee','ranged','magic','defence','hitpoints']).map(s=>[s,lv[s]]));
-    if (m.equipmentKey!==equipmentKey||m.levelsKey!==levelsKey) return e;
+    if (m.equipmentKey!==equipmentKey||m.levelsKey!==levelsKey) return null;
+    return m;
+  }
+  // Where a candidate's rate comes from: 'measured', 'simulated' or 'formula'.
+  const rateSource=(p,key)=>{const m=usableMeasurement(p,key);return !m?'formula':m.simulated?'simulated':'measured';};
+  function calibrated(p,key,e,lv) {
+    const m=usableMeasurement(p,key,lv);
+    if (!m) return e;
+    const working=m.seconds-(m.travelSeconds??0);
     // Remove observed travel before adding this candidate's separate travel
     // estimate. Do not infer faster material production from an XP bonus.
     const xp=m.xp??m.xpPerSecond*m.seconds,coins=m.coins??m.coinsPerSecond*m.seconds;
@@ -294,5 +303,5 @@ export function createStrategy(data, planner) {
     }
     return goal;
   }
-  return {chooseGoal,candidates,routeEstimate,estimateWork,combatOptions,setMeasurements,supplyCost,horizon};
+  return {chooseGoal,candidates,routeEstimate,estimateWork,combatOptions,setMeasurements,supplyCost,horizon,rateSource};
 }

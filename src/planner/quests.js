@@ -106,5 +106,15 @@ export function createQuests(data,planner) {
     const q=read(p).find(q=>q.key===goal.quest.key);
     return !q||q.claimed||q.remaining===0;
   }
-  return {read,claim,chooseGoal,completed,reroll};
+  // For the plan panel: every open quest with its estimate or refusal reason.
+  function overview(p,style='magic') {
+    return read(p).filter(q=>!q.claimed).map(q=>{
+      const base={key:q.key,period:q.period,title:title(q)??q.id,done:q.done,goal:q.goal,remaining:q.remaining};
+      if(!q.remaining)return {...base,status:'可领取'};
+      const check=feasibility(p,q,style);
+      return check.ok?{...base,status:'可完成',seconds:check.seconds,buys:Object.keys(check.estimate?.purchases??{}).length}:
+        {...base,status:check.reason};
+    });
+  }
+  return {read,claim,chooseGoal,completed,reroll,overview};
 }

@@ -11,7 +11,7 @@ import {createSpecialization} from './specialization.js';
 import {createQuests} from './quests.js';
 import {createHousing} from './housing.js';
 import {planGatheringSurplus} from './gathering-surplus.js';
-import {choosePerk} from './perks.js';
+import {choosePerk, perkOverview} from './perks.js';
 import {HOT_FOLLOW_SKILLS, hotSkillAt, hotWindows} from '../runtime/hot-follow.js';
 
 export const NAMES = {
@@ -1186,7 +1186,7 @@ export function createPlanner(data) {
   const strategy=createStrategy(data,api);
   api.crafting=createCrafting(data,api);
   Object.assign(api,{chooseGoal:strategy.chooseGoal,routeEstimate:strategy.routeEstimate,
-    candidates:strategy.candidates,estimateWork:strategy.estimateWork,setMeasurements:strategy.setMeasurements,
+    candidates:strategy.candidates,estimateWork:strategy.estimateWork,setMeasurements:strategy.setMeasurements,rateSource:strategy.rateSource,
     acquireEstimate:(p,id,qty,style='magic')=>rarity(id)>0?api.crafting.estimate(
       {...p,bank:{...p.bank,[id]:0},pack:p.pack.filter(i=>i.itemId!==id)},id,qty,{buy:true}):
       strategy.routeEstimate(p,{itemId:id},qty,{style}),
@@ -1215,5 +1215,6 @@ export function createPlanner(data) {
         this.growthChooseGoal??this.chooseGoal)(p,served,deferred,style,mainTrade,mainJobId,mainMonsterId);
     },
     questRead:quests.read,questClaim:quests.claim,questChooseGoal:quests.chooseGoal,questCompleted:quests.completed,
-    questReroll:quests.reroll,perkPurchase:(p,goal,style)=>choosePerk(api,p,goal,style,{usage:api.perkUsage})});
+    questReroll:quests.reroll,questOverview:quests.overview,
+    perkOverview:(p,goal,style)=>perkOverview(api,p,goal,style,{usage:api.perkUsage}),perkPurchase:(p,goal,style)=>choosePerk(api,p,goal,style,{usage:api.perkUsage})});
 }

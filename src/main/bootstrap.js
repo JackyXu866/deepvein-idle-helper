@@ -6,6 +6,7 @@ import {PROFESSIONS, professionSkill} from '../planner/professions.js';
 import {POTIONS, activeBuffs} from '../planner/supplies.js';
 import {createEnhancementTraining} from '../planner/enhancement.js';
 import {MAIN_TRADES} from '../planner/specialization.js';
+import {planView} from '../planner/plan-view.js';
 import {HOUSE_ACTIONS} from '../planner/housing.js';
 import {NAMES, createPlanner} from '../planner/planner.js';
 import {createEconomy} from '../economy/economy.js';
@@ -232,12 +233,19 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
       settings:planningSettings(),storage,storageUnavailable,deferBoss,
       ...(engine.ready&&engine.workerId!==engine.client?{engine:{id:engine.client,factory:engine.factory}}:{}),
       details:{inventory:!!panel?.querySelector('[data-economy-details]')?.open,
-        equipment:!!panel?.querySelector('[data-equipment-details]')?.open}};
+        equipment:!!panel?.querySelector('[data-equipment-details]')?.open,plan:planDetailsWanted()}};
+  }
+  // The plan view ranks every candidate (~50 ms); compute it only while the
+  // 计划 tab, or the 策略 tab with its profit-floor suggestions, is showing.
+  function planDetailsWanted() {
+    const selected=id=>panel?.querySelector(`#${id}`)?.getAttribute('aria-selected')==='true';
+    return selected('dv-tab-plan')||selected('dv-tab-strategy')&&trainer.mode==='experience';
   }
   const viewKey=()=>JSON.stringify([trainer.player?.id,trainer.style,trainer.mode,trainer.mainTrade,trainer.mainJobId,
     trainer.mainMonsterId,trainer.player?.skills,trainer.player?.bank,trainer.player?.pack,trainer.player?.equipment,
     trainer.player?.plots,trainer.goal,planner.farmingPreference(),
-    !!panel?.querySelector('[data-economy-details]')?.open,!!panel?.querySelector('[data-equipment-details]')?.open]);
+    !!panel?.querySelector('[data-economy-details]')?.open,!!panel?.querySelector('[data-equipment-details]')?.open,
+    planDetailsWanted(),profitFloor]);
   if(background)trainer.scheduleAdvance=deferBoss=>{
     if(background.busy)return;
     const input=planningInput(deferBoss),guard=planningGuard(trainer,planner,market,planningSettings());
@@ -1460,6 +1468,18 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
         header { padding-top: 10px; }
         .brand strong { font-size: 13px; }
       }
+      .plan-scroll { overflow-x: auto; }
+      .plan-table { width: 100%; border-collapse: collapse; font-size: 11px; font-variant-numeric: tabular-nums; }
+      .plan-table th, .plan-table td { padding: 3px 4px; text-align: right; border-bottom: 1px solid var(--edge); white-space: nowrap; }
+      .plan-table th:first-child, .plan-table td:first-child { text-align: left; white-space: normal; }
+      .plan-table th { color: var(--ink-muted); font-weight: 600; }
+      .plan-table tr[data-chosen="true"] td { color: var(--brass-bright); font-weight: 700; }
+      .plan-source { font-size: 10px; padding: 0 4px; border-radius: 3px; border: 1px solid var(--edge); color: var(--ink-muted); }
+      .plan-source[data-source="simulated"] { border-color: #c79352; color: var(--brass-bright); }
+      .plan-source[data-source="measured"] { border-color: #6fae6f; color: #9fd49f; }
+      .suggestions { display: grid; gap: 4px; }
+      .suggestions button { text-align: left; font-size: 11px; padding: 4px 6px; }
+      .suggestions button[aria-pressed="true"] { border-color: #c79352; color: var(--brass-bright); }
     </style><section aria-label="自给成长与职业助手">
       <header>
         <div class="brand">
@@ -1491,6 +1511,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
       <div class="body">
         <div class="tab-strip" role="tablist" aria-label="控制台分区标签">
           <button role="tab" id="dv-tab-overview" aria-controls="dv-panel-overview" aria-selected="true" tabindex="0">总览</button>
+          <button role="tab" id="dv-tab-plan" aria-controls="dv-panel-plan" aria-selected="false" tabindex="-1">计划</button>
           <button role="tab" id="dv-tab-strategy" aria-controls="dv-panel-strategy" aria-selected="false" tabindex="-1">策略</button>
           <button role="tab" id="dv-tab-target" aria-controls="dv-panel-target" aria-selected="false" tabindex="-1">目标</button>
           <button role="tab" id="dv-tab-stats" aria-controls="dv-panel-stats" aria-selected="false" tabindex="-1">数据</button>
@@ -1529,6 +1550,25 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
             <p data-last-rejection class="notice" hidden></p>
           </div>
 
+          <div role="tabpanel" id="dv-panel-plan" aria-labelledby="dv-tab-plan" tabindex="0" hidden>
+            <div class="current">
+              <p class="label">当前由谁决定</p>
+              <p data-plan-layer>等待规划</p>
+              <p data-plan-action></p>
+              <p data-plan-goal class="muted"></p>
+            </div>
+            <div class="card">
+              <div class="card-heading"><strong>候选比较</strong><span data-plan-basis></span></div>
+              <div data-plan-candidates class="plan-scroll"></div>
+              <p class="fine-print">每小时数值已含供料与往返。来源：引擎＝游戏自身引擎按当前角色模拟；实测＝本次运行测得；公式＝估算。★ 为当前选择；优先级更高的每日任务、Boss、物品目标会先执行。</p>
+            </div>
+            <div class="card">
+              <div class="card-heading"><strong>任务与点数</strong></div>
+              <div data-plan-quests></div>
+              <p data-plan-points class="muted"></p>
+            </div>
+          </div>
+
           <div role="tabpanel" id="dv-panel-strategy" aria-labelledby="dv-tab-strategy" tabindex="0" hidden>
             <details data-settings-details open>
               <summary>成长设置<span data-settings-summary class="muted"></span></summary>
@@ -1550,6 +1590,8 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
                 <div data-profit-floor-controls hidden>
                   <label>最低收益（金币/小时）<input type="number" min="0" step="100" inputmode="numeric" data-profit-floor aria-label="最低收益（金币/小时）"></label>
                   <p class="muted setting-note">只选择收益不低于此值的工作，再比经验；出售收入按当前买单扣税估算，需开启自动出售。都达不到时改做最赚钱的工作。0 为不限制。</p>
+                  <p class="label">按当前角色的建议（点击使用）</p>
+                  <div data-profit-suggestions class="suggestions"><p class="muted setting-note">打开本页后计算…</p></div>
                 </div>
                 <div data-hot-follow-controls hidden>
                   <p data-hot-unavailable class="muted setting-note" hidden></p>
@@ -1780,12 +1822,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
       catch {trainer.log('策略已切换，但无法保存偏好；刷新后默认均衡成长');}
       render();
     };
-    panel.querySelector('[data-profit-floor]').onchange=event=>{
-      profitFloor=validProfitFloor(Number(event.currentTarget.value));planner.profitFloor=profitFloor;
-      try {localStorage.setItem(profitFloorKey,String(profitFloor));}
-      catch {trainer.log('最低收益设置无法保存，刷新后恢复为不限制');}
-      render();
-    };
+    panel.querySelector('[data-profit-floor]').onchange=event=>setProfitFloor(Number(event.currentTarget.value));
     panel.querySelector('[data-main-trade]').onchange=event=>{
       if(trainer.mode==='business'){++startCheck;checking=false;}
       trainer.setMainTrade(event.currentTarget.value);
@@ -1911,7 +1948,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     const tablist=panel.querySelector('[role="tablist"]');
     tablist.onclick=event=>{
       const tab=event.target.closest('[role="tab"]');
-      if(tab)switchTab(tab.id);
+      if(tab){switchTab(tab.id);render();}
     };
     tablist.onkeydown=event=>{
       const tab=event.target.closest('[role="tab"]');
@@ -1925,7 +1962,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
       else if(event.key==='End') nextIndex=tabs.length-1;
       if(nextIndex!==null){
         event.preventDefault();
-        switchTab(tabs[nextIndex].id,true);
+        switchTab(tabs[nextIndex].id,true);render();
       }
     };
 
@@ -2413,6 +2450,67 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     updates.check();
     prepareData().then(()=>{if(trainer.recovery||trainer.active)pump();prepareEngine();});
   }
+  function setProfitFloor(value) {
+    profitFloor=validProfitFloor(value);planner.profitFloor=profitFloor;
+    try {localStorage.setItem(profitFloorKey,String(profitFloor));}
+    catch {trainer.log('最低收益设置无法保存，刷新后恢复为不限制');}
+    render();
+  }
+  const SOURCE_LABELS={simulated:'引擎',measured:'实测',formula:'公式'};
+  const fmt=n=>Number.isFinite(n)?Math.round(n).toLocaleString('zh-CN'):'—';
+  const el=(tag,props={},children=[])=>{const node=Object.assign(document.createElement(tag),props);node.append(...children);return node;};
+  // Rebuild a container only when its content changed (render runs every second).
+  function fill(selector,signature,build) {
+    const box=panel.querySelector(selector);
+    if(!box||box.dataset.signature===signature)return;
+    box.dataset.signature=signature;box.replaceChildren(...build());
+  }
+  function renderPlan(view) {
+    const set=(selector,text)=>{const node=panel.querySelector(selector);if(node&&node.textContent!==(text??''))node.textContent=text??'';};
+    if(!view) {
+      set('[data-plan-layer]',trainer.player?'正在计算计划…':'等待游戏状态');
+      return;
+    }
+    set('[data-plan-layer]',view.layer);
+    set('[data-plan-action]',view.action?.label?`${view.action.label}${view.action.reason?`：${view.action.reason}`:''}`:view.message??'');
+    set('[data-plan-goal]',view.goal?`目标：${view.goal.label??''}${view.goal.target?` → ${view.goal.target} 级`:''}${view.goal.reason?`；${view.goal.reason}`:''}`:'尚未选择目标');
+    set('[data-plan-basis]',(view.mode==='business'?'按金币/时排序':'按经验/时排序')+(view.mode==='experience'&&view.profitFloor>0?` · 最低收益 ${fmt(view.profitFloor)}/时`:''));
+    fill('[data-plan-candidates]',JSON.stringify(view.candidates),()=>{
+      if(!view.candidates.length)return [el('p',{className:'muted',textContent:'暂无可比较的工作（等级、装备或供料条件不足）'})];
+      const head=el('tr',{},['任务','经验/时','金币/时','来源'].map(text=>el('th',{textContent:text})));
+      const rows=view.candidates.map(c=>{
+        const row=el('tr',{},[el('td',{textContent:`${c.chosen?'★ ':''}${c.label}`}),el('td',{textContent:fmt(c.xpH)}),
+          el('td',{textContent:fmt(c.coinsH)}),el('td',{},[el('span',{className:'plan-source',textContent:SOURCE_LABELS[c.source]??c.source})])]);
+        row.dataset.chosen=String(c.chosen);row.lastChild.firstChild.dataset.source=c.source;return row;
+      });
+      return [el('table',{className:'plan-table'},[el('thead',{},[head]),el('tbody',{},rows)])];
+    });
+    fill('[data-plan-quests]',JSON.stringify(view.quests),()=>view.quests.length?view.quests.map(q=>el('p',{className:'muted',
+      textContent:`${q.period==='daily'?'每日（必做）':'每周'} · ${q.title} ${q.done}/${q.goal} · ${q.status}`+
+        (q.seconds?` 约 ${Math.ceil(q.seconds/60)} 分钟`:'')+(q.buys?' · 含市场补料':'')})):
+      [el('p',{className:'muted',textContent:'今天的任务已全部领取'})]);
+    const perks=view.perks,mastery=view.mastery;
+    set('[data-plan-points]',[
+      perks?`任务点数 ${perks.points}`+(perks.next?(perks.next.affordable?
+        `：下一步兑换 ${perks.next.name} ${perks.next.rank} 级（${perks.next.cost} 点，效率 +${(perks.next.gain*100).toFixed(2)}%）`:
+        `：为 ${perks.next.name} ${perks.next.rank} 级攒点（需 ${perks.next.cost}，效率 +${(perks.next.gain*100).toFixed(2)}%）`):
+        '：常做的工作暂无可测收益的特权，点数保留'):null,
+      mastery?`精通点数可用 ${fmt(mastery.earned-mastery.spent)}（共获得 ${fmt(mastery.earned)}），按当前工作模拟收益分配`:'精通点数：引擎模拟启用后计算',
+    ].filter(Boolean).join('；'));
+  }
+  function renderSuggestions(view) {
+    fill('[data-profit-suggestions]',JSON.stringify([view?.frontier??null,profitFloor]),()=>{
+      if(!view)return [el('p',{className:'muted setting-note',textContent:trainer.player?'正在计算…':'等待游戏状态'})];
+      if(!view.frontier.length)return [el('p',{className:'muted setting-note',textContent:'暂无可比较的工作'})];
+      return view.frontier.map(point=>{
+        const button=el('button',{type:'button',textContent:`≥ ${fmt(point.floor)} 金币/时 → ${fmt(point.xpH)} 经验/时`+
+          (point.loss>.0005?`（经验 −${(point.loss*100).toFixed(1)}%）`:'（经验最高）')+` · ${point.label}`});
+        button.setAttribute('aria-pressed',String(point.floor===profitFloor));
+        button.onclick=()=>setProfitFloor(point.floor);
+        return button;
+      });
+    });
+  }
   function render() {
     bossLootChat.refresh();
     syncHotValidation();
@@ -2510,6 +2608,11 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     panel.querySelector('[data-profit-floor-controls]').hidden=trainer.mode!=='experience';
     const floorInput=panel.querySelector('[data-profit-floor]');
     if(document.activeElement!==floorInput)floorInput.value=String(profitFloor);
+    if(planDetailsWanted()) {
+      let view=null;
+      try{view=background?planningView?.plan??null:p?planView(GAME_DATA,planner,trainer,p):null;}catch{view=null;}
+      renderPlan(view);if(trainer.mode==='experience')renderSuggestions(view);
+    }
     panel.querySelector('[data-main-trade]').value=trainer.mainTrade;
     panel.querySelector('[data-main-job-controls]').hidden=trainer.mode!=='business'||['auto','combat'].includes(trainer.mainTrade);
     const mainJobSelect=panel.querySelector('[data-main-job]'),mainJobSignature=JSON.stringify(mainJobs);

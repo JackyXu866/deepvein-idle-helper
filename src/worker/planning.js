@@ -6,6 +6,7 @@ import {normalizeHotFollow} from '../runtime/hot-follow.js';
 import {Trainer} from '../runtime/trainer.js';
 import {engineApi, engineRates, engineReady, engineStatus, loadEngine, mergeRates} from '../engine/runtime.js';
 import {chooseMastery} from '../engine/mastery.js';
+import {planView} from '../planner/plan-view.js';
 
 // Only the decision phase is transferable. The page owns the socket, receipts,
 // transaction journal, Boss lifecycle and every actual command submission.
@@ -71,7 +72,8 @@ export function runPlanning(data,input,inspectOnly=false) {
     equipment:input.details.equipment?planner.equipmentStatus(p,trainer.style):null,
     growth:trainer.mode==='balanced'?planner.growthStatus(p,trainer.style,trainer.deferred):null,
     business:trainer.mode==='business'?planner.specializationStatus(p,trainer.style,trainer.mainTrade,trainer.mainJobId,trainer.mainMonsterId):null,
-    farming:planner.farmStatus(p)
+    farming:planner.farmStatus(p),
+    plan:input.details.plan?planView(data,planner,trainer,p,{boss:input.boss,engineApi:engineApi()}):null
   };
   return {decision:Object.fromEntries(decisionFields.map(key=>[key,trainer[key]])),active:trainer.active,proposal,commands,
     sync:{syncAfter:trainer.syncAfter,nextSync:trainer.nextSync,lastSync:trainer.lastSync},

@@ -53,17 +53,28 @@ function perkGain(planner,p,activities,style,id,metric) {
 // Buy only a perk with a measured gain on what this account does, and only
 // the best gain per point: if that perk is not affordable yet, save for it
 // rather than spend on a cheaper, weaker one.
-export function choosePerk(planner,p,goal=null,style='magic',{usage=null}={}) {
-  const points=p.questPoints;
-  if(!Number.isInteger(points)||points<=0||!p.perks||typeof p.perks!=='object')return null;
+function scorePerks(planner,p,goal,style,usage) {
   const activities=perkActivities(planner,goal,usage);
-  if(!activities.length)return null;
+  if(!activities.length)return [];
   const metric=goal?.specialization&&goal.rate?.coins>0?'coins':'xp';
-  const scored=PERKS.map(perk=>({perk,cost:nextPerkCost(p,perk.id)})).filter(row=>row.cost!=null)
+  return PERKS.map(perk=>({perk,cost:nextPerkCost(p,perk.id)})).filter(row=>row.cost!=null)
     .map(row=>({...row,gain:perkGain(planner,p,activities,style,row.perk.id,metric)}))
     .map(row=>({...row,value:row.gain/row.cost})).filter(row=>row.value>0)
     .sort((a,b)=>b.value-a.value);
-  const choice=scored[0];
+}
+
+// For the plan panel: points held and the perk they are going to.
+export function perkOverview(planner,p,goal=null,style='magic',{usage=null}={}) {
+  if(!Number.isInteger(p?.questPoints))return null;
+  const best=scorePerks(planner,p,goal,style,usage)[0];
+  return {points:p.questPoints,next:best?{name:best.perk.name,rank:perkRank(p,best.perk.id)+1,cost:best.cost,gain:best.gain,
+    affordable:best.cost<=p.questPoints}:null};
+}
+
+export function choosePerk(planner,p,goal=null,style='magic',{usage=null}={}) {
+  const points=p.questPoints;
+  if(!Number.isInteger(points)||points<=0||!p.perks||typeof p.perks!=='object')return null;
+  const choice=scorePerks(planner,p,goal,style,usage)[0];
   if(!choice||choice.cost>points)return null;
   const rank=perkRank(p,choice.perk.id)+1;
   return {intent:{t:'buyPerk',id:choice.perk.id},label:`任务点数兑换 · ${choice.perk.name} ${rank} 级`,
