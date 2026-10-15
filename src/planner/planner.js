@@ -587,21 +587,24 @@ export function createPlanner(data) {
       // whole stage (to its target level) before crafting, rather than one
       // level at a time. Business and fixed trades keep their time-bounded batches.
       const stagePlan=prepareBatch&&!!goal.development&&!goal.manualTrade&&!goal.specialization;
-      // Owned quality materials train through their own quality recipe
-      // (uncommon ore -> uncommon bars, more XP each); their XP is not
-      // gathered again as commons.
-      const qualityXp=job=>{
-        const key=`quality:${job.id}`;
-        if(!batchLimits.has(key))batchLimits.set(key,[1,2,3].reduce((n,tier)=>{
-          const recipe=craftRecipe(data,job,tier);
-          return recipe?n+api.crafting.available(p,job,tier,qualityReserve(),5000)*jobEstimate(recipe).xp:n;
-        },0));
+      // Crafts the owned materials support at each quality: a quality recipe
+      // pairs its inputs at that quality (uncommon bars need uncommon copper and
+      // tin), while plain inputs such as coal are shared.
+      const craftsAt=(job,tier)=>{
+        const key=`crafts:${job.id}:${tier}`;
+        if(!batchLimits.has(key))batchLimits.set(key,
+          craftRecipe(data,job,tier)?api.crafting.available(p,job,tier,qualityReserve(),5000):0);
         return batchLimits.get(key);
       };
-      const stageBatch=job=>{
-        const need=Math.max(1,thresholds[Math.min(goal.target??lv[skill]+1,thresholds.length-1)]-p.skills[skill]);
-        return Math.max(1,Math.ceil(Math.max(1,need-qualityXp(job))/jobEstimate(job).xp));
-      };
+      const ownedCrafts=job=>[0,1,2,3].reduce((n,tier)=>n+craftsAt(job,tier),0);
+      // Crafts the stage needs at common XP. Every higher quality gives more,
+      // so owned crafts of all qualities together reaching this number makes
+      // the stage certain: one total, no separate common target.
+      const stageCrafts=job=>Math.max(1,Math.ceil(Math.max(1,
+        thresholds[Math.min(goal.target??lv[skill]+1,thresholds.length-1)]-p.skills[skill])/jobEstimate(job).xp));
+      // Commons to hold so that the total reaches the stage (quality crafts
+      // already owned, including drops found while gathering, count).
+      const stageBatch=job=>Math.max(1,stageCrafts(job)-ownedCrafts(job)+craftsAt(job,0));
       const supplyBatch=job=>{
         if(stagePlan)return Math.max(carriedBatch(p,job),stageBatch(job));
         const seconds=jobTime(job)+job.inputs.reduce((n,i)=>n+i.qty*cost(i.itemId,trail),0);
@@ -679,20 +682,24 @@ export function createPlanner(data) {
       const betterSupply=cached?.inputs.length&&choices[0].inputs.some(i=>count(p,i.itemId)<i.qty*20&&
         Number.isFinite(api.marketUnitCost?.(p,i.itemId,Math.max(1,i.qty*20-count(p,i.itemId)))??Infinity))&&
         score(choices[0])>score(cached)*1.1;
-      // A stage starts with the quality materials already owned (no gathering
-      // needed); quality drops found while preparing are crafted once the
-      // common batch is done, so gathering is not interrupted for a few.
-      const quality=stagePlan&&!preparation?choices.filter(j=>j.rarity>0).sort((a,b)=>score(b)-score(a))[0]:null;
-      const job=quality??prepared??(betterQuality||betterSupply||changed&&!goal.specialization?choices[0]:(cached??choices[0]));
+      // Stage plan: gather until the owned crafts of every quality cover the
+      // stage, then craft them all, the higher qualities first (more XP each).
+      const stageBase=stagePlan?(prepared&&!prepared.rarity?prepared:cached&&!cached.rarity&&!changed?cached:
+        choices.find(j=>!j.rarity&&j.inputs.length&&!j.grow)):null;
+      const stageReady=!!stageBase&&ownedCrafts(stageBase)>=stageCrafts(stageBase);
+      if(stageReady)delete goal.craftPreparation;
+      const quality=stageReady?choices.filter(j=>j.rarity>0).sort((a,b)=>score(b)-score(a))[0]:null;
+      const job=quality??stageBase??prepared??(betterQuality||betterSupply||changed&&!goal.specialization?choices[0]:(cached??choices[0]));
       goal.recipeLevels[skill]=lv[skill];
       goal.recipes[skill]=job.id;
       goal.recipeRarities[skill]=job.rarity??0;
       let amount=!prepareBatch&&goal.recipeId===job.id?Math.min(goal.batch??50,Math.ceil(neededXp/jobEstimate(job).xp)):
         Math.ceil(neededXp/(job.grow?job.xp:jobEstimate(job).xp));
       if(goal.specialization&&!goal.quest&&skill===goal.mainSkill&&!trail.length)amount=prepareBatch?supplyBatch(job):goal.batch??50;
-      if(prepared)amount=preparation.amount;
-      // Whole stage: gather it all first; a partial stock does not start crafting.
-      else if(stagePlan&&job.inputs.length&&!job.grow&&!job.rarity)amount=stageBatch(job);
+      // Whole stage: until the total covers it, hold this many commons (it
+      // shrinks as quality drops arrive); once covered, craft every common owned.
+      if(stagePlan&&job===stageBase)amount=stageReady?Math.max(1,craftsAt(job,0)):stageBatch(job);
+      else if(prepared)amount=preparation.amount;
       else if(prepareBatch&&job.inputs.length&&!job.grow) {
         const available=job.inputs.map(i=>Math.floor(count(p,i.itemId)/i.qty));
         if(available.every(n=>n>0)) amount=Math.min(amount,...available);
@@ -720,7 +727,9 @@ export function createPlanner(data) {
         if(goal.craftPreparation?.jobId===job.id) {
           const quantity=goal.craftPreparation.amount;
           const materials=job.inputs.map(i=>`${name(i.itemId)} ${count(p,i.itemId)}/${i.qty*quantity}`).join('、');
-          result.reason=`本批制作 ${job.name} ×${quantity}；备料 ${materials}；${result.reason||result.label}`;
+          result.reason=(stagePlan&&job===stageBase?`本阶段到 ${goal.target} 级需 ${stageCrafts(job)} 次（按普通经验算，各品质合计），`+
+            `现有材料可做 ${ownedCrafts(job)} 次；采集到够再一起制作，高品质先做；`:`本批制作 ${job.name} ×${quantity}；`)+
+            `备料 ${materials}；${result.reason||result.label}`;
         }
       }
       return result;

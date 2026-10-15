@@ -32,12 +32,31 @@ test('with the stage in stock, crafting starts at once', () => {
   assert.equal(plan.intent?.jobId, bar.id);
 });
 
-test('owned quality materials are crafted first, through their quality recipe', () => {
-  const {planner, p, goal} = smith(20, (copper, tin, R) => ({[copper + R]: 300, [tin + R]: 300}));
+const stageCrafts = (planner, p, bar) => Math.ceil((planner.thresholds[25] - p.skills.smithing) / planner.estimateWork(p, bar).xp);
+
+test('quality materials count toward the stage total; only the rest is gathered as commons', () => {
+  const {planner, p, goal, bar} = smith(20, (copper, tin, R) => ({[copper + R]: 300, [tin + R]: 300}));
   const plan = planner.plan(p, goal, 'melee');
-  assert.ok(goal.recipeRarities.smithing > 0, 'a quality recipe is chosen');
+  const needed = stageCrafts(planner, p, bar);
+  assert.notEqual(plan.intent?.jobId, bar.id, 'not covered yet: no crafting');
+  assert.equal(goal.craftPreparation?.jobId, bar.id);
+  assert.ok(Math.abs(goal.craftPreparation.amount - (needed - 300)) <= 2,
+    `${goal.craftPreparation.amount} commons to hold = ${needed} for the stage - 300 uncommon pairs`);
+});
+
+test('once all qualities together cover the stage, crafting starts with the higher quality', () => {
+  const {planner, p, goal, bar} = smith(700, (copper, tin, R) => ({[copper + R]: 300, [tin + R]: 300}));
+  assert.ok(700 + 300 >= stageCrafts(planner, p, bar));
+  const plan = planner.plan(p, goal, 'melee');
+  assert.ok(goal.recipeRarities.smithing > 0, 'a quality recipe first');
   assert.equal(plan.intent?.rarity, 1, JSON.stringify(plan.intent));
-  assert.notEqual(goal.craftPreparation?.rarity ?? 1, 0, 'no common stage gathering yet');
+  assert.notEqual(goal.craftPreparation?.rarity ?? 1, 0, 'no common stage gathering pending');
+});
+
+test('pairs count, not loose quality ore: uncommon copper without uncommon tin adds nothing', () => {
+  const {planner, p, goal, bar} = smith(20, (copper, tin, R) => ({[copper + R]: 300}));
+  planner.plan(p, goal, 'melee');
+  assert.ok(Math.abs(goal.craftPreparation.amount - stageCrafts(planner, p, bar)) <= 2);
 });
 
 test('quality drops found while preparing do not interrupt the stage', () => {
