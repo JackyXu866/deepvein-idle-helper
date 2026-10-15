@@ -22,6 +22,9 @@ export const GUILD_REFUSALS=new Set(['guild-name','guild-tag','guild-name-taken'
   'guild-already-in','guild-not-in','guild-no-such-player','guild-full','guild-rank','guild-not-invited',
   'guild-leader-cannot-leave','guild-self','guild-not-material','guild-not-tradable','guild-bank-full','guild-short','guild-room-full']);
 export function isGuildRefusal(code) {return GUILD_REFUSALS.has(code);}
+// Optional quest-board actions. Their refusal codes are not reviewed, so a
+// refusal disables the action for a while instead of pausing the helper.
+export const SOFT_ACTIONS=new Set(['rerollQuest','buyPerk']);
 export const ROUTE_STOPS=new Set(['noMaterials','storageFull','unreachable','levelTooLow','noSuchSite']);
 export const quantity=(p,id)=>(p.bank[id]??0)+(p.overflow?.[id]??0)+p.pack.filter(i=>i.itemId===id).reduce((n,i)=>n+i.qty,0);
 export const equipmentProject=goal=>goal?.upgrade?.priority||goal?.toolUpgrade?.upgrade?.priority;
@@ -108,6 +111,9 @@ export function acknowledged(before, p, intent, data=null) {
         before.quests?.[period]?.some(q=>q.id===intent.id&&!q.claimed&&q.done>=q.goal)&&
         p.quests?.[period]?.some(q=>q.id===intent.id&&q.claimed===true);
     });
+    case 'rerollQuest': return before.quests?.day===p.quests?.day&&
+      before.quests?.daily?.some(q=>q.id===intent.id)===true&&!p.quests?.daily?.some(q=>q.id===intent.id);
+    case 'buyPerk': return (p.perks?.[intent.id]??0)>(before.perks?.[intent.id]??0);
     case 'enhance': return p.enhance?.itemId===intent.itemId || p.skills.enhancing>before.skills.enhancing;
     default: return false;
   }
@@ -118,6 +124,7 @@ export class Trainer {
     this.data=data; this.planner=planner; this.send=send; this.now=now;
     this.active=false; this.player=null; this.received=0; this.goal=null;
     this.pending=null; this.recentDeposit=null; this.served={}; this.deferred={}; this.questDeferred={}; this.waitingGoals={}; this.blockedReasons={}; this.sequence=0;
+    this.softRefused={};
     this.nextSync=0; this.nextAction=0; this.goalSince=0; this.bankedLoad=false;
     this.snapshotSequence=0; this.syncAfter=0; this.lastSync=-Infinity;
     this.message='等待登录后的游戏状态；安装后请刷新游戏';
@@ -460,6 +467,11 @@ export class Trainer {
           this.pending=null;this.resolution=null;this.syncAfter=this.snapshotSequence;this.nextSync=0;
           this.nextAction=this.now()+1000;
           this.log('房屋操作需要在家园内，已暂缓五分钟；同步位置后继续原任务');
+        } else if(this.active&&this.pending&&SOFT_ACTIONS.has(this.pending.intent.t)) {
+          this.softRefused[this.pending.intent.t]=this.now()+6*3600000;
+          this.log(`${this.pending.label} 被服务器拒绝（${String(message.code).slice(0,60)}）；6 小时内不再尝试，继续当前任务`);
+          this.pending=null;this.resolution=null;this.syncAfter=this.snapshotSequence;this.nextSync=0;
+          this.nextAction=this.now()+1000;
         } else if(this.active&&this.pending&&MARKET_ACTIONS.has(this.pending.intent.t)&&MARKET_REFUSALS.has(message.code)) {
           this.market?.rejected(message.code);
           this.checkCommand(`市场状态已变化：${message.code}`,message.code);
@@ -789,6 +801,12 @@ export class Trainer {
     const hotPreview=this.hotFollowStatus(p);
     const claim=hotPreview.active?null:this.planner.questClaim?.(p,this.style);
     if(claim?.intent)return this.issue(claim);
+    // Quest-board upkeep needs no travel and never interrupts the current task.
+    const softReady=t=>!((this.softRefused[t]??0)>this.now());
+    const reroll=softReady('rerollQuest')&&this.planner.questReroll?.(p,this.style);
+    if(reroll?.intent)return this.issue(reroll);
+    const perk=softReady('buyPerk')&&this.planner.perkPurchase?.(p,this.goal,this.style);
+    if(perk?.intent)return this.issue(perk);
     if(this.goal?.enhancementProject&&this.goal.enhancement&&
       p.equipment[this.goal.enhancement.slot]!==this.goal.enhancement.itemId&&!p.enhance) {
       this.served.enhancing=++this.sequence;this.goal=null;this.plan=null;

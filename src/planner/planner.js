@@ -11,6 +11,7 @@ import {createSpecialization} from './specialization.js';
 import {createQuests} from './quests.js';
 import {createHousing} from './housing.js';
 import {planGatheringSurplus} from './gathering-surplus.js';
+import {choosePerk} from './perks.js';
 import {HOT_FOLLOW_SKILLS, hotSkillAt, hotWindows} from '../runtime/hot-follow.js';
 
 export const NAMES = {
@@ -1196,5 +1197,6 @@ export function createPlanner(data) {
       return (mode==='business'?this.specialistChooseGoal:mode==='experience'?this.chooseGoal:
         this.growthChooseGoal??this.chooseGoal)(p,served,deferred,style,mainTrade,mainJobId,mainMonsterId);
     },
-    questRead:quests.read,questClaim:quests.claim,questChooseGoal:quests.chooseGoal,questCompleted:quests.completed});
+    questRead:quests.read,questClaim:quests.claim,questChooseGoal:quests.chooseGoal,questCompleted:quests.completed,
+    questReroll:quests.reroll,perkPurchase:(p,goal,style)=>choosePerk(api,p,goal,style)});
 }

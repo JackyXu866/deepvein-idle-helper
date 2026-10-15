@@ -11,7 +11,7 @@ import {NAMES, createPlanner} from '../planner/planner.js';
 import {createEconomy} from '../economy/economy.js';
 import {createMarket} from '../economy/market.js';
 import {createNativeBossJoinCapture} from '../runtime/world-boss.js';
-import {Trainer, acknowledged, isGuildRefusal} from '../runtime/trainer.js';
+import {SOFT_ACTIONS, Trainer, acknowledged, isGuildRefusal} from '../runtime/trainer.js';
 import {refreshGameData} from '../data/public-tables.js';
 import {validateIntent} from '../runtime/intents.js';
 import {createUpdateChecker} from '../ui/update-checker.js';
@@ -112,7 +112,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
   }
   rejections=readRejections();
   const diagnosticIntent=intent=>Object.fromEntries(Object.entries(intent).filter(([key])=>
-    ['t','itemId','jobId','siteId','zoneId','qty','price','floor','orderId','x','y','limit','errand','onFull','worn','toPlus','once','shelf','at','count','raid','index','room','cell','slot','dir'].includes(key)));
+    ['t','id','itemId','jobId','siteId','zoneId','qty','price','floor','orderId','x','y','limit','errand','onFull','worn','toPlus','once','shelf','at','count','raid','index','room','cell','slot','dir'].includes(key)));
   function diagnosticState(p,intent) {
     if(!p)return null;
     const id=intent?.itemId;
@@ -122,7 +122,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
       item:id?{id,bank:p.bank[id]??0,pack:p.pack.filter(i=>i.itemId===id).reduce((n,i)=>n+i.qty,0),overflow:p.overflow?.[id]??0}:null};
   }
   const allowed=new Set([...readOnly,'setRoute','fight','walk','wear','equipFromBank','deposit',
-    'eatAt','eat','drink','chooseFood','foodMaxTier','carryFood','enhance','clearRoute','marketDump','depositItem','dropItem','withdraw','marketBuy','marketSell','marketCancel','vendorBuy','claimQuest',
+    'eatAt','eat','drink','chooseFood','foodMaxTier','carryFood','enhance','clearRoute','marketDump','depositItem','dropItem','withdraw','marketBuy','marketSell','marketCancel','vendorBuy','claimQuest','rerollQuest','buyPerk',
     'setAside','attackWorldBoss','leaveWorldBoss','startQueued','portal',...HOUSE_ACTIONS]);
   function rememberRequest(intent) {
     const list=recentRequests[readOnly.has(intent.t)?'queries':'actions'];
@@ -456,7 +456,8 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
       if (this===socket&&(trainer.active||trainer.recovery)&&typeof raw==='string') {
         try {
           const intent=JSON.parse(raw),type=intent.t;
-          if ((allowed.has(type)&&!readOnly.has(type))||['clearRoute','stopEnhance','queue','unqueue','moveQueued','unwear','gearSetApply','portal','setAside','skip','startQueued','goQuest'].includes(type)) {
+          // Quest-board upkeep by the player does not conflict with the helper's work.
+          if ((allowed.has(type)&&!readOnly.has(type)&&!SOFT_ACTIONS.has(type))||['clearRoute','stopEnhance','queue','unqueue','moveQueued','unwear','gearSetApply','portal','setAside','skip','startQueued','goQuest'].includes(type)) {
             trainer.manualAction(intent);
             if(!trainer.active&&!trainer.recovery)releaseLease();
             if(nativeBossClick&&!trainer.boss.ownsRun())abortNativeBossJoin();

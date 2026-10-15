@@ -31,29 +31,55 @@ export function createQuests(data,planner) {
     return {intent:{t:'claimQuest',id:q.id},label:`领取${q.period==='daily'?'每日':'每周'}任务 · ${title(q)??q.id}`,
       reason:`领取 ${q.reward.coins} 金币与 ${q.reward.xp} ${skill} 经验；不打断当前任务`};
   }
+  // Can this quest be finished before it resets? `estimate` is set when the
+  // route itself was costed; `reason` explains a refusal.
+  function feasibility(p,q,style,levels=planner.levels(p)) {
+    const job=q.kind==='kill'?null:data.jobs.find(j=>j.id===q.jobId);
+    const skill=q.kind==='kill'?professionSkill(style):job?.skill;
+    if(!skill||!planner.trainedSkills(style).includes(skill))return {reason:'当前职业不训练该技能'};
+    if(q.kind!=='kill'&&!job)return {reason:'任务配方尚未核对'};
+    if(job&&(job.grow||job.levelReq>levels[skill]))return {reason:'配方等级不足'};
+    if(q.kind==='kill'&&!data.monsters.some(m=>m.id===q.monsterId))return {reason:'任务怪物尚未核对'};
+    // Progress counts successful produced events, including rare results,
+    // once per action. Existing output stock cannot substitute for the work.
+    const success=job?workEstimate(data,job,levels[skill],{hands:p.perks?.hands??0}).success:1;
+    if(!(success>0))return {reason:'当前等级无法成功完成'};
+    // Price the whole input chain, so a cheap market input can beat a long
+    // unlock (e.g. buying wood for a rod quest without the Woodcutting level).
+    if(job)planner.watchPurchases?.(p,planner.crafting?.ingredients(job.output.itemId)??job.inputs.map(i=>i.itemId));
+    const estimate=planner.routeEstimate(p,job??{monsterId:q.monsterId},Math.ceil(q.remaining/success),{style,buyInputs:true});
+    const seconds=estimate.seconds,left=(q.expiresAtTick-p.lastTick)*data.tickMs/1000;
+    const base={job,skill,estimate,seconds,left};
+    if(!Number.isFinite(seconds)||seconds<=0)return {...base,reason:q.kind==='kill'?'没有可安全击杀的路线':'没有可行的供料路线'};
+    if(seconds>left)return {...base,reason:'刷新前无法完成'};
+    return {...base,ok:true};
+  }
+  // One free reroll per day, for an unstarted daily that cannot be done.
+  // Mandatory dailies are otherwise always attempted, however slow.
+  function reroll(p,style='magic') {
+    const day=Math.floor(p.lastTick/dayTicks);
+    if(!p?.quests||p.quests.day!==day||p.quests.rerolled===day)return null;
+    for(const q of read(p).filter(q=>q.period==='daily'&&!q.claimed&&q.done===0)) {
+      const check=feasibility(p,q,style);
+      if(check.ok)continue;
+      return {intent:{t:'rerollQuest',id:q.id},label:`重抽每日任务 · ${title(q)??q.id}`,
+        reason:`${check.reason}；使用今天唯一一次免费重抽，其余每日任务照常完成`};
+    }
+    return null;
+  }
   function chooseGoal(p,baseline,style='magic',deferred={}) {
     const levels=planner.levels(p),choices=[],coinThreshold=Math.max(0,baseline?.rate?.coins??0,planner.coinRate?.(p)??0);
     for(const q of read(p)) {
       if(q.claimed||!q.remaining||deferred[q.key])continue;
-      const job=q.kind==='kill'?null:data.jobs.find(j=>j.id===q.jobId);
-      const skill=q.kind==='kill'?professionSkill(style):job?.skill;
-      if(!skill||!planner.trainedSkills(style).includes(skill)||job&&(job.grow||job.levelReq>levels[skill]))continue;
-      if(q.kind==='kill'&&!data.monsters.some(m=>m.id===q.monsterId))continue;
-      // Progress counts successful produced events, including rare results,
-      // once per action. Existing output stock cannot substitute for the work.
-      const success=job?workEstimate(data,job,levels[skill],{hands:p.perks?.hands??0}).success:1;
-      if(!(success>0))continue;
+      const check=feasibility(p,q,style,levels);
+      if(!check.ok)continue;
+      const {job,skill,estimate,seconds,left}=check;
       const daily=q.period==='daily';
-      // Price the whole input chain, so a cheap market input can beat a long
-      // unlock (e.g. buying wood for a rod quest without the Woodcutting level).
-      if(job)planner.watchPurchases?.(p,planner.crafting?.ingredients(job.output.itemId)??job.inputs.map(i=>i.itemId));
-      const estimate=planner.routeEstimate(p,job??{monsterId:q.monsterId},Math.ceil(q.remaining/success),{style,buyInputs:true});
-      const seconds=estimate.seconds,left=(q.expiresAtTick-p.lastTick)*data.tickMs/1000;
       // Dailies are mandatory: any length is fine if it finishes before the
       // reset. The horizon also bounds market purchases, so give it room to
       // buy every input the estimate already found cheaper than self-supply.
       const horizon=daily?Math.min(left,Math.max(1800,seconds*2)):600;
-      if(!Number.isFinite(seconds)||seconds<=0||seconds>left||!daily&&seconds>horizon)continue;
+      if(!daily&&seconds>horizon)continue;
       const rate={xp:(estimate.xp+q.reward.xp)/seconds,coins:(estimate.coins+q.reward.coins)/seconds};
       if(!daily&&baseline?.specialization&&skill!==baseline.mainSkill&&rate.coins<coinThreshold*1.2)continue;
       if(!daily&&!(rate.xp>0&&rate.xp>=(baseline?.rate?.xp??0))&&!(rate.coins>0&&rate.coins>=coinThreshold))continue;
@@ -80,5 +106,5 @@ export function createQuests(data,planner) {
     const q=read(p).find(q=>q.key===goal.quest.key);
     return !q||q.claimed||q.remaining===0;
   }
-  return {read,claim,chooseGoal,completed};
+  return {read,claim,chooseGoal,completed,reroll};
 }

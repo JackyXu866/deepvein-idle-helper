@@ -1,6 +1,7 @@
 import {autoUsableMaterial} from '../planner/professions.js';
 import {reserveWaitingGoals, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
 import {HOUSE_ACTIONS, validHomePortal} from '../planner/housing.js';
+import {nextPerkCost} from '../planner/perks.js';
 
 export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mode='balanced',waitingGoals={}}={}) {
   goal=reserveWaitingGoals(goal,waitingGoals);
@@ -41,6 +42,16 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
   if(intent.t==='claimQuest')return typeof intent.id==='string'&&['daily','weekly'].some(period=>
     p.quests?.[period==='daily'?'day':'week']===Math.floor(p.lastTick/(86400000/data.tickMs)/(period==='daily'?1:7))&&
     p.quests?.[period]?.some(q=>q.id===intent.id&&!q.claimed&&Number.isInteger(q.goal)&&q.goal>0&&Number.isInteger(q.done)&&q.done>=q.goal));
+  if(intent.t==='rerollQuest') {
+    // Server rule: once per day, an unstarted and unclaimed daily.
+    const day=Math.floor(p.lastTick/(86400000/data.tickMs));
+    return typeof intent.id==='string'&&p.quests?.day===day&&p.quests.rerolled!==day&&
+      p.quests.daily?.some(q=>q.id===intent.id&&!q.claimed&&q.done===0)===true;
+  }
+  if(intent.t==='buyPerk') {
+    const cost=nextPerkCost(p,intent.id);
+    return typeof intent.id==='string'&&cost!=null&&Number.isInteger(p.questPoints)&&p.questPoints>=cost;
+  }
   if(intent.t==='vendorBuy')return intent.itemId===190&&Number.isInteger(intent.qty)&&
     intent.qty>=1&&intent.qty<=100&&data.items[190]?.value>0;
   if (['marketDepth','marketBook','marketBuy','marketSell'].includes(intent.t)) {

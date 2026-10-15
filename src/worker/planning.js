@@ -10,7 +10,7 @@ import {Trainer} from '../runtime/trainer.js';
 export const decisionFields=['goal','served','deferred','questDeferred','waitingGoals','blockedReasons','sequence',
   'goalSince','bankedLoad','message','plan','history','farmJobId','progress','stallCheck','failures','failureKey','itemTarget','buffRefill',
   'hotFollow','hotParkedGoal','hotFollowValidation'];
-export const inputFields=[...decisionFields,'player','active','style','mode','mainTrade','mainJobId','mainMonsterId',
+export const inputFields=[...decisionFields,'player','active','style','mode','mainTrade','mainJobId','mainMonsterId','softRefused',
   'snapshotSequence','syncAfter','nextSync','lastSync'];
 export const planningState=trainer=>Object.fromEntries(inputFields.map(key=>[key,trainer[key]]));
 
