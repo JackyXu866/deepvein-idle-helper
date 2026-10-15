@@ -1252,7 +1252,7 @@ export function createPlanner(data) {
   api.enhancementTraining=createEnhancementTraining(data,api);
   const strategy=createStrategy(data,api);
   api.crafting=createCrafting(data,api);
-  Object.assign(api,{chooseGoal:strategy.chooseGoal,routeEstimate:strategy.routeEstimate,
+  Object.assign(api,{chooseGoal:strategy.chooseGoal,routeEstimate:strategy.routeEstimate,combatOptions:strategy.combatOptions,
     candidates:strategy.candidates,estimateWork:strategy.estimateWork,setMeasurements:strategy.setMeasurements,rateSource:strategy.rateSource,
     acquireEstimate:(p,id,qty,style='magic')=>rarity(id)>0?api.crafting.estimate(
       {...p,bank:{...p.bank,[id]:0},pack:p.pack.filter(i=>i.itemId!==id)},id,qty,{buy:true}):

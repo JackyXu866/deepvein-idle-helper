@@ -10,13 +10,20 @@ export const BAND=10;
 // (from, to] but are still below the level those inputs need, lowest first.
 // A met producer is followed down its own inputs (crafting needs bars, bars
 // need ore), so a lagging raw-material skill is found behind a capable smith.
-export function laggingSuppliers(data,lv,skill,from,to) {
+// A monster drop (herblore's wraith dust) asks `combatNeed` for the combat
+// level that makes its easiest monster safe, or null when it already is.
+export function laggingSuppliers(data,lv,skill,from,to,{combatNeed=null}={}) {
   const needs=new Map();
   const visit=(itemId,depth,seen)=>{
     if(depth>3||seen.has(itemId))return;
     seen.add(itemId);
     const producer=data.jobs.filter(j=>j.output.itemId===itemId).sort((a,b)=>a.levelReq-b.levelReq)[0];
-    if(!producer)return;
+    if(!producer) {
+      const need=data.monsters.some(m=>m.drop===itemId)?combatNeed?.(itemId):null;
+      if(need&&(lv[need.skill]??0)<need.level&&!(needs.get(need.skill)?.level>=need.level))
+        needs.set(need.skill,{...need,itemId});
+      return;
+    }
     if(producer.skill!==skill&&(lv[producer.skill]??0)<producer.levelReq) {
       const known=needs.get(producer.skill);
       if(!known||known.level<producer.levelReq)needs.set(producer.skill,{skill:producer.skill,level:producer.levelReq,itemId});
@@ -27,6 +34,26 @@ export function laggingSuppliers(data,lv,skill,from,to) {
   for(const job of data.jobs.filter(j=>j.skill===skill&&j.levelReq>from&&j.levelReq<=to))
     for(const input of job.inputs)visit(input.itemId,0,new Set());
   return [...needs.values()].sort((a,b)=>(lv[a.skill]??0)-(lv[b.skill]??0)||a.skill.localeCompare(b.skill));
+}
+
+// The combat level at which the easiest monster dropping `itemId` passes the
+// planner's safety check, raising the combat skill with defence and
+// hitpoints (they grow together while fighting); null if one is safe now or
+// none becomes safe with the current weapon.
+export function combatNeed(data,planner,p,style,itemId) {
+  const monsters=data.monsters.filter(m=>m.drop===itemId).sort((a,b)=>a.level-b.level);
+  const safe=(q,m)=>(planner.combatOptions?.(q,style)??[]).some(o=>o.monster.id===m.id);
+  if(!monsters.length||monsters.some(m=>safe(p,m)))return null;
+  const skill=professionSkill(style),T=planner.thresholds,max=T.length-1;
+  const at=level=>({...p,skills:{...p.skills,[skill]:Math.max(p.skills[skill],T[level]),
+    defence:Math.max(p.skills.defence,T[level]),hitpoints:Math.max(p.skills.hitpoints,T[level])}});
+  for(const monster of monsters) {
+    if(!safe(at(max),monster))continue;
+    let low=planner.level(p.skills[skill])+1,high=max;
+    while(low<high){const mid=Math.floor((low+high)/2);if(safe(at(mid),monster))high=mid;else low=mid+1;}
+    return {skill,level:low,monsterId:monster.id};
+  }
+  return null;
 }
 
 // Own a development project, not a sequence of equal-level turns. Execution,
@@ -137,13 +164,15 @@ export function createProgression(data,planner) {
     // Suppliers first: when the chosen skill's next recipes need a gathered or
     // made input whose own skill is still below that tier, level that skill
     // first (to the level the input needs), even above the band.
-    const supplier=laggingSuppliers(data,lv,best.skill,lv[best.skill],best.target).find(s=>!deferred[s.skill]&&lv[s.skill]<maxLevel);
+    const supplier=laggingSuppliers(data,lv,best.skill,lv[best.skill],best.target,{combatNeed:itemId=>combatNeed(data,planner,p,style,itemId)})
+      .find(s=>!deferred[s.skill]&&lv[s.skill]<maxLevel);
     let purpose=best.unlockNames.length?'解锁下一档生产能力':'均衡提升当前能力';
     if(supplier) {
       const feed=project(supplier.skill,Math.max(supplier.level,lv[supplier.skill]+1));
       if(feed) {
         feed.target=Math.max(feed.target,supplier.level);
-        purpose=`先补 ${NAMES[best.skill]??best.skill} 下一档所需的原料技能（${data.items[supplier.itemId]?.name??supplier.itemId} 需 ${supplier.level} 级）`;
+        const source=supplier.monsterId!=null?`${data.monsters.find(m=>m.id===supplier.monsterId)?.name} 掉落的`:'';
+        purpose=`先补 ${NAMES[best.skill]??best.skill} 下一档所需的原料技能（${source}${data.items[supplier.itemId]?.name??supplier.itemId} 需 ${NAMES[supplier.skill]??supplier.skill} ${supplier.level} 级）`;
         best=feed;
       }
     }
