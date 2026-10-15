@@ -43,27 +43,36 @@ export function createQuests(data,planner) {
       // once per action. Existing output stock cannot substitute for the work.
       const success=job?workEstimate(data,job,levels[skill],{hands:p.perks?.hands??0}).success:1;
       if(!(success>0))continue;
+      const daily=q.period==='daily';
+      // Price the whole input chain, so a cheap market input can beat a long
+      // unlock (e.g. buying wood for a rod quest without the Woodcutting level).
+      if(job)planner.watchPurchases?.(p,planner.crafting?.ingredients(job.output.itemId)??job.inputs.map(i=>i.itemId));
       const estimate=planner.routeEstimate(p,job??{monsterId:q.monsterId},Math.ceil(q.remaining/success),{style,buyInputs:true});
       const seconds=estimate.seconds,left=(q.expiresAtTick-p.lastTick)*data.tickMs/1000;
-      const horizon=q.period==='daily'?1200:600;
-      if(!Number.isFinite(seconds)||seconds<=0||seconds>horizon||seconds>left)continue;
+      // Dailies are mandatory: any length is fine if it finishes before the
+      // reset. The horizon also bounds market purchases, so give it room to
+      // buy every input the estimate already found cheaper than self-supply.
+      const horizon=daily?Math.min(left,Math.max(1800,seconds*2)):600;
+      if(!Number.isFinite(seconds)||seconds<=0||seconds>left||!daily&&seconds>horizon)continue;
       const rate={xp:(estimate.xp+q.reward.xp)/seconds,coins:(estimate.coins+q.reward.coins)/seconds};
-      if(baseline?.specialization&&skill!==baseline.mainSkill&&rate.coins<coinThreshold*1.2)continue;
-      const dailyPriority=q.period==='daily'&&(q.reward.xp>0||q.reward.coins>0);
-      if(!dailyPriority&&!(rate.xp>0&&rate.xp>=(baseline?.rate?.xp??0))&&!(rate.coins>0&&rate.coins>=coinThreshold))continue;
+      if(!daily&&baseline?.specialization&&skill!==baseline.mainSkill&&rate.coins<coinThreshold*1.2)continue;
+      if(!daily&&!(rate.xp>0&&rate.xp>=(baseline?.rate?.xp??0))&&!(rate.coins>0&&rate.coins>=coinThreshold))continue;
       const quest={key:q.key,id:q.id,period:q.period,stamp:q.stamp,kind:q.kind,
         ...(job?{jobId:job.id}:{monsterId:q.monsterId})};
       choices.push({skill,...(job?{recipeId:job.id}:{monsterId:q.monsterId}),batch:q.remaining,
         target:levels[skill]+1,stage:baseline?.stage,growth:true,quest,rate,budget:estimate.budget,
         ...(baseline?.specialization?{specialization:true,mainSkill:baseline.mainSkill,manualTrade:baseline.manualTrade}:{}),
         recipes:{...estimate.recipes,...(job?{[skill]:job.id}:{})},supplyRecipes:estimate.supplyRecipes,
-        horizon,estimate,urgent:left<=seconds+(baseline?.horizon??1800),
-        reason:`优先${q.period==='daily'?'每日':'每周'}任务 · ${title(q)}：剩 ${q.remaining} 次，`+
-          `预计 ${Math.ceil(seconds/60)} 分钟；含奖励 ${Math.round(rate.xp*60)} 经验/分、${Math.round(rate.coins*60)} 金币/分`});
+        horizon,estimate,mandatory:daily,urgent:left<=seconds+(baseline?.horizon??1800),
+        reason:`${daily?'必做每日':'优先每周'}任务 · ${title(q)}：剩 ${q.remaining} 次，`+
+          `预计 ${Math.ceil(seconds/60)} 分钟${Object.keys(estimate.purchases??{}).length?'（含市场补料）':''}；`+
+          `含奖励 ${Math.round(rate.xp*60)} 经验/分、${Math.round(rate.coins*60)} 金币/分`});
     }
+    // Dailies first; among them the most urgent, then the quickest to finish.
     choices.sort((a,b)=>Number(b.quest.period==='daily')-Number(a.quest.period==='daily')||
-      Number(b.urgent)-Number(a.urgent)||b.rate.xp-a.rate.xp||b.rate.coins-a.rate.coins||
-      a.estimate.seconds-b.estimate.seconds||a.quest.key.localeCompare(b.quest.key));
+      Number(b.urgent)-Number(a.urgent)||
+      (a.quest.period==='daily'?a.estimate.seconds-b.estimate.seconds:b.rate.xp-a.rate.xp||b.rate.coins-a.rate.coins||
+        a.estimate.seconds-b.estimate.seconds)||a.quest.key.localeCompare(b.quest.key));
     return choices[0]??null;
   }
   function completed(p,goal) {

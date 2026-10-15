@@ -852,12 +852,21 @@ export class Trainer {
     }
     for(let attempt=0;attempt<this.data.skills.length;attempt++) {
       let proposedGoal=null;
-      if(!hotActive&&!this.goal?.hot&&!(this.mode==='business'&&(this.mainJobId!=null||this.mainMonsterId!=null))&&this.goal?.quest?.period!=='daily'&&!this.goal?.craftPreparation&&!equipmentProject(this.goal)&&(this.bankedLoad||!this.planner.taskBoundary||this.planner.taskBoundary(p))&&
-        this.planner.questRead?.(p).some(q=>!q.claimed&&q.remaining>0)) {
+      const fixedTrade=this.mode==='business'&&(this.mainJobId!=null||this.mainMonsterId!=null);
+      const questsOpen=!this.goal?.hot&&this.goal?.quest?.period!=='daily'&&!this.goal?.craftPreparation&&!equipmentProject(this.goal)&&
+        (this.bankedLoad||!this.planner.taskBoundary||this.planner.taskBoundary(p))&&
+        this.planner.questRead?.(p).some(q=>!q.claimed&&q.remaining>0);
+      if(questsOpen&&!hotActive) {
+        // Dailies are mandatory in every growth mode, including a fixed trade;
+        // weeklies stay optional and never displace a fixed trade.
         proposedGoal=this.goal??this.chooseGoal(p);
         const quest=!equipmentProject(proposedGoal)&&!proposedGoal?.craftPreparation&&
           this.planner.questChooseGoal(p,proposedGoal,this.style,this.questDeferred);
-        if(quest&&(!this.goal?.quest||quest.quest.period==='daily')){this.goal=quest;this.goalSince=now;}
+        if(quest&&(quest.quest.period==='daily'||!fixedTrade&&!this.goal?.quest)){this.goal=quest;this.goalSince=now;}
+      } else if(questsOpen) {
+        // A hot-skill window only delays a daily until it risks missing the reset.
+        const quest=this.planner.questChooseGoal(p,this.goal,this.style,this.questDeferred);
+        if(quest?.quest.period==='daily'&&quest.urgent){this.goal=quest;this.goalSince=now;}
       }
       for(const [skill,goal]of Object.entries(this.waitingGoals))
         if(this.planner.level(p.skills[skill])>=goal.target)delete this.waitingGoals[skill];
