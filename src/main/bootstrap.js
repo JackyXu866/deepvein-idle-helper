@@ -667,6 +667,8 @@ import {fallbackOwnership} from '../planner/fallback.js';
         box-shadow: none;
         background: transparent;
         max-height: none;
+        flex: 1 1 auto;
+        min-height: 0;
       }
       section[data-integrated="true"] > header {
         display: none !important;
@@ -2073,8 +2075,10 @@ import {fallbackOwnership} from '../planner/fallback.js';
         }
         .dvh-close:hover { transform: scale(1.08); }
         .dvh-close:active { transform: scale(0.95); }
+        /* One scroll area: the helper's own (dark) panels container inside the
+           shadow root. The body only clips; the host shrinks to fit it. */
         .dvh-body {
-          flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0; display: flex; flex-direction: column;
+          flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 0; display: flex; flex-direction: column;
         }
 
         .dvh-bar {
@@ -2359,7 +2363,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
         const dvhBody = panelEl.querySelector('.dvh-body');
         if (host.parentElement !== dvhBody) {
           dvhBody.append(host);
-          host.style.cssText = 'position:static;z-index:auto;';
+          host.style.cssText = 'position:static;z-index:auto;display:flex;flex-direction:column;flex:1 1 auto;min-height:0;';
           const section = panel.querySelector('section');
           if (section) section.setAttribute('data-integrated', 'true');
         }
