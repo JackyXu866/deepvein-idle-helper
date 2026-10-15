@@ -43,6 +43,11 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
   // Town buyback (城镇回购, /api/buyback): once a day the town buys
   // over-supplied common goods listed at up to 1.5x the merchant price.
   let buyback=null;
+  // Public price feed (/api/market/prices.json, regenerated every 5 minutes):
+  // lowest ask and highest bid for every listed item, rarity and enhancement.
+  // Planning valuations only; every actual order re-checks the live book.
+  let feed=null;
+  const feedTtl=900000;
   let need=null,recentOwned=[],reviewOrderId=null,status=salesEnabled?
     '市场优先；挂售至少 2 小时并重新定价后才回收':'平时出售已关闭，物品留给玩家处理';
   const persist=()=>{
@@ -244,7 +249,15 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     }
     if(state.attempt||!slots(p)||hasOrder(itemId)||(cooldowns.get(itemId)??0)>now())return merchant;
     const book=quotes.get(itemId);
-    if(!book||now()-book.at>=ttl)return merchant;
+    if(!book||now()-book.at>=ttl) {
+      // Price feed: the top bid, only for what its buyers can take after stock.
+      const row=feedRow(itemId);
+      if(row?.bid&&row.bidQty-quantity(p,itemId)>=qty) {
+        const value=netOf(row.bid,qty);
+        if(value>floor*qty&&value>merchant.net)return {net:value,qty,feed:true};
+      }
+      return merchant;
+    }
     // Market value counts only new output that current buyers could absorb
     // after existing stock. Asking prices and escrow never count as earned income.
     let stock=quantity(p,itemId),remaining=qty,net=0,bidValue=null;
@@ -266,6 +279,21 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     }
     return bidValue&&bidValue.net>merchant.net?bidValue:merchant;
   }
+  // Freshness counts from our fetch; a feed whose own timestamp is far from it
+  // (an old cached copy, or a badly wrong clock) is not used.
+  function setPriceFeed(value,at=now()) {
+    const generated=Date.parse(value?.generatedAt);
+    if(!value?.items||typeof value.items!=='object'||!Number.isFinite(generated)||Math.abs(at-generated)>3600000)return false;
+    const price=n=>Number.isSafeInteger(n)&&n>0&&n<=1e9?n:null,amount=n=>Number.isSafeInteger(n)&&n>0?n:0;
+    const items={};
+    for(const [key,row]of Object.entries(value.items)) {
+      const id=Number(key);
+      if(!valid(id)||!row||typeof row!=='object')continue;
+      items[id]={ask:price(row.lowestSell),askQty:amount(row.sellQty),bid:price(row.highestBuy),bidQty:amount(row.buyQty)};
+    }
+    feed={at,items};return true;
+  }
+  const feedRow=id=>feed&&now()-feed.at<feedTtl?feed.items[id]??null:null;
   function quote(id) {
     if((cooldowns.get(id)??0)>now())return {fallback:true};
     const current=quotes.get(id);
@@ -321,14 +349,18 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       if(hasOrder(id)||(cooldowns.get(id)??0)>now())continue;
       const top=tops.get(id);
       if(top&&now()-top.at<60000){if(valid(top.ask)&&top.askQty>0)found.push(top);continue;}
+      // The price feed answers without a query; buy() re-checks the live ask.
+      const row=feedRow(id);
+      if(row){if(row.ask&&row.askQty>0)found.push({itemId:id,ask:row.ask,askQty:row.askQty,feed:true});continue;}
       if(!bookRequests.has(id))bookRequests.set(id,{sentAt:null});
     }
     return found;
   }
   function marketUnitCost(p,id,qty=1) {
-    select(p);const top=tops.get(id),rate=planner.coinRate?.(p);
+    select(p);const live=tops.get(id),rate=planner.coinRate?.(p);
+    const top=live&&now()-live.at<60000?live:feedRow(id);
     if(p.ironman||!purchasable(id)||!procurement?.enabled||state.attempt||hasOrder(id)||!slots(p)||
-      (cooldowns.get(id)??0)>now()||!top||now()-top.at>=60000||!(rate>0)||!(top.ask>0)||top.askQty<qty||
+      (cooldowns.get(id)??0)>now()||!top||!(rate>0)||!(top.ask>0)||top.askQty<qty||
       top.ask*qty>purchaseAllowance(p))return Infinity;
     return top.ask/rate;
   }
@@ -338,7 +370,10 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const book=quote(id);
     // Unknown/stale markets never make goods "worthless". This query does not
     // pause gathering or authorize a sale; it only bounds the cost of disposal.
-    if(book.waiting||book.fallback||!book.tradesKnown)return Infinity;
+    if(book.waiting||book.fallback||!book.tradesKnown) {
+      const row=feedRow(id);
+      return row&&(row.ask||row.bid)?qty*Math.max(1,Math.floor(data.items[id].value*.4),row.ask??0,row.bid??0):Infinity;
+    }
     const ask=Math.min(...book.asks.map(r=>r.price));
     const recent=book.trades.filter(r=>r.tick>=p.lastTick-recycleMs/data.tickMs);
     return qty*Math.max(1,Math.floor(data.items[id].value*.4),Number.isFinite(ask)?ask:0,
@@ -427,7 +462,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       const power=data.rarityMultipliers[tier(itemId)],top=tops.get(itemId);
       const available=p.pack.filter(i=>i.itemId===itemId).reduce((n,i)=>n+i.qty,0)+(planner.nearBank(p)?p.bank[itemId]??0:0);
       const qty=Math.min(desired,20,available,Math.max(0,quantity(p,itemId)-(reserve[itemId]??0)));
-      const price=top&&now()-top.at<60000&&top.ask>0?top.ask:data.items[id].value*power;
+      const price=top&&now()-top.at<60000&&top.ask>0?top.ask:feedRow(itemId)?.ask??data.items[id].value*power;
       return {itemId,qty,power,value:price>0?price/power:Infinity};
     }).filter(c=>c.qty>0&&Number.isFinite(c.value)).sort((a,b)=>a.value-b.value||a.itemId-b.itemId);
     return choices[0]??null;
@@ -927,13 +962,15 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     return `；城镇回购：上次买入 ${buyback.items.length} 种，均价约商人价 ${buyback.ratio.toFixed(2)} 倍`+
       (Number.isFinite(hours)&&hours>0?`，约 ${hours} 小时后再次回购`:'')+(held?`，等待回购的挂单 ${held} 笔`:'');
   };
-  const summary=()=>`${status}${buybackSummary()}；成交净收入 ${state?.income??0}，采购支出 ${state?.spent??0}，自有挂单 ${Object.keys(state?.owned??{}).length}；近一小时补药承诺 ${potionBudgetSpent()}`+
+  const feedSummary=()=>!feed?'；价格总表未取得，估值按实时报价或公式':now()-feed.at<feedTtl?
+    `；价格总表 ${Math.max(0,Math.floor((now()-feed.at)/60000))} 分钟前更新，仅用于估值，下单前核对实时盘口`:'；价格总表已过期，估值按实时报价或公式';
+  const summary=()=>`${status}${buybackSummary()}${feedSummary()}；成交净收入 ${state?.income??0}，采购支出 ${state?.spent??0}，自有挂单 ${Object.keys(state?.owned??{}).length}；近一小时补药承诺 ${potionBudgetSpent()}`+
     (procurement?.enabled?`；按收益／节时采购，无固定金币底线和小时限额；近一小时承诺 ${purchaseSpent()}`:'');
   function runtime(value) {
-    if(value) {({saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status}=value);if(value.pricing)pricing=value.pricing;if('buyback' in value)buyback=value.buyback;state=playerId===null?null:playerState(playerId);}
-    return {saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status,pricing,buyback};
+    if(value) {({saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status}=value);if(value.pricing)pricing=value.pricing;if('buyback' in value)buyback=value.buyback;if('feed' in value)feed=value.feed;state=playerId===null?null:playerState(playerId);}
+    return {saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status,pricing,buyback,feed};
   }
-  return {runtime,receive,next,sale,purchase,restockPotion,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setSalePricing,setBuyback,
+  return {runtime,receive,next,sale,purchase,restockPotion,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setSalePricing,setBuyback,setPriceFeed,priceFeedAge:()=>feed?now()-feed.at:null,
     configureProcurement,equipmentPurchase,foodPurchase,buffFood,potionDose,marketUnitCost,surplusValue,watchPurchases:scan,
     purchaseAllowance:(p,goal)=>{select(p);return purchaseAllowance(p,goal);}};
 }

@@ -347,6 +347,13 @@ import {fallbackOwnership} from '../planner/fallback.js';
       if(response.ok){market.setBuyback(await response.json());planningViewKey='';}
     } catch { /* Without it, sales are valued without the buyback. */ }
   }
+  // Public price feed for planning valuations, regenerated every 5 minutes.
+  async function refreshPrices() {
+    try {
+      const response=await fetch('/api/market/prices.json',{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(15000)});
+      if(response.ok&&market.setPriceFeed(await response.json()))planningViewKey='';
+    } catch { /* Without it, planning uses live quotes and formula estimates as before. */ }
+  }
   // Track what the Worker holds; a recreated Worker gets the engine again.
   function noteEngine(status) {
     if(!engine.ready||!status)return;
@@ -2500,6 +2507,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
     updates.check();
     prepareData().then(()=>{if(trainer.recovery||trainer.active)pump();prepareEngine();});
     refreshBuyback();setInterval(refreshBuyback,3600000);
+    refreshPrices();setInterval(refreshPrices,300000);
   }
   function setProfitFloor(value) {
     profitFloor=validProfitFloor(value);planner.profitFloor=profitFloor;
