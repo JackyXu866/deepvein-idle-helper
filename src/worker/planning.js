@@ -4,7 +4,8 @@ import {createEconomy} from '../economy/economy.js';
 import {createMarket} from '../economy/market.js';
 import {normalizeHotFollow} from '../runtime/hot-follow.js';
 import {Trainer} from '../runtime/trainer.js';
-import {engineRates, engineReady, engineStatus, loadEngine, mergeRates} from '../engine/runtime.js';
+import {engineApi, engineRates, engineReady, engineStatus, loadEngine, mergeRates} from '../engine/runtime.js';
+import {chooseMastery} from '../engine/mastery.js';
 
 // Only the decision phase is transferable. The page owns the socket, receipts,
 // transaction journal, Boss lifecycle and every actual command submission.
@@ -36,6 +37,10 @@ export function runPlanning(data,input,inspectOnly=false) {
   if(input.engine)loadEngine(input.engine);
   const simulated=engineReady()&&input.trainer?.player?engineRates(data,planner,input.trainer.player,{budgetMs:500}):{};
   planner.setMeasurements(mergeRates(simulated,input.rates));
+  // Mastery points can only be counted and valued by the engine.
+  if(engineApi())planner.masteryPurchase=(p,goal)=>chooseMastery(engineApi(),p,
+    goal&&{...goal,inputs:data.jobs.find(j=>j.id===goal.recipeId)?.inputs??[]},
+    {metric:goal?.specialization&&goal.rate?.coins>0?'coins':'xp'});
   planner.enhancementTraining=createEnhancementTraining(data,planner,{
     read:()=>{try{return JSON.parse(storage.getItem('deepvein-enhancement-training-v1')||'null');}catch{return null;}},
     write:value=>storage.setItem('deepvein-enhancement-training-v1',JSON.stringify(value))});

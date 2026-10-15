@@ -24,7 +24,7 @@ export const GUILD_REFUSALS=new Set(['guild-name','guild-tag','guild-name-taken'
 export function isGuildRefusal(code) {return GUILD_REFUSALS.has(code);}
 // Optional quest-board actions. Their refusal codes are not reviewed, so a
 // refusal disables the action for a while instead of pausing the helper.
-export const SOFT_ACTIONS=new Set(['rerollQuest','buyPerk']);
+export const SOFT_ACTIONS=new Set(['rerollQuest','buyPerk','masteryConfirm']);
 export const ROUTE_STOPS=new Set(['noMaterials','storageFull','unreachable','levelTooLow','noSuchSite']);
 export const quantity=(p,id)=>(p.bank[id]??0)+(p.overflow?.[id]??0)+p.pack.filter(i=>i.itemId===id).reduce((n,i)=>n+i.qty,0);
 export const equipmentProject=goal=>goal?.upgrade?.priority||goal?.toolUpgrade?.upgrade?.priority;
@@ -114,6 +114,8 @@ export function acknowledged(before, p, intent, data=null) {
     case 'rerollQuest': return before.quests?.day===p.quests?.day&&
       before.quests?.daily?.some(q=>q.id===intent.id)===true&&!p.quests?.daily?.some(q=>q.id===intent.id);
     case 'buyPerk': return (p.perks?.[intent.id]??0)>(before.perks?.[intent.id]??0);
+    case 'masteryConfirm': return Object.entries(intent.ranks??{}).every(([id,n])=>(p.masteries?.[id]??0)===n)&&
+      Object.entries(intent.ranks??{}).some(([id,n])=>n>(before.masteries?.[id]??0));
     case 'enhance': return p.enhance?.itemId===intent.itemId || p.skills.enhancing>before.skills.enhancing;
     default: return false;
   }
@@ -808,6 +810,8 @@ export class Trainer {
     if(reroll?.intent)return this.issue(reroll);
     const perk=softReady('buyPerk')&&this.planner.perkPurchase?.(p,this.goal,this.style);
     if(perk?.intent)return this.issue(perk);
+    const mastery=softReady('masteryConfirm')&&this.planner.masteryPurchase?.(p,this.goal,this.style);
+    if(mastery?.intent)return this.issue(mastery);
     if(this.goal?.enhancementProject&&this.goal.enhancement&&
       p.equipment[this.goal.enhancement.slot]!==this.goal.enhancement.itemId&&!p.enhance) {
       this.served.enhancing=++this.sequence;this.goal=null;this.plan=null;

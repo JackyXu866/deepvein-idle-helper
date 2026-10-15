@@ -44,7 +44,14 @@ export const DIRECT = {
   levelXp: u => { const b = bodyStmts(u); return params(u) === 1 && b?.length === 2 && b[1].type === 'ReturnStatement' && b[1].argument.type === 'MemberExpression' && b[1].argument.computed && findAll(b[0], n => n.type === 'MemberExpression' && ['min', 'max', 'floor'].includes(n.property.name)).length === 3; },
   equipmentSlots: u => u.kind === 'const' && u.node.init?.type === 'ArrayExpression' && u.node.init.elements.every(e => e?.type === 'Literal' && typeof e.value === 'string') && u.node.init.elements[0].value === 'weapon' && has(u.strings, ['weapon', 'shield', 'helmet', 'pickaxe', 'mount']),
   monsters: u => arrayOfObjects(u, ['id', 'name', 'level', 'hp', 'maxHit', 'attack', 'defence', 'speed', 'xp', 'gold', 'drop']),
+  // Optional (mastery spending): `return f(p.collections)+g(p.forgeLog)` and the track table.
+  masteryEarnedPoints: u => {
+    const r = singleReturn(u), arg = c => c?.type === 'CallExpression' && c.arguments.length === 1 ? c.arguments[0].property?.name : null;
+    return params(u) === 1 && r?.type === 'BinaryExpression' && r.operator === '+' && arg(r.left) === 'collections' && arg(r.right) === 'forgeLog';
+  },
+  masteryTracks: u => arrayOfObjects(u, ['id', 'name', 'blurb', 'lane', 'perRank', 'unit'], 5),
 };
+export const OPTIONAL = new Set(['masteryEarnedPoints', 'masteryTracks']);
 // Entry points the simulation cannot run without.
 export const REQUIRED = ['tick', 'predict', 'startFight', 'startWork', 'createContext', 'world', 'predictionStartTick', 'predictionChunkTicks', 'tickMs', 'hotSkill', 'maxHp', 'homeBank', 'combatTargetTile', 'allSkills', 'equipmentSlots', 'levelXp', 'monsters'];
 
@@ -88,7 +95,7 @@ export function findEntryPoints(mod) {
       try { return pred(u); } catch { return false; }
     });
     if (hits.length === 1) found[k] = hits[0].names[0];
-    else problems.push(`${k}: ${hits.length} candidates`);
+    else problems.push(`${OPTIONAL.has(k) ? 'optional ' : ''}${k}: ${hits.length} candidates`);
   }
   for (const [k, fn] of Object.entries(RELATIONAL)) {
     let r = null;

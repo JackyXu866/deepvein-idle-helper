@@ -2,6 +2,7 @@ import {autoUsableMaterial} from '../planner/professions.js';
 import {reserveWaitingGoals, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
 import {HOUSE_ACTIONS, validHomePortal} from '../planner/housing.js';
 import {nextPerkCost} from '../planner/perks.js';
+import {MASTERY_RANK_LIMIT, MASTERY_TRACKS} from '../engine/mastery-rules.js';
 
 export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mode='balanced',waitingGoals={}}={}) {
   goal=reserveWaitingGoals(goal,waitingGoals);
@@ -51,6 +52,15 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
   if(intent.t==='buyPerk') {
     const cost=nextPerkCost(p,intent.id);
     return typeof intent.id==='string'&&cost!=null&&Number.isInteger(p.questPoints)&&p.questPoints>=cost;
+  }
+  if(intent.t==='masteryConfirm') {
+    // Server rule: every track listed, none below its locked rank. Points are
+    // checked by the server (the page cannot count them without the engine).
+    const ranks=intent.ranks,current=p.masteries??{};
+    if(!ranks||typeof ranks!=='object'||Array.isArray(ranks))return false;
+    if(!Object.entries(ranks).every(([id,n])=>MASTERY_TRACKS.includes(id)&&Number.isInteger(n)&&n>=1&&n<=MASTERY_RANK_LIMIT&&n>=(current[id]??0)))return false;
+    if(!Object.entries(current).every(([id,n])=>!(n>0)||id in ranks))return false;
+    return Object.entries(ranks).some(([id,n])=>n>(current[id]??0));
   }
   if(intent.t==='vendorBuy')return intent.itemId===190&&Number.isInteger(intent.qty)&&
     intent.qty>=1&&intent.qty<=100&&data.items[190]?.value>0;

@@ -25,6 +25,7 @@ export function loadEngine({id, factory}) {
 }
 export const engineStatus = () => ({id: current.id, ok: current.ok, error: current.error, cached: cache.size});
 export const engineReady = () => current.ok;
+export const engineApi = () => current.ok ? current.api : null;
 
 // A fresh level-30 fighter must kill the first monster in ten minutes.
 function smokeTest(api) {
