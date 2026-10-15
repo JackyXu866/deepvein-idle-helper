@@ -37,6 +37,7 @@ export function runPlanning(data,input,inspectOnly=false) {
   if(input.engine)loadEngine(input.engine);
   const simulated=engineReady()&&input.trainer?.player?engineRates(data,planner,input.trainer.player,{budgetMs:500}):{};
   planner.setMeasurements(mergeRates(simulated,input.rates));
+  planner.perkUsage=input.rates; // measured time per route: what this account actually does
   // Mastery points can only be counted and valued by the engine.
   if(engineApi())planner.masteryPurchase=(p,goal)=>chooseMastery(engineApi(),p,
     goal&&{...goal,inputs:data.jobs.find(j=>j.id===goal.recipeId)?.inputs??[]},

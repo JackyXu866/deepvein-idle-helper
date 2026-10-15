@@ -61,6 +61,29 @@ test('perk choice uses the measured gain on the current activity', () => {
   const plan = choosePerk(planner, p, {skill: 'mining', recipeId: mining.id}, 'melee');
   assert.equal(plan.intent.t, 'buyPerk');
   assert.ok(['pockets', 'quick'].includes(plan.intent.id), `gathering perk chosen, got ${plan.intent.id}`);
-  assert.equal(choosePerk(planner, {...p, questPoints: 5}, null, 'melee'), null, 'nothing affordable');
   assert.equal(choosePerk(planner, {...p, questPoints: undefined}, null, 'melee'), null, 'unknown points: do nothing');
+});
+
+test('no goal and no history: points are kept, not spent blindly', () => {
+  const planner = makePlanner();
+  const p = player(planner, {levels: {mining: 30}, questPoints: 12, perks: {}});
+  assert.equal(choosePerk(planner, p, null, 'melee'), null);
+});
+
+test('Steady hands is never bought for mining; points are saved for a useful perk', () => {
+  const planner = makePlanner();
+  const mining = planner.data.jobs.find(j => j.skill === 'mining' && j.levelReq === 1 && !j.inputs.length);
+  // 12 points: only Steady hands (10) and Hearty meals (10) are affordable.
+  const p = player(planner, {levels: {mining: 30}, questPoints: 12, perks: {}});
+  assert.equal(choosePerk(planner, p, {skill: 'mining', recipeId: mining.id}, 'melee'), null);
+});
+
+test('time spent on routes weights the perk value', () => {
+  const planner = makePlanner(), d = planner.data;
+  const cook = d.jobs.find(j => j.skill === 'cooking' && j.burn && j.levelReq === 1);
+  const p = player(planner, {levels: {cooking: 1, mining: 30}, questPoints: 10, perks: {}});
+  // Mostly cooking (burns at low level): Steady hands is now a measured gain.
+  const usage = {[`job:${cook.id}`]: {seconds: 36000, samples: 50}};
+  const plan = choosePerk(planner, p, null, 'melee', {usage});
+  assert.equal(plan?.intent.id, 'hands', JSON.stringify(plan));
 });

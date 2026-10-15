@@ -405,6 +405,7 @@ export class Trainer {
         else if(this.active&&bankedGatheringLoad(this.data,this.player,message.you))this.bankedLoad=true;
         this.telemetry.observe(message.you,this.now(),{reset:message.t==='welcome'||!!this.recovery||!this.active});
         this.metrics=this.telemetry.summary();this.planner.setMeasurements?.(this.metrics.rates);
+        this.planner.perkUsage=this.metrics.rates;
         this.awaitingWelcome=false;
         this.player=message.you; this.received=this.now(); this.snapshotTick=frame.tick; this.awaitInitial=false;
         this.planner.enhancementTraining?.observe(this.player);

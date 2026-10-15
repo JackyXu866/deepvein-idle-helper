@@ -1215,5 +1215,5 @@ export function createPlanner(data) {
         this.growthChooseGoal??this.chooseGoal)(p,served,deferred,style,mainTrade,mainJobId,mainMonsterId);
     },
     questRead:quests.read,questClaim:quests.claim,questChooseGoal:quests.chooseGoal,questCompleted:quests.completed,
-    questReroll:quests.reroll,perkPurchase:(p,goal,style)=>choosePerk(api,p,goal,style)});
+    questReroll:quests.reroll,perkPurchase:(p,goal,style)=>choosePerk(api,p,goal,style,{usage:api.perkUsage})});
 }
