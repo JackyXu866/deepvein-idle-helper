@@ -2624,7 +2624,8 @@ import {fallbackOwnership} from '../planner/fallback.js';
     const equipmentOpen=panel.querySelector('[data-equipment-details]').open;
     const houseText=p?planner.housingStatus(p):'等待房屋状态';
     const hotFollow=trainer.getHotFollow();
-    const signature=JSON.stringify([planningStarted,planningError,updates.state,autoSell,potionRestock,capacitySales,itemTarget,targetChoices,targetSearch,review,metrics,farmText,houseText,farming,preference,choices,marketText,growth,business,mainJobs,trainer.mainJobId,mainMonsters,trainer.mainMonsterId,boss,hot,hotFollow,buffs,quests,activity,equipmentOpen,checking,compatibilityMessage,trainer.style,trainer.mode,trainer.mainTrade,trainer.active,trainer.message,trainer.goal,trainer.plan?.label,trainer.plan?.reason,lv,trainer.history,trainer.blockedReasons,rejections,rejectionsSaved]);
+    const signature=JSON.stringify([planningStarted,planningError,updates.state,autoSell,potionRestock,capacitySales,itemTarget,targetChoices,targetSearch,review,metrics,farmText,houseText,farming,preference,choices,marketText,growth,business,mainJobs,trainer.mainJobId,mainMonsters,trainer.mainMonsterId,boss,hot,hotFollow,buffs,quests,activity,equipmentOpen,checking,compatibilityMessage,trainer.style,trainer.mode,trainer.mainTrade,trainer.active,trainer.message,trainer.goal,trainer.plan?.label,trainer.plan?.reason,lv,trainer.history,trainer.blockedReasons,rejections,rejectionsSaved,
+      trainer.pausedError,trainer.recovery,p?.fallback??null,trainer.fallbackOwned,autoFallback,sellCrafted]);
     if (signature===rendered) return;
     rendered=signature;
     panel.querySelector('[data-update-status]').textContent=updates.state.checking?'正在检查脚本更新…':updates.state.message;
@@ -2968,20 +2969,17 @@ import {fallbackOwnership} from '../planner/fallback.js';
       const element=panel.querySelector(`[${selector}]`);
       element.textContent=translateGameText(element.textContent);
     }
-    const grid=panel.querySelector('.levels'); grid.replaceChildren();
-    if (lv) for (const [skill,n] of Object.entries(lv)) {
+    // Rebuilt only on change: a per-second rebuild flickers and resets the log's scroll.
+    fill('.levels',JSON.stringify([lv,trained,trainer.goal?.skill]),()=>Object.entries(lv??{}).map(([skill,n])=>{
       const row=document.createElement('span'), value=document.createElement('b');
       row.textContent=NAMES[skill]; value.textContent=String(n);
       if (!trained.includes(skill)) {row.className='excluded';value.textContent=`${n} · 不练`;}
       else if (['defence','hitpoints'].includes(skill)) value.textContent=`${n} · 随战斗`;
       else if (skill===trainer.goal?.skill) row.className='low';
-      row.append(value); grid.append(row);
-    }
-    const log=panel.querySelector('ol'); log.replaceChildren();
-    for (const entry of trainer.history) {
-      const li=document.createElement('li');
-      li.textContent=`${new Date(entry.time).toLocaleTimeString()} ${translateGameText(entry.message)}`; log.append(li);
-    }
+      row.append(value); return row;
+    }));
+    fill('ol',JSON.stringify(trainer.history.map(entry=>[entry.time,entry.message])),()=>trainer.history.map(entry=>
+      el('li',{textContent:`${new Date(entry.time).toLocaleTimeString()} ${translateGameText(entry.message)}`})));
     const isRunning=checking||trainer.active||!!trainer.recovery;
     const bar=document.querySelector('[data-dvh-bar]');
     if (bar && !bar.hidden) {

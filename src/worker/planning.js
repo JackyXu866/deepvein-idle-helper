@@ -12,7 +12,7 @@ import {planView} from '../planner/plan-view.js';
 // transaction journal, Boss lifecycle and every actual command submission.
 export const decisionFields=['goal','served','deferred','questDeferred','waitingGoals','blockedReasons','sequence',
   'goalSince','bankedLoad','message','plan','history','farmJobId','progress','stallCheck','failures','failureKey','itemTarget','buffRefill',
-  'hotFollow','hotParkedGoal','hotFollowValidation','fallbackCheckedAt','pausedError'];
+  'hotFollow','hotParkedGoal','hotFollowValidation','fallbackCheckedAt','pausedError','consumableLogAt'];
 // fallbackOwned is read-only here: only a confirmed snapshot on the page changes it.
 export const inputFields=[...decisionFields,'player','active','style','mode','mainTrade','mainJobId','mainMonsterId','softRefused','fallbackOwned',
   'snapshotSequence','syncAfter','nextSync','lastSync'];
