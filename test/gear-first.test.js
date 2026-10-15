@@ -37,10 +37,27 @@ test('the piece being made claims its own held materials first: no one-bar-at-a-
     bank: {[bar + R]: 1, [id('Cobalt') + R]: 30, [id('Cobalt')]: 200, 5: 2000}, coins: 0, hp: 600, activity: 'idle', path: null, held: false, route: null});
   const mortar = d.jobs.find(j => j.skill === 'crafting' && j.name === 'Cobalt mortar');
   const goal = {skill: 'crafting', target: 75, development: true, growth: true, recipeId: mortar.id, recipes: {crafting: mortar.id}, budget: {coins: 0, items: {}}};
-  const plan = planner.plan(p, goal, 'melee');
-  const needle = d.jobs.find(j => j.skill === 'crafting' && j.name === 'Cobalt needle');
-  assert.equal(plan.intent?.jobId, needle.id, 'the uncommon needle is made from the bar held, not another bar smelted');
-  assert.equal(plan.intent?.rarity, 1);
+  // Play the plan forward, applying each craft and equip it asks for.
+  let state = p;
+  const barJob = d.jobs.find(j => j.output.itemId === bar), smelts = [], made = [];
+  for (let step = 0; step < 20; step++) {
+    const it = planner.plan(state, goal, 'melee').intent;
+    if (it?.t === 'equipFromBank') {
+      const g = d.gear.find(x => x.itemId === it.itemId % d.plusScale % R);
+      state = {...state, equipment: {...state.equipment, [g.slot]: it.itemId}, bank: {...state.bank, [it.itemId]: state.bank[it.itemId] - 1}};
+      continue;
+    }
+    if (it?.t !== 'setRoute' || !it.rarity) break;
+    const job = d.jobs.find(j => j.id === it.jobId), n = it.limit, bank = {...state.bank};
+    for (const i of job.inputs) { const q = i.itemId === 5 ? 5 : i.itemId + it.rarity * R; bank[q] = (bank[q] ?? 0) - i.qty * n; }
+    const out = job.output.itemId + it.rarity * R;
+    bank[out] = (bank[out] ?? 0) + n;
+    if (job.id === barJob.id) smelts.push(n); else made.push(job.name);
+    state = {...state, bank};
+  }
+  assert.ok(smelts.length <= 2, `bars come in at most two batches (supply-tool hammer, then everything else): ${smelts}`);
+  assert.ok(Math.max(...smelts) >= 10, 'one large batch for all the planned pieces');
+  for (const piece of ['Cobalt needle', 'Cobalt pickaxe', 'Cobalt blade']) assert.ok(made.includes(piece), `${piece} made: ${made}`);
 });
 
 test('held materials are shared between planned pieces, never counted twice', () => {

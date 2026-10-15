@@ -674,19 +674,40 @@ export function createPlanner(data) {
       };
       choices.sort((a,b)=>score(b)-score(a)||a.id-b.id);
       if (!choices.length) return blocked(fixed!=null?`固定工作 ${jobs.find(j=>j.id===fixed)?.name} 缺少可持续准备的材料，等待材料或采购条件`:`${NAMES[skill]}没有已解锁任务`);
-      // Gear first: a planned quality piece made by this skill that can be
-      // crafted now from owned materials is made before training. It keeps its
-      // quality materials for the gear and still gives this skill's XP.
+      // Gear first: planned quality pieces that can be crafted now from owned
+      // materials (any maker skill whose level allows it) are made before
+      // training, so their quality materials go into gear. All the quality
+      // intermediates they need (e.g. every uncommon cobalt bar for several
+      // cobalt tools) are smelted in one batch first, then the pieces are made.
       if(stagePlan&&!trail.length) {
-        const piece=plannedQualityGear(p,profession).find(id=>{
-          const maker=jobs.find(j=>j.output.itemId===base(id)&&j.inputs.length&&!j.grow);
-          return maker?.skill===skill&&lv[skill]>=maker.levelReq&&Number.isFinite(api.crafting.estimate(p,id,1,{}).seconds);
-        });
-        if(piece!=null) {
+        const maker=id=>jobs.find(j=>j.output.itemId===base(id)&&j.inputs.length&&!j.grow);
+        const recipe=id=>{const m=maker(id);return m&&craftRecipe(data,m,rarity(id));};
+        const canMake=id=>{const m=maker(id);return !!m&&lv[m.skill]>=m.levelReq;};
+        const pieces=plannedQualityGear(p,profession).filter(id=>canMake(id)&&recipe(id)&&
+          Number.isFinite(api.crafting.estimate(p,id,1,{}).seconds));
+        if(pieces.length) {
+          const totals={};
+          for(const id of pieces)for(const input of recipe(id).inputs)
+            if(rarity(input.itemId)>0&&maker(input.itemId))totals[input.itemId]=(totals[input.itemId]??0)+input.qty;
+          for(const [key,want]of Object.entries(totals)) {
+            const item=Number(key),missing=want-count(p,item);
+            if(missing<=0||!canMake(item))continue;
+            const possible=api.crafting.available(p,maker(item),rarity(item),{},want);
+            const make=Math.min(missing,possible);
+            if(make<=0)continue;
+            // These intermediates are for the planned pieces themselves.
+            gearReserve={};
+            const result=need(item,count(p,item)+make,trail);
+            result.reason=`先一次备齐计划装备所需的 ${fullName(item)}（共需 ${want}，现有 ${count(p,item)}，本批做 ${make}），`+
+              `再逐件打造：${pieces.map(fullName).join('、')}；${result.reason||result.label}`;
+            return result;
+          }
+          const piece=pieces.find(id=>recipe(id).inputs.every(i=>rarity(i.itemId)===0||count(p,i.itemId)>=i.qty))??pieces[0];
           // The piece being made uses its own reserved materials.
           gearReserve=plannedGearReserve(p,profession,piece);
           const result=need(piece,1,trail);
-          result.reason=`先打造计划装备 ${fullName(piece)}：高品质材料留给装备，打造本身也给${NAMES[skill]}经验；${result.reason||result.label}`;
+          result.reason=`先打造计划装备 ${fullName(piece)}：高品质材料留给装备，打造本身也给${NAMES[maker(piece).skill]}经验；`+
+            `${result.reason||result.label}`;
           return result;
         }
       }
