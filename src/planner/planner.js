@@ -473,7 +473,11 @@ export function createPlanner(data) {
     let completedUpgrade=false;
     // Training may spend its own planned fuel; a separate equipment project
     // must still leave the parent task's materials available.
-    const qualityReserve=()=>goal.itemTarget||goal.quest||goal.upgrade?goal.budget?.items:{};
+    // A development project also holds the quality materials of the planned
+    // gear (plannedGearReserve), so leveling does not spend them.
+    let gearReserve=null;
+    const qualityReserve=()=>goal.itemTarget||goal.quest||goal.upgrade?goal.budget?.items:
+      goal.development?gearReserve??=plannedGearReserve(p,profession):{};
     const unlocked = j => lv[j.skill]>=j.levelReq;
     const made = id => jobs.filter(j=>j.output.itemId===id);
     const atGoal = (skill,target) => lv[skill]>=target;
@@ -670,6 +674,22 @@ export function createPlanner(data) {
       };
       choices.sort((a,b)=>score(b)-score(a)||a.id-b.id);
       if (!choices.length) return blocked(fixed!=null?`固定工作 ${jobs.find(j=>j.id===fixed)?.name} 缺少可持续准备的材料，等待材料或采购条件`:`${NAMES[skill]}没有已解锁任务`);
+      // Gear first: a planned quality piece made by this skill that can be
+      // crafted now from owned materials is made before training. It keeps its
+      // quality materials for the gear and still gives this skill's XP.
+      if(stagePlan&&!trail.length) {
+        const piece=plannedQualityGear(p,profession).find(id=>{
+          const maker=jobs.find(j=>j.output.itemId===base(id)&&j.inputs.length&&!j.grow);
+          return maker?.skill===skill&&lv[skill]>=maker.levelReq&&Number.isFinite(api.crafting.estimate(p,id,1,{}).seconds);
+        });
+        if(piece!=null) {
+          // The piece being made uses its own reserved materials.
+          gearReserve=plannedGearReserve(p,profession,piece);
+          const result=need(piece,1,trail);
+          result.reason=`先打造计划装备 ${fullName(piece)}：高品质材料留给装备，打造本身也给${NAMES[skill]}经验；${result.reason||result.label}`;
+          return result;
+        }
+      }
       goal.recipes ??= {};
       goal.recipeRarities??={};
       goal.recipeLevels??={};
@@ -1147,7 +1167,11 @@ export function createPlanner(data) {
     const goal=investmentGoal??{skill,target:level(p.skills[skill])+1,horizon:1800,professionOnly:true,...options};
     return plan(p,goal,style);
   }
-  function equipmentStatus(p,profession='magic') {
+  // Per slot, the gear the plan aims for: the best piece wearable now and the
+  // improvement at the next wear level, each in its lowest quality that beats
+  // the worn item (an epic steel blade is improved by a rare cobalt blade at
+  // the same wear level, long before the next tier). Legendary is never planned.
+  function gearTargets(p,profession='magic') {
     const skill=professionSkill(profession),lv=levels(p),owned=held(p);
     const slots=['weapon','helmet','body','legs','shield','ring','amulet',...Object.keys(data.toolSkills)];
     return slots.filter(slot=>slot!=='shield'||profession!=='melee_twohand').map(slot=>{
@@ -1155,13 +1179,42 @@ export function createPlanner(data) {
       const matches=id=>{const g=gear.get(base(id));return g?.slot===slot&&
         (slot!=='weapon'||matchesProfessionWeapon(g,profession))&&(!g.style||g.style===skill);};
       const better=id=>current==null||!matches(current)||score(id)>score(current);
-      // Each piece in its lowest quality that beats the current item: an epic
-      // steel blade is improved by a rare cobalt blade at the same wear level,
-      // long before the next tier's requirement. Legendary is never planned.
       const variant=g=>[0,1,2,3].map(r=>g.itemId+r*data.rarityScale).find(better)??null;
       const candidates=[...new Set([...data.gear.filter(g=>matches(g.itemId)).map(variant).filter(id=>id!=null),
         ...owned.filter(id=>matches(id)&&autoUsableMaterial(data,id)&&better(id))])].filter(id=>id!==current);
       const wearable=id=>canWearWith(data,lv,id);
+      const available=candidates.filter(wearable).sort((a,b)=>score(b)-score(a)||a-b);
+      const future=candidates.filter(id=>!wearable(id)).sort((a,b)=>gearRequirement(a).level-gearRequirement(b).level||score(b)-score(a));
+      return {slot,current,upgrade:available[0]??null,next:future[0]??null};
+    });
+  }
+  // Planned quality pieces not yet owned. Their quality materials belong to
+  // the gear: training must not burn them into bars or plates for XP.
+  function plannedQualityGear(p,profession='magic') {
+    const worn=Object.values(p.equipment);
+    return [...new Set(gearTargets(p,profession).flatMap(t=>[t.upgrade,t.next]))]
+      .filter(id=>id!=null&&rarity(id)>0&&count(p,id)<=0&&!worn.includes(id));
+  }
+  // The quality materials those pieces need, down their quality chain: the
+  // bars, and the ore for any bars not yet made. Plain inputs (coal) are not held.
+  function plannedGearReserve(p,profession='magic',except=null) {
+    const out={};
+    const reserve=(id,qty,trail)=>{
+      const job=jobs.find(j=>j.output.itemId===base(id)&&j.inputs.length&&!j.grow);
+      const recipe=job&&craftRecipe(data,job,rarity(id));
+      if(!recipe)return;
+      const n=Math.ceil(qty/recipe.output.qty);
+      for(const input of recipe.inputs)if(rarity(input.itemId)>0) {
+        const need=input.qty*n;out[input.itemId]=(out[input.itemId]??0)+need;
+        const missing=Math.max(0,need-count(p,input.itemId));
+        if(missing>0&&!trail.includes(input.itemId))reserve(input.itemId,missing,[...trail,input.itemId]);
+      }
+    };
+    for(const id of plannedQualityGear(p,profession))if(id!==except)reserve(id,1,[id]);
+    return out;
+  }
+  function equipmentStatus(p,profession='magic') {
+    return gearTargets(p,profession).map(({slot,current,upgrade,next})=>{
       const describe=id=>{
         if(id==null)return null;
         const job=jobs.find(j=>j.output.itemId===base(id));
@@ -1185,10 +1238,7 @@ export function createPlanner(data) {
         return {id,name:fullName(id),wear:gearRequirement(id),owned:stock,requirements:supply.unlocks??[],
           materials:own,chainMaterials:rest,seconds:supply.seconds};
       };
-      // Best piece wearable now, then the improvement at the next wear level.
-      const available=candidates.filter(wearable).sort((a,b)=>score(b)-score(a)||a-b);
-      const future=candidates.filter(id=>!wearable(id)).sort((a,b)=>gearRequirement(a).level-gearRequirement(b).level||score(b)-score(a));
-      return {slot,current:current==null?null:{id:current,name:fullName(current)},upgrade:describe(available[0]),next:describe(future[0])};
+      return {slot,current:current==null?null:{id:current,name:fullName(current)},upgrade:describe(upgrade),next:describe(next)};
     });
   }
   function planAtBoundary(p,goal,style='magic',completedLoad=false) {
@@ -1280,7 +1330,7 @@ export function createPlanner(data) {
     else if(farmTargetReason)reason=`${farmTargetReason} · ${best.name}：${reason}`;
     return {...status,crop:best.name,reason};
   }
-  const api={level,levels,thresholds,trainedSkills,balancedChooseGoal,plan:planAtBoundary,planItemTarget,itemTargetChoices,count,base,nearBank,carriedBatch,equipmentStats,farmPlots,harvest,harvestOnly,professionUpgrade,equipmentStatus,farmStatus,
+  const api={level,levels,thresholds,trainedSkills,balancedChooseGoal,plan:planAtBoundary,planItemTarget,itemTargetChoices,count,base,nearBank,carriedBatch,equipmentStats,farmPlots,harvest,harvestOnly,professionUpgrade,equipmentStatus,gearTargets,plannedQualityGear,plannedGearReserve,farmStatus,
     hotFollowSkills:HOT_FOLLOW_SKILLS.slice(),hotSkillAt:tick=>hotSkillAt(data,tick),hotWindows:(tick,count=4)=>hotWindows(data,tick,count),
     setFarmingPreference,farmingPreference,
     taskBoundary:p=>!finishTaskReason(data,p)};
