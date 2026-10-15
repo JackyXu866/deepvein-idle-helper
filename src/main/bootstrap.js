@@ -2486,7 +2486,8 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     }
     set('[data-plan-layer]',view.layer);
     set('[data-plan-action]',view.action?.label?`${view.action.label}${view.action.reason?`：${view.action.reason}`:''}`:view.message??'');
-    set('[data-plan-goal]',view.goal?`目标：${view.goal.label??''}${view.goal.target?` → ${view.goal.target} 级`:''}${view.goal.reason?`；${view.goal.reason}`:''}`:'尚未选择目标');
+    set('[data-plan-goal]',view.goal?`目标：${view.goal.label??''}${view.goal.target?` → ${view.goal.target} 级`:''}`+
+      `${view.goal.via?`（当前做 ${view.goal.via}）`:''}${view.goal.reason?`；${view.goal.reason}`:''}`:'尚未选择目标');
     set('[data-plan-basis]',(view.mode==='business'?'按金币/时排序':'按经验/时排序')+(view.mode==='experience'&&view.profitFloor>0?` · 最低收益 ${fmt(view.profitFloor)}/时`:''));
     fill('[data-plan-candidates]',JSON.stringify(view.candidates),()=>{
       if(!view.candidates.length)return [el('p',{className:'muted',textContent:'暂无可比较的工作（等级、装备或供料条件不足）'})];

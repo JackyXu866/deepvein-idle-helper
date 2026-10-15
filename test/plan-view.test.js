@@ -47,3 +47,16 @@ test('plan view explains the layer, candidates and points', () => {
   const daily = planView(d, planner, {...trainer, goal: {...trainer.goal, quest: {period: 'daily', id: 'd1:x'}}}, p);
   assert.equal(daily.layer, '每日任务（必做）');
 });
+
+test('a level goal is labelled by its skill, with the recipe as the means', () => {
+  const planner = makePlanner(), d = planner.data;
+  planner.watchMarket = () => {};
+  const amulet = d.jobs.find(j => j.skill === 'crafting' && d.items[j.output.itemId]?.name === 'Gold amulet');
+  const p = player(planner, {levels: {crafting: 71}, hp: 100, activity: 'idle', path: null, held: false});
+  const trainer = {goal: {skill: 'crafting', recipeId: amulet.id, target: 75, development: true, reason: '发展计划'},
+    style: 'melee', mode: 'balanced', plan: null, deferred: {}, itemTarget: null};
+  const view = planView(d, planner, trainer, p);
+  assert.equal(view.goal.label, '制作');
+  assert.equal(view.goal.target, 75);
+  assert.equal(view.goal.via, 'Gold amulet');
+});
