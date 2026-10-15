@@ -95,6 +95,37 @@ test('with every stock met, ripe fields are still harvested and replanted at a t
   assert.match(planner.farmStatus(busy).reason, /等当前任务结束或返仓/);
 });
 
+test('herbs are planned one unlock ahead once the current herb covers the way there', async () => {
+  const {farmingStocks} = await import('../src/planner/farming.js');
+  const planner = makePlanner(), d = planner.data, t = planner.thresholds;
+  const byName = n => Object.values(d.items).find(i => i.name === n).id;
+  const nightshade = byName('Nightshade'), dragonleaf = byName('Dragonleaf'), dust = byName('Wraith dust');
+  const nourishing = d.jobs.find(j => j.skill === 'herblore' && j.inputs.some(i => i.itemId === nightshade) &&
+    j.inputs.some(i => i.itemId === dust));
+  // Herblore 55, halfway: Warrior's tonic (dragonleaf + dust) unlocks at 60.
+  const xp = Math.round((t[55] + t[56]) / 2), toSixty = Math.ceil((t[60] - xp) / nourishing.xp);
+  const base = farmer(planner, 70);
+  const p = {...base, skills: {...base.skills, herblore: xp}, bank: {[dust]: toSixty + 300}};
+  const levels = planner.levels(p);
+  // Not enough nightshade yet: the current herb first, capped at what reaches 60.
+  let rows = farmingStocks(d, p, levels, null, t);
+  const night = rows.find(r => r.job.output.itemId === nightshade);
+  assert.equal(night.target, toSixty, 'only the potions needed to reach the unlock');
+  assert.equal(rows[0].job.output.itemId, nightshade);
+  const leaf = rows.find(r => r.job.output.itemId === dragonleaf);
+  assert.equal(leaf.reason, 'ahead');
+  assert.equal(leaf.target, 300, 'the spare dust sizes the next herb');
+  assert.ok(leaf.tier > night.tier);
+  // Enough nightshade to reach 60: dragonleaf is now the top herb.
+  rows = farmingStocks(d, {...p, bank: {...p.bank, [nightshade]: toSixty}}, levels, null, t);
+  assert.equal(rows[0].job.output.itemId, dragonleaf, JSON.stringify(rows.map(r => [r.job.name, r.tier])));
+  const why = planner.farmStatus({...p, bank: {...p.bank, [nightshade]: toSixty}, plots: {}}).next.why;
+  assert.match(why, /提前备好 60 级配方/);
+  // No dust at all: the next herb still gets a starter stock.
+  rows = farmingStocks(d, {...p, bank: {}}, levels, null, t);
+  assert.equal(rows.find(r => r.job.output.itemId === dragonleaf).target, 50);
+});
+
 test('manual mode explains the choice', () => {
   const planner = makePlanner(), d = planner.data;
   const job = d.jobs.find(j => j.grow && j.levelReq <= 10);

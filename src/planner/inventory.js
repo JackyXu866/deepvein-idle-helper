@@ -1,5 +1,5 @@
 import {autoUsableMaterial, craftRecipe, matchesProfessionWeapon, professionSkill} from './professions.js';
-import {cropReserve} from './farming.js';
+import {cropReserve, herbloreNeeds} from './farming.js';
 
 // Read-only budgets and quotes; economy.js turns verified surplus into actions.
 // Vendor, storage and worn-enhancement rules checked in index-DeoJ7Jh9.js.
@@ -73,8 +73,10 @@ export function inventoryBudget(data, planner, p, goal=null,consuming=false) {
   const carry=p.foodPerTrip===-1?packCapacity:p.foodPerTrip===-2?Math.max(1,packCapacity-1):p.foodPerTrip??20;
   for(const item of Object.values(data.items))if(item.heals)reserve(item.id,Math.max(50,carry*3));
   // A replenishable pantry protects against disposal, not useful consumption.
-  if(!consuming&&levels.farming>=Math.max(...data.farmUnlocks))for(const job of data.jobs.filter(j=>j.grow&&j.levelReq<=levels.farming))
-    reserve(job.output.itemId,cropReserve(data,p,job,levels));
+  if(!consuming&&levels.farming>=Math.max(...data.farmUnlocks)) {
+    const herblore=herbloreNeeds(data,p,levels,planner.thresholds);
+    for(const job of data.jobs.filter(j=>j.grow&&j.levelReq<=levels.farming))reserve(job.output.itemId,cropReserve(data,p,job,levels,herblore));
+  }
   return {items,coins:Math.max(0,...plans.map(plan=>plan.budget?.coins??0)),capacity,used,freeSlots:capacity-used,pressure,recoverableOverflow};
 }
 export function enhanceQuote(data, planner, p, itemId) {
