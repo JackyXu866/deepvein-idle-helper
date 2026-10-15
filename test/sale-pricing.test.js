@@ -8,10 +8,10 @@ import {makePlanner, player} from './helpers.js';
 function pickItem(d) {
   return d.jobs.map(j => j.output.itemId).find(id => id !== d.coinId && d.items[id]?.value >= 20 && !saleProtectionReason(d, id));
 }
-function setup(pricing, book) {
+function setup(pricing, book, {autoSell = true} = {}) {
   const planner = makePlanner(), d = planner.data, item = pickItem(d);
   let clock = 1_000_000;
-  const market = createMarket(d, planner, {autoSell: true, salePricing: pricing, now: () => clock});
+  const market = createMarket(d, planner, {autoSell, salePricing: pricing, now: () => clock});
   const p = player(planner, {lastTick: 100000, coins: 1000, x: 200, y: 82});
   market.receive({tick: 100000, m: [{t: 'welcome', you: p, orders: []}]});
   market.watch(p, [item], item);
@@ -53,6 +53,18 @@ test('the sell decision lists at the ask in listing mode and fills the bid in bi
     assert.equal(plan?.intent?.t, 'marketSell', JSON.stringify(plan));
     assert.equal(plan.intent.price, expected, `${pricing} mode`);
   }
+});
+
+test('everyday selling off: only profit-task output may be listed, and it is valued', () => {
+  const {market, p, item, d} = setup('list', {bids: [{price: 100, qty: 1000}], asks: [{price: 150, qty: 5}], trades: [recent(149, 200)]}, {autoSell: false});
+  assert.equal(market.opportunity(p, item, 50)?.listed, true, 'planning values sales regardless of the setting');
+  const atBank = {...p, x: d.banks[0].x, y: d.banks[0].y, bank: {[item]: 60}, route: null, path: null};
+  const floor = Math.max(1, Math.floor(d.items[item].value * .4));
+  const vendor = {intent: {t: 'marketDump', itemId: item, qty: 60, floor}, label: 'x', reason: 'y'};
+  assert.equal(market.sale(atBank, vendor).intent ?? null, null, 'plain sale refused');
+  const plan = market.sale(atBank, {...vendor, profitSale: true});
+  assert.equal(plan.intent.t, 'marketSell');
+  assert.equal(plan.profitSale, true);
 });
 
 test('a new listing undercuts the queue; stock already held uses up the demand', () => {

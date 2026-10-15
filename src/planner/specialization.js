@@ -16,7 +16,7 @@ export function createSpecialization(data,planner) {
   function incomeChoices(p,candidates,style) {
     const choices=[];
     for(let c of candidates) {
-      let proceeds=0;
+      let proceeds=0;const saleItems=[];
       if(c.output&&c.output.itemId!==data.coinId) {
         const {itemId,qty}=c.output;
         const minSale=['mining','fishing','woodcutting'].includes(c.skill)&&!data.items[itemId]?.stackable?
@@ -38,7 +38,7 @@ export function createSpecialization(data,planner) {
         // Protected potions, seeds, food reserves and gear are not sale income.
         if(saleQty>0) {
           const quote=planner.marketOpportunity?.(p,itemId,saleQty);
-          if(quote?.qty===saleQty&&Number.isFinite(quote.net)&&quote.net>0)proceeds=quote.net;
+          if(quote?.qty===saleQty&&Number.isFinite(quote.net)&&quote.net>0){proceeds=quote.net;saleItems.push(itemId);}
         }
       }
       // Monster drops: only what current bids absorb after existing stock, net
@@ -47,11 +47,12 @@ export function createSpecialization(data,planner) {
         const qty=Math.floor(perKill*c.kills);
         if(qty<1)continue;
         const quote=planner.marketOpportunity?.(p,Number(id),qty);
-        if(quote?.qty===qty&&Number.isFinite(quote.net)&&quote.net>0)proceeds+=quote.net;
+        if(quote?.qty===qty&&Number.isFinite(quote.net)&&quote.net>0){proceeds+=quote.net;saleItems.push(Number(id));}
       }
       const coins=c.estimate.coins+proceeds;
       if(!(coins>0)||!Number.isFinite(c.estimate.seconds)||c.estimate.seconds<=0)continue;
-      choices.push({...c,rate:{xp:c.rate.xp,coins:coins/c.estimate.seconds},marketProceeds:proceeds});
+      // saleItems: what this choice's income assumes is sold; economy sells them even with everyday selling off.
+      choices.push({...c,rate:{xp:c.rate.xp,coins:coins/c.estimate.seconds},marketProceeds:proceeds,saleItems});
     }
     choices.sort((a,b)=>b.rate.coins-a.rate.coins||b.rate.xp-a.rate.xp);
     return choices;

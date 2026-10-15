@@ -190,7 +190,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
   }
   function watch(p,itemIds,priorityItemId=null) {
     select(p);
-    if(!salesEnabled){setAutoSell(false);return;}
+    // Quotes are read-only: always fetch them so planning can value sales.
     watched=p.ironman?[]:[...new Set(itemIds.filter(id=>tradable(id)&&!saleProtectionReason(data,id)))].slice(0,32);
     watchCursor%=watched.length||1;
     priorityItem=watched.includes(priorityItemId)?priorityItemId:null;
@@ -204,7 +204,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
   }
   function opportunity(p,itemId,qty) {
     select(p);
-    if(p.ironman||!salesEnabled)return null;
+    if(p.ironman)return null;
     if(!tradable(itemId)||saleProtectionReason(data,itemId)||!valid(qty)||state.attempt||!slots(p)||hasOrder(itemId)||
       (cooldowns.get(itemId)??0)>now())return null;
     const book=quotes.get(itemId);
@@ -523,8 +523,11 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     select(p);
     if(p.ironman)return defer(ironmanReason);
     const capacitySale=capacitySalesEnabled&&vendorPlan?.capacitySale===true;
-    if(!salesEnabled&&!capacitySale)return defer('平时出售已关闭，物品留给玩家处理');
-    const scoped=result=>capacitySale?{...result,capacitySale:true}:result;
+    // Output of a task chosen for its sale income is sold even when everyday
+    // selling is off; economy marks only those items as profitSale.
+    const profitSale=vendorPlan?.profitSale===true;
+    if(!salesEnabled&&!capacitySale&&!profitSale)return defer('平时出售已关闭，物品留给玩家处理');
+    const scoped=result=>({...result,...(capacitySale?{capacitySale:true}:{}),...(profitSale?{profitSale:true}:{})});
     const intent=vendorPlan?.intent;
     if(intent?.t!=='marketDump')return vendorPlan;
     const id=intent.itemId,marketOnly=id!==planner.base(id);
@@ -708,7 +711,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const itemId=intent.itemId??cancelled?.itemId;
     state.attempt={intent:{...intent},at:now(),baselineIds:orders.map(o=>o.id),revision,
       cancelledOrder:order?{...cancelled,qtyRemaining:order.qtyRemaining}:cancelled,
-      capacitySale:plan?.capacitySale===true,
+      capacitySale:plan?.capacitySale===true,profitSale:plan?.profitSale===true,
       equipmentSale:!!equipmentSale,
       reviewSale:!!cancelled&&reviewOrderId===intent.orderId,
       before:{id:before.id,coins:before.coins,quantity:itemId?quantity(before,itemId):0},filled:0};
@@ -748,7 +751,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
           const returned=Math.min(attempt.cancelledOrder?.qtyRemaining??0,
             Math.max(0,quantity(p,owned.itemId)-attempt.before.quantity));
           if(attempt.reviewSale&&returned>0)state.sales[owned.itemId]={qty:returned,stock:quantity(p,owned.itemId),price:owned.price,
-            listedMs:(owned.listedMs??0)+Math.max(0,attempt.at-owned.at),rounds:owned.rounds??1,capacitySale:owned.capacitySale===true};
+            listedMs:(owned.listedMs??0)+Math.max(0,attempt.at-owned.at),rounds:owned.rounds??1,capacitySale:owned.capacitySale===true,profitSale:owned.profitSale===true};
           else delete state.sales[owned.itemId];
         }
       }
@@ -757,7 +760,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       const created=orders.filter(o=>!attempt.baselineIds.includes(o.id)&&matching(o,intent));
       const previous=intent.t==='marketSell'?state.sales[intent.itemId]:null;
       if(created.length===1)state.owned[created[0].id]={...created[0],at:attempt.at,
-        listedMs:previous?.listedMs??0,rounds:(previous?.rounds??0)+1,capacitySale:attempt.capacitySale===true,equipmentSale:attempt.equipmentSale===true};
+        listedMs:previous?.listedMs??0,rounds:(previous?.rounds??0)+1,capacitySale:attempt.capacitySale===true,profitSale:attempt.profitSale===true,equipmentSale:attempt.equipmentSale===true};
       if(intent.t==='marketSell')delete state.sales[intent.itemId];
       quotes.delete(intent.itemId);requests.delete(intent.itemId);
     }
@@ -782,7 +785,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
         return atBank(p,{t:'marketCancel',orderId:order.id},'撤回受保护物品的旧脚本挂单',true);
       }
       if((cooldowns.get(order.itemId)??0)>now())continue;
-      if(order.side==='sell'&&!salesEnabled&&!(capacitySalesEnabled&&owned.capacitySale===true)) {
+      if(order.side==='sell'&&!salesEnabled&&!(capacitySalesEnabled&&owned.capacitySale===true)&&owned.profitSale!==true) {
         reviewOrderId=null;
         const cancel=atBank(p,{t:'marketCancel',orderId:order.id},'平时出售已关闭，撤回助手自己的挂单');
         if(cancel.intent)return cancel;

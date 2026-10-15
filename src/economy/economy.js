@@ -171,8 +171,13 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false}=
     }
     const inspected=review(p,protection,style),reserve=inspected.budget;
     const capacitySale=autoSell!==true&&capacitySales===true&&capacity.freeSlots<=0;
-    const saleFlags=capacitySale?{capacitySale:true}:{};
-    const rows=autoSell===true||capacitySale?inspected.items.filter(i=>i.sell>0):[];
+    // A task chosen for its sale income sells those outputs even with everyday
+    // selling off; the usual keep amounts and protections still apply.
+    const profitItems=new Set(goal?.saleItems??[]);
+    const profitSale=autoSell!==true&&!capacitySale&&profitItems.size>0;
+    const saleFlags=capacitySale?{capacitySale:true}:profitSale?{profitSale:true}:{};
+    const rows=autoSell===true||capacitySale?inspected.items.filter(i=>i.sell>0):
+      profitSale?inspected.items.filter(i=>i.sell>0&&profitItems.has(i.itemId)):[];
     let deferredSale=null;
     const profit=rows.reduce((n,i)=>n+i.sellFromBank*i.vendorUnit,0);
     const urgent=reserve.pressure||p.coins<reserve.coins;

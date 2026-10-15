@@ -156,7 +156,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
   const trainer=new Trainer(GAME_DATA,planner,intent=>{
     if (!allowed.has(intent.t)) throw new Error('未支持的操作');
     if(intent.t==='leaveWorldBoss'){pendingNativeJoin=null;abortNativeBossJoin();}
-    if(!autoSell&&!(capacitySales&&trainer.plan?.capacitySale)&&['marketSell','marketDump'].includes(intent.t))
+    if(!autoSell&&!(capacitySales&&trainer.plan?.capacitySale)&&!trainer.plan?.profitSale&&['marketSell','marketDump'].includes(intent.t))
       throw new Error('日常出售已关闭，且当前操作不是获准的满仓清理');
     if (!validateIntent(GAME_DATA,trainer.player,intent,{planner,goal:trainer.goal,style:trainer.style,mode:trainer.mode,waitingGoals:trainer.waitingGoals})) throw new Error('计划涉及未知或受保护物品，等待重新核对');
     if (!socket||socket.readyState!==NativeWebSocket.OPEN) throw new Error('游戏连接已断开');
@@ -1600,7 +1600,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
                 </div>
                 <div data-profit-floor-controls hidden>
                   <label>最低收益（金币/小时）<input type="number" min="0" step="100" inputmode="numeric" data-profit-floor aria-label="最低收益（金币/小时）"></label>
-                  <p class="muted setting-note">只选择收益不低于此值的工作，再比经验；出售收入按“出售方式”扣税估算，需开启“平时也出售多余物品”。都达不到时改做最赚钱的工作。0 为不限制。</p>
+                  <p class="muted setting-note">只选择收益不低于此值的工作，再比经验；出售收入按“出售方式”扣税估算；选中的工作产出会被出售。都达不到时改做最赚钱的工作。0 为不限制。</p>
                   <p class="label">按当前角色的建议（点击使用）</p>
                   <div data-profit-suggestions class="suggestions"><p class="muted setting-note">打开本页后计算…</p></div>
                 </div>
@@ -1676,7 +1676,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
                   <p class="fine-print">制作先用现货，缺口优先比较市场供料；缺货、过贵或买不起再自备。按整批原料的价格、数量与省下的时间选择配方，不设固定金币底线或每小时限额，保留任务必需开销。背包、仓库同品质原料合批制作；稀有材料保留，已被完全替代的品质／强化装备仅按实际品级卖市场。</p>
                   <p class="fine-print">自主发展／经验优先练采矿、伐木时，可在原地清理不需要的普通主产物，省下的往返时间须超过产物价值；钓鱼、偷窃不自动丢。保留至少 50 件周转物资、计划材料、所有稀有物及副产物，不启用游戏的一键丢弃采集物。</p>
                   <label>平时也出售多余物品<input type="checkbox" data-auto-sell aria-label="平时也出售多余物品"></label>
-                  <p class="fine-print">开启：每次回仓时，把超出保留量的普通物品按下方“出售方式”挂单或卖出，并把这部分出售收入算进主业经营和最低收益的比较。关闭：平时一件不卖，只在仓库满时按“满仓时出售普通盈余”清理。保留量：当前计划和供料链需要的材料、每种 50 件周转材料、3 趟战斗食物、种子与作物储备；药水、稀有／特殊掉落、坐骑宠物、传说物品、强化材料和装备方案一律不卖。关闭时会撤回助手自己尚未成交的挂单，不动你的手动挂单。</p>
+                  <p class="fine-print">开启：每次回仓时，把所有超出保留量的普通物品按下方“出售方式”挂单或卖出。关闭：只出售为赚钱而选择的工作的产出（主业经营、最低收益按售价选中的工作，其收益本就按出售计算），其他物品只在仓库满时按“满仓时出售普通盈余”清理。保留量：当前计划和供料链需要的材料、每种 50 件周转材料、3 趟战斗食物、种子与作物储备；药水、稀有／特殊掉落、坐骑宠物、传说物品、强化材料和装备方案一律不卖。关闭时会撤回助手自己尚未成交的挂单，不动你的手动挂单。</p>
                   <label>满仓时出售普通盈余<input type="checkbox" data-capacity-sales aria-label="满仓时出售普通盈余"></label>
                   <label>出售方式<select data-sale-pricing aria-label="出售方式"><option value="list">挂单：按卖盘价等待成交</option><option value="bid">直接卖给买单：立即成交</option></select></label>
                   <p class="fine-print">挂单：比最低卖价低一档挂出，税后须比最高买单多 5% 以上，且近 2 小时成交量足以消化同价排队卖量，否则直接卖给买单；同一批挂两轮仍未卖完时改为卖给买单。收益规划也按同样方式估值。</p>
@@ -2767,7 +2767,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     panel.querySelector('[data-potion-restock]').checked=potionRestock;
     panel.querySelector('[data-capacity-sales]').checked=capacitySales;
     panel.querySelector('[data-sale-pricing]').value=salePricing;
-    panel.querySelector('[data-mode-info]').textContent=modeInfo[trainer.mode]+(trainer.mode==='business'&&!autoSell?' 平时出售已关闭；收入比较只计直接获得的金币。':'');
+    panel.querySelector('[data-mode-info]').textContent=modeInfo[trainer.mode];
     panel.querySelector('[data-training-policy]').textContent=trainer.mode==='assist'?
       '不安排练级、装备、交易或采购任务；不采种、不解锁新作物。玩家可继续编辑自己的队列，手动操作优先。':
       `自动打造换装 · ${autoSell?'比价出售与必要采购':capacitySales?'仅满仓清理普通盈余和淘汰装备 · 必要采购':'不自动出售 · 必要采购'}。常规切换遵守背包／批次边界；世界 Boss 临时参与结束后继续原任务。`;
