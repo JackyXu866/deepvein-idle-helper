@@ -25293,11 +25293,8 @@ function createPlanningClient(makeWorker, { timeout = 8e3, setTimer = setTimeout
           <button role="tab" id="dv-tab-overview" aria-controls="dv-panel-overview" aria-selected="true" tabindex="0">总览</button>
           <button role="tab" id="dv-tab-plan" aria-controls="dv-panel-plan" aria-selected="false" tabindex="-1">计划</button>
           <button role="tab" id="dv-tab-strategy" aria-controls="dv-panel-strategy" aria-selected="false" tabindex="-1">策略</button>
-          <button role="tab" id="dv-tab-target" aria-controls="dv-panel-target" aria-selected="false" tabindex="-1">目标</button>
-          <button role="tab" id="dv-tab-stats" aria-controls="dv-panel-stats" aria-selected="false" tabindex="-1">数据</button>
           <button role="tab" id="dv-tab-supplies" aria-controls="dv-panel-supplies" aria-selected="false" tabindex="-1">物资</button>
           <button role="tab" id="dv-tab-logs" aria-controls="dv-panel-logs" aria-selected="false" tabindex="-1">诊断</button>
-          <button role="tab" id="dv-tab-update" aria-controls="dv-panel-update" aria-selected="false" tabindex="-1">更新</button>
         </div>
         <div class="panels-container">
           <div role="tabpanel" id="dv-panel-overview" aria-labelledby="dv-tab-overview" tabindex="0">
@@ -25327,6 +25324,16 @@ function createPlanningClient(makeWorker, { timeout = 8e3, setTimer = setTimeout
               <label>参战方式<select data-boss-participation aria-label="世界 Boss 参战方式"><option value="full">全程打到结束</option><option value="tag">确认有效伤害后离开</option></select></label>
               <p class="fine-print">离开模式须收到服务器确认的本人有效伤害。按游戏说明，命中过即可参与分配，金币随贡献变化；实际奖励以结束后的掉落记录为准。仅控制助手发起的参战。</p>
             </div>
+            <details data-progress-details>
+              <summary>等级与运行收益</summary>
+              <div class="detail-content">
+                <p data-growth class="muted"></p>
+                <div class="levels"></div>
+                <p data-blocked class="muted"></p>
+                <p data-metrics class="muted"></p>
+                <p class="fine-print">只统计已观察到的在线区间；离线奖励不用于估算战斗效率。</p>
+              </div>
+            </details>
             <p data-last-rejection class="notice" hidden></p>
           </div>
 
@@ -25413,9 +25420,6 @@ function createPlanningClient(makeWorker, { timeout = 8e3, setTimer = setTimeout
                 <p class="fine-print">切换成长策略／职业后点击“开始”。开始后断线或本页刷新自动恢复；暂停取消恢复。保持电脑运行和标签页打开。</p>
               </div>
             </details>
-          </div>
-
-          <div role="tabpanel" id="dv-panel-target" aria-labelledby="dv-tab-target" tabindex="0" hidden>
             <details data-item-target-details open>
               <summary>物品目标<span data-item-target-summary class="muted">未设置</span></summary>
               <div class="detail-content">
@@ -25429,19 +25433,6 @@ function createPlanningClient(makeWorker, { timeout = 8e3, setTimer = setTimeout
                   <button data-item-target-cancel disabled>取消目标</button>
                 </div>
                 <p class="fine-print">仅普通品质；原库存不计，采购计新增，完成继续原策略。顺路收菜不额外补料，种子目标暂停播种；Boss 可能消耗目标食物时暂缓。暂停保留目标，切换策略、主业或职业取消；不接管玩家队列。</p>
-              </div>
-            </details>
-          </div>
-
-          <div role="tabpanel" id="dv-panel-stats" aria-labelledby="dv-tab-stats" tabindex="0" hidden>
-            <details data-progress-details open>
-              <summary>等级与运行收益</summary>
-              <div class="detail-content">
-                <p data-growth class="muted"></p>
-                <div class="levels"></div>
-                <p data-blocked class="muted"></p>
-                <p data-metrics class="muted"></p>
-                <p class="fine-print">只统计已观察到的在线区间；离线奖励不用于估算战斗效率。</p>
               </div>
             </details>
           </div>
@@ -25493,9 +25484,6 @@ function createPlanningClient(makeWorker, { timeout = 8e3, setTimer = setTimeout
                 <p data-client class="fine-print"></p>
               </div>
             </details>
-          </div>
-
-          <div role="tabpanel" id="dv-panel-update" aria-labelledby="dv-tab-update" tabindex="0" hidden>
             <details data-update-details open>
               <summary>脚本更新<span class="muted">v${SCRIPT_VERSION}</span></summary>
               <div class="detail-content">
@@ -25824,8 +25812,9 @@ function createPlanningClient(makeWorker, { timeout = 8e3, setTimer = setTimeout
     const tabKey = "deepvein-helper-ui-tab-v1";
     const tabs = Array.from(panel.querySelectorAll('[role="tab"]'));
     const tabpanels = Array.from(panel.querySelectorAll('[role="tabpanel"]'));
+    const MOVED_TABS = { "dv-tab-target": "dv-tab-strategy", "dv-tab-stats": "dv-tab-overview", "dv-tab-update": "dv-tab-logs" };
     function switchTab(targetId, focus = false) {
-      const targetTab = panel.querySelector(`#${targetId}`) || tabs[0];
+      const targetTab = panel.querySelector(`#${MOVED_TABS[targetId] ?? targetId}`) || tabs[0];
       if (!targetTab) return;
       for (const tab of tabs) {
         const isSelected = tab === targetTab;
@@ -26456,7 +26445,7 @@ function createPlanningClient(makeWorker, { timeout = 8e3, setTimer = setTimeout
     for (const selector of ["[data-update-badge]", "[data-update-install]"]) panel.querySelector(selector).href = updates.state.installUrl;
     panel.querySelector("[data-update-badge]").hidden = !updates.state.available;
     panel.querySelector("[data-update-badge]").textContent = updates.state.available ? `新版 ${updates.state.available}` : "";
-    const updateTab = panel.querySelector("#dv-tab-update");
+    const updateTab = panel.querySelector("#dv-tab-logs");
     if (updateTab) updateTab.setAttribute("data-has-update", String(!!updates.state.available));
     const trained = planner.trainedSkills(trainer.style);
     panel.querySelector("[data-mode]").value = trainer.mode;
