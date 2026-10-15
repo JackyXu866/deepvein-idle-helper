@@ -2,6 +2,7 @@ import {autoUsableMaterial, professionSkill} from './professions.js';
 import {expectedAttacks, workEstimate} from './estimates.js';
 import {POTIONS, brewPower, foodEffects, potionRefillQty} from './supplies.js';
 import {inventoryBudget} from './inventory.js';
+import {baseId, baseStride, distance, nearestBank, packCapacity, packUsed, rarityOf} from './items.js';
 
 export function swiftPotion(data,planner,p,plan,window,drinkQty) {
   const itemId=225,next=plan?.intent,route=next??p.route;
@@ -9,13 +10,9 @@ export function swiftPotion(data,planner,p,plan,window,drinkQty) {
   const job=data.jobs.find(j=>j.id===route.jobId);
   const target=next?.t==='walk'?next:data.sites.find(s=>s.id===route.siteId)??data.zones.find(z=>z.id===route.zoneId);
   if(!target||!next&&(!job||job.grow||route.limit===0))return null;
-  const distance=(a,b)=>Math.max(Math.abs(a.x-b.x),Math.abs(a.y-b.y)),tick=data.tickMs/1000;
-  const bank=point=>[...data.banks].sort((a,b)=>distance(point,a)-distance(point,b))[0].approach;
-  // Native mounts use different quality/enhancement scaling from work tools.
-  const mount=p.equipment.mount??0,mountBase=data.gear.find(g=>g.itemId===planner.base(mount)&&g.slot==='mount');
-  const mountBonus=(mountBase?.bonus??0)*([1,1.5,2.25,3.5,5][Math.floor(mount%data.plusScale/data.rarityScale)]??1)*
-    (1+.15*Math.floor(mount/data.plusScale));
-  const stride=(1000+Math.round(mountBonus*1000))*(1+.005*(p.masteries?.move??0));
+  const tick=data.tickMs/1000;
+  const bank=point=>nearestBank(data,point).approach;
+  const stride=baseStride(data,p);
   const speed=Math.round(stride)/1000,boosted=Math.round(stride*1.2)/1000;
   let remaining=Math.min(600,Math.max(0,window)),travel=0,position=p;
   const move=to=>{const seconds=Math.min(remaining,distance(position,to)*tick/speed);
@@ -36,14 +33,13 @@ export function swiftPotion(data,planner,p,plan,window,drinkQty) {
       const slot=Object.keys(data.toolSkills).find(k=>data.toolSkills[k]===job.skill);
       const seconds=workEstimate(data,job,planner.levels(p)[job.skill],{toolBonus:planner.equipmentStats(p.equipment[slot])?.bonus??0,
         quick:p.perks?.quick??0,hands:p.perks?.hands??0}).seconds;
-      const capacity=28+Math.max(0,p.perks?.pockets??0);
+      const capacity=packCapacity(p);
       let dose=drinkQty;
       const freed=p.pack.filter(i=>i.itemId===itemId).reduce((slots,i)=>{
         const used=Math.min(dose,i.qty);dose-=used;
         return slots+(data.items[itemId]?.stackable?Number(used===i.qty):used);
       },0);
-      const used=p.pack.reduce((sum,i)=>sum+(data.items[planner.base(i.itemId)]?.stackable?1:i.qty),0)-
-        freed;
+      const used=packUsed(data,p)-freed;
       let free=route.phase==='toBank'||route.phase==='banking'?capacity:Math.max(0,capacity-used);
       let count=route.limit==null||next&&route.limit===0?Infinity:Math.max(0,route.limit);
       while(remaining>0&&count>0) {
@@ -86,7 +82,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
   const carried=id=>p.pack.some(i=>i.itemId===id&&i.qty>0);
   const accessible=id=>carried(id)||planner.nearBank(p)&&(p.bank[id]??0)>0;
   const potionVariants=id=>{
-    const base=id%data.plusScale%data.rarityScale;
+    const base=baseId(data,id);
     return Array.from({length:data.rarityMultipliers.length},(_,tier)=>base+tier*data.rarityScale)
       .filter(itemId=>autoUsableMaterial(data,itemId));
   };
@@ -96,7 +92,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
   const usablePotion=id=>Math.min(potionQuantity(id),Math.max(0,planner.count(p,id)-potionReserve(id)));
   const potionSurplus=id=>potionVariants(id).reduce((sum,itemId)=>
     sum+usablePotion(itemId),0);
-  const ownedDose=(id,desired)=>potionVariants(id).map(itemId=>({itemId,power:data.rarityMultipliers[Math.floor(itemId%data.plusScale/data.rarityScale)],
+  const ownedDose=(id,desired)=>potionVariants(id).map(itemId=>({itemId,power:data.rarityMultipliers[rarityOf(data,itemId)],
     qty:Math.min(desired,20,usablePotion(itemId))}))
     .filter(choice=>choice.qty>0).sort((a,b)=>a.itemId-b.itemId)[0]??null;
   const producing=id=>job?.output.itemId===id||p.activity==='working'&&
@@ -172,7 +168,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
   const damageReduction=meanHit?1-rootedHit/meanHit:0;
   const enemyDps=monster?(10+monster.attack)/(20+monster.attack+lv.defence+stat('defence'))*
     (active('rooted')?rootedHit:meanHit)/(monster.speed*tick):0;
-  const foodRarity=Math.floor(foodId%data.plusScale/data.rarityScale);
+  const foodRarity=rarityOf(data,foodId);
   const rawHeal=Math.max(1,Math.round((food?.heals??0)*(data.foodHealingMultipliers??[1,1.2,1.5,2,3])[foodRarity]));
   const maxHp=Math.floor(lv.hitpoints*(1+.005*(p.masteries?.hp??0)));
   const gap=Math.max(1,maxHp-Math.floor(maxHp*(p.eatAt??.5)));

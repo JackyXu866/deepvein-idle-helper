@@ -1,5 +1,6 @@
 import {brewPower} from './supplies.js';
 import {inventoryBudget, saleProtectionReason} from './inventory.js';
+import {baseStride, distance, packCapacity, packQty, packUsed} from './items.js';
 
 // Native onFull:'drop' removes every quality of BOTH main and bonus outputs.
 // dropItem matches an exact pack item ID and leaves the active route intact.
@@ -13,13 +14,11 @@ export function planGatheringSurplus(data,planner,p,goal,style,mode,waitingGoals
     (route.onFull??'bank')!=='bank'||route.errand||route.after||route.limit===0||
     p.workJobId!=null&&p.workJobId!==job.id||p.path?.length||p.enhance||p.held||p.raidHeld||p.queue?.length)return null;
   const id=job.output.itemId,item=data.items[id],site=data.sites.find(s=>s.id===route.siteId);
-  const distance=(a,b)=>Math.max(Math.abs(a.x-b.x),Math.abs(a.y-b.y));
   if(!site||!site.jobIds.includes(job.id)||distance(p,site)>1||!item||item.stackable||
     id!==planner.base(id)||saleProtectionReason(data,id)||data.gear.some(g=>g.itemId===id)||
     data.jobs.some(j=>j.grow&&j.inputs.some(i=>i.itemId===id)))return null;
-  const capacity=28+Math.max(0,p.perks?.pockets??0);
-  const used=p.pack.reduce((sum,i)=>sum+(data.items[planner.base(i.itemId)]?.stackable?1:i.qty),0);
-  const free=capacity-used,carried=p.pack.filter(i=>i.itemId===id).reduce((sum,i)=>sum+i.qty,0);
+  const capacity=packCapacity(p);
+  const free=capacity-packUsed(data,p),carried=packQty(p,id);
   const xp=planner.estimateWork(p,job).xp;
   const remaining=Math.min(route.limit??Infinity,Math.ceil((planner.thresholds[goal.target]-p.skills[job.skill])/xp));
   // Act in sizeable batches before fullness; never redirect an existing trip.
@@ -31,10 +30,7 @@ export function planGatheringSurplus(data,planner,p,goal,style,mode,waitingGoals
   if(!Number.isSafeInteger(qty)||qty<Math.ceil(capacity/2))return null;
   const value=planner.marketSurplusValue?.(p,id,qty)??Infinity,rate=planner.coinRate?.(p)??0;
   if(!Number.isFinite(value)||value<0||!(rate>0))return null;
-  const mount=p.equipment.mount??0,mountBase=data.gear.find(g=>g.itemId===planner.base(mount)&&g.slot==='mount');
-  const bonus=(mountBase?.bonus??0)*([1,1.5,2.25,3.5,5][Math.floor(mount%data.plusScale/data.rarityScale)]??1)*
-    (1+.15*Math.floor(mount/data.plusScale));
-  const stride=Math.round((1000+Math.round(bonus*1000))*(1+.005*(p.masteries?.move??0))*(1+.2*brewPower(data,p,'swift')));
+  const stride=Math.round(baseStride(data,p)*(1+.2*brewPower(data,p,'swift')));
   const speed=Math.max(1000,stride,p.strideSpeed??0)/1000;
   const travel=2*Math.min(...data.banks.map(b=>Math.max(0,distance(p,b)-1)))*data.tickMs/1000/speed;
   const saved=Math.max(0,travel*Math.min(qty,remaining*job.output.qty-free)/capacity-4);

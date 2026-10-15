@@ -1,8 +1,9 @@
 import {professionSkill} from './professions.js';
 import {workEstimate} from './estimates.js';
+import {dayTicks as dayTicksOf} from './items.js';
 
 export function createQuests(data,planner) {
-  const dayTicks=86400000/data.tickMs;
+  const dayTicks=dayTicksOf(data);
   const title=q=>q.kind==='kill'?data.monsters.find(m=>m.id===q.monsterId)?.name:
     data.jobs.find(j=>j.id===q.jobId)?.name;
   function read(p) {

@@ -1,5 +1,6 @@
 import {autoUsableMaterial, craftRecipe} from './professions.js';
 import {workEstimate} from './estimates.js';
+import {baseId, distance, packCapacity, packQty, packUsed, rarityOf} from './items.js';
 
 export function createCrafting(data,planner) {
   function estimate(p,id,qty,{reserve={},buy=false,coins=0}={}) {
@@ -31,7 +32,7 @@ export function createCrafting(data,planner) {
             quick:p.perks?.quick??0,hands:p.perks?.hands??0});
           stock[itemId]=(stock[itemId]??0)+n*recipe.output.qty-missing;
           const travel=2*Math.min(...data.sites.filter(site=>site.jobIds.includes(job.id))
-            .map(site=>Math.max(Math.abs(p.x-site.x),Math.abs(p.y-site.y))))*data.tickMs/1000;
+            .map(site=>distance(p,site)))*data.tickMs/1000;
           return seconds+n*rate.seconds/rate.success+travel;
         }
         for(const key of Object.keys(stock))delete stock[key];Object.assign(stock,saved);money=beforeMoney;
@@ -80,7 +81,7 @@ export function createCrafting(data,planner) {
   function ingredients(id,seen=new Set()) {
     if(seen.has(id))return [];seen.add(id);
     const original=data.jobs.find(j=>j.output.itemId===planner.base(id)&&j.inputs.length&&!j.grow);
-    const job=original&&craftRecipe(data,original,Math.floor(id/data.rarityScale));
+    const job=original&&craftRecipe(data,original,rarityOf(data,id));
     return job?[...new Set(job.inputs.flatMap(i=>[i.itemId,...ingredients(i.itemId,seen)]))]:[];
   }
   return {estimate,shortfall,available,ingredients};
@@ -96,25 +97,23 @@ export function bankedGatheringLoad(data,before,p) {
   const gained=id=>(p.bank[id]??0)-(before.bank[id]??0)-
     Math.max(0,(before.overflow?.[id]??0)-(p.overflow?.[id]??0));
   if(before.pack.some(item=>{
-    if(item.itemId%data.plusScale%data.rarityScale!==job.output.itemId)return false;
-    const count=pack=>pack.filter(i=>i.itemId===item.itemId).reduce((n,i)=>n+i.qty,0);
-    const moved=count(before.pack)-count(p.pack);
+    if(baseId(data,item.itemId)!==job.output.itemId)return false;
+    const moved=packQty(before,item.itemId)-packQty(p,item.itemId);
     return moved>0&&gained(item.itemId)>=moved;
   }))return true;
   // A snapshot can arrive after banking and refilling the next partial pack.
   // Its size need not decrease; gathering XP plus new shelved output still
   // identifies the completed trip. Overflow moving back to shelves does not.
   return (p.skills?.[job.skill]??0)>(before.skills?.[job.skill]??0)&&
-    Object.keys(p.bank).some(id=>id%data.plusScale%data.rarityScale===job.output.itemId&&gained(id)>0);
+    Object.keys(p.bank).some(id=>baseId(data,+id)===job.output.itemId&&gained(id)>0);
 }
 
 export function finishTaskReason(data,p) {
   const route=p.route,original=data.jobs.find(j=>j.id===route?.jobId);
   const job=original&&(original.inputs.length&&!original.grow?craftRecipe(data,original,p.workRarity??route?.rarity??0):original);
   if (!job||job.grow||route.errand||!route.phase||route.phase==='toBank'||route.limit===0) return null;
-  const base=id=>id%data.plusScale%data.rarityScale;
-  const used=p.pack.reduce((n,i)=>n+(data.items[base(i.itemId)]?.stackable?1:i.qty),0);
-  const free=28+Math.max(0,p.perks?.pockets??0)-used;
+  const base=id=>baseId(data,id);
+  const free=packCapacity(p)-packUsed(data,p);
   const output=data.items[base(job.output.itemId)];
   if (['mining','fishing','woodcutting'].includes(job.skill)&&!job.inputs.length&&!output?.stackable) {
     return free>=job.output.qty?'继续当前采集，背包满或本批完成后再切换任务':null;

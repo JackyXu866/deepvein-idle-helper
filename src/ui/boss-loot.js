@@ -1,12 +1,14 @@
 // Personal settlement evidence: research/boss-rewards-mechanics.md.
 // Original chat ticks survive welcome-history replay and are not frame ticks.
+// Chat senders of the town's boss-loot receipts.
+export const BOSS_LOOT_SENDERS=['Deep Vein','The Deep'];
 export const BOSS_LOOT_RECEIPT=/^Your share of the (.+): (.+) — on your shelf at the depot\.$/;
 
 export function createBossLootHistory(data,storage,now=()=>Date.now()) {
   let playerId=null,entries=[],saved=true,lastFrame=null,migratedFrom=null;
   const storageKey=()=>`deepvein-boss-loot-v1:${playerId}`;
   function receipt(message,time) {
-    if(!message||!['Deep Vein','The Deep'].includes(message.name)||
+    if(!message||!BOSS_LOOT_SENDERS.includes(message.name)||
       typeof message.text!=='string'||message.text.length>4000||
       !Number.isSafeInteger(message.tick)||message.tick<0)return null;
     const match=BOSS_LOOT_RECEIPT.exec(message.text);

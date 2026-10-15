@@ -1,4 +1,5 @@
 import {inventoryBudget} from './inventory.js';
+import {distance} from './items.js';
 
 // The game's own fallback activity (client 0.0.1167, `setFallback`): a task the
 // character starts by itself when its plan ends ("done" or out of materials),
@@ -39,7 +40,7 @@ export function chooseFallback(data,planner,p,goal=null,style='magic') {
   const job=feeding?.job??[...jobs].sort((a,b)=>xp.get(b)-xp.get(a)||b.levelReq-a.levelReq)[0];
   if(!feeding&&!(xp.get(job)>0))return null;
   // The site nearest a bank: the fallback banks every load.
-  const bankDistance=s=>Math.min(...data.banks.map(b=>Math.max(Math.abs(s.x-b.x),Math.abs(s.y-b.y))));
+  const bankDistance=s=>Math.min(...data.banks.map(b=>distance(s,b)));
   const site=data.sites.filter(s=>s.jobIds.includes(job.id)).sort((a,b)=>bankDistance(a)-bankDistance(b)||a.id-b.id)[0];
   const missing=feeding?Math.max(0,(demand[job.output.itemId]??0)-planner.count(p,job.output.itemId)):0;
   return {job,task:{kind:'job',siteId:site.id,jobId:job.id,onFull:'bank',rarity:0},xpH:Math.round(xp.get(job)*3600),

@@ -2,6 +2,7 @@ import {autoUsableMaterial} from '../planner/professions.js';
 import {workEstimate} from '../planner/estimates.js';
 import {POTIONS, foodEffects, foodHealing} from '../planner/supplies.js';
 import {inventoryBudget, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
+import {baseId, dayTicks as dayTicksOf, distance, itemLabel, merchantPrice, minListPrice, netProceeds, plusOf, qualityIds, rarityOf, stockQty, tradableBase} from '../planner/items.js';
 
 // Price grid (client Nb/Vn/ih/Zm; refusal 'market-price-step'): a price must be
 // a multiple of a step that grows with it: 1 below 100, then 2, 5 or 10 times
@@ -54,11 +55,9 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     if(!storageReadable)return false;
     try {const text=JSON.stringify(saved);storage?.setItem(key,text);savedText=text;return true;} catch {return false;}
   };
-  const quantity=(p,id)=>(p.bank[id]??0)+(p.overflow?.[id]??0)+
-    p.pack.filter(i=>i.itemId===id).reduce((n,i)=>n+i.qty,0);
+  const quantity=stockQty;
   const valid=n=>Number.isSafeInteger(n)&&n>0;
-  const tradable=id=>valid(id)&&id===planner.base(id)&&data.items[id]&&id!==data.coinId&&
-    ![294,295,296,297].includes(id)&&(data.items[id].value>0||id===70);
+  const tradable=id=>valid(id)&&id===planner.base(id)&&!!data.items[id]&&tradableBase(data,id);
   const action=(intent,label,reason='')=>({intent,label,reason});
   const wait=reason=>({...action(null,'市场比价',reason),marketWaiting:true});
   const defer=reason=>{status=reason;return {...action(null,'市场出售待处理',reason),marketDeferred:true};};
@@ -238,7 +237,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     select(p);
     if(p.ironman)return null;
     if(!tradable(itemId)||saleProtectionReason(data,itemId)||!valid(qty))return null;
-    const floor=Math.max(1,Math.floor(data.items[itemId].value*.4));
+    const floor=merchantPrice(data,itemId);
     let merchant={net:floor*qty,qty,merchant:true};
     // Town buyback: valued at what it actually paid on average, for at most
     // half of its last daily volume (other sellers compete for it).
@@ -263,7 +262,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     let stock=quantity(p,itemId),remaining=qty,net=0,bidValue=null;
     for(const bid of [...book.bids].sort((a,b)=>b.price-a.price)) {
       const old=Math.min(stock,bid.qty),take=Math.min(remaining,bid.qty-old);
-      const proceeds=take*bid.price-Math.floor(take*bid.price*taxBp/10000);
+      const proceeds=netOf(bid.price,take);
       if(take>0&&proceeds<=floor*take)continue;
       stock-=old;remaining-=take;net+=proceeds;
       if(!remaining){bidValue={net,qty};break;}
@@ -314,18 +313,16 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
   function atBank(p,intent,label,critical=false) {
     if(!critical&&!natural(p))return action(null,'市场交易待返仓','先完成当前任务，再处理盈余订单');
     if(!planner.nearBank(p)) {
-      const distance=b=>Math.max(Math.abs(p.x-b.x),Math.abs(p.y-b.y));
-      const bank=[...data.banks].sort((a,b)=>distance(a)-distance(b))[0];
+      const bank=[...data.banks].sort((a,b)=>distance(p,a)-distance(p,b))[0];
       return action({t:'walk',...bank.approach},'市场交易 · 前往仓库',label);
     }
     if(p.route||p.path?.length)return action({t:'clearRoute'},'交易前停止路线并确认库存',label);
     return action(intent,label);
   }
-  const tier=id=>Math.floor(id%data.plusScale/data.rarityScale);
-  const itemName=id=>`${['','罕见 ','稀有 ','史诗 ','传说 '][tier(id)]??''}${data.items[planner.base(id)]?.name??id}`+
-    (id>=data.plusScale?` +${Math.floor(id/data.plusScale)}`:'');
-  const variants=id=>Array.from({length:5},(_,r)=>planner.base(id)+r*data.rarityScale).filter(id=>autoUsableMaterial(data,id));
-  const purchasable=id=>valid(id)&&autoUsableMaterial(data,id)&&Math.floor(id/data.plusScale)<=5&&
+  const tier=id=>rarityOf(data,id);
+  const itemName=id=>itemLabel(data,id);
+  const variants=id=>qualityIds(data,id).filter(id=>autoUsableMaterial(data,id));
+  const purchasable=id=>valid(id)&&autoUsableMaterial(data,id)&&plusOf(data,id)<=5&&
     tradable(planner.base(id))&&(id<data.plusScale||!!planner.equipmentStats(id));
   function configureProcurement(value={}) {
     // Old reserve/hourly preferences migrate to value-based purchasing.
@@ -372,11 +369,11 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     // pause gathering or authorize a sale; it only bounds the cost of disposal.
     if(book.waiting||book.fallback||!book.tradesKnown) {
       const row=feedRow(id);
-      return row&&(row.ask||row.bid)?qty*Math.max(1,Math.floor(data.items[id].value*.4),row.ask??0,row.bid??0):Infinity;
+      return row&&(row.ask||row.bid)?qty*Math.max(merchantPrice(data,id),row.ask??0,row.bid??0):Infinity;
     }
     const ask=Math.min(...book.asks.map(r=>r.price));
     const recent=book.trades.filter(r=>r.tick>=p.lastTick-recycleMs/data.tickMs);
-    return qty*Math.max(1,Math.floor(data.items[id].value*.4),Number.isFinite(ask)?ask:0,
+    return qty*Math.max(merchantPrice(data,id),Number.isFinite(ask)?ask:0,
       ...book.bids.map(r=>r.price),...recent.map(r=>r.price));
   }
   function buy(p,id,qty,goal,label,reason,maxPrice=Infinity) {
@@ -408,7 +405,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     if(!ask||!(rate>0))return null;
     const amount=Math.min(qty,ask.qty,Math.floor(purchaseAllowance(p,goal)/ask.price),1000000);
     if(amount<1)return null;
-    const trip=2*Math.min(...data.banks.map(b=>Math.max(Math.abs(p.x-b.approach.x),Math.abs(p.y-b.approach.y))))*data.tickMs/1000;
+    const trip=2*Math.min(...data.banks.map(b=>distance(p,b.approach)))*data.tickMs/1000;
     const seconds=amount*ask.price/rate+trip,self=planner.acquireEstimate?.(p,id,amount,profession);
     // Keep the goal's experience. Buying its ingredients need not compensate
     // every unrelated gathering XP point that self-supply would have earned.
@@ -561,7 +558,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
   const hasOrder=id=>orders.some(o=>o.itemId===id);
   function saleDemand(p,book,price,floor) {
     const trades=book.trades.filter(row=>row.tick<=p.lastTick&&(p.lastTick-row.tick)*data.tickMs<=recycleMs&&
-      row.price>=price&&row.price*row.qty-Math.floor(row.price*row.qty*taxBp/10000)>floor*row.qty);
+      row.price>=price&&netOf(row.price,row.qty)>floor*row.qty);
     const volume=trades.reduce((n,row)=>n+row.qty,0);
     const ahead=book.asks.filter(row=>row.price<=price).reduce((n,row)=>n+row.qty,0);
     return {volume,ahead,illiquid:book.tradesKnown===true&&volume<=ahead};
@@ -571,7 +568,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
   function listingQuote(p,book,floor,previous=null) {
     const prices=[...book.asks.map(row=>row.price),...book.trades.filter(row=>
       row.tick<=p.lastTick&&(p.lastTick-row.tick)*data.tickMs<=600000).map(row=>row.price)];
-    const minimum=priceUp(Math.floor(floor/(1-taxBp/10000))+1);
+    const minimum=priceUp(minListPrice(floor,taxBp));
     const reference=prices.length?Math.min(...prices):floor*2;
     const recentDemand=book.trades.some(row=>row.tick<=p.lastTick&&(p.lastTick-row.tick)*data.tickMs<=recycleMs);
     const ask=recentDemand&&book.asks.length?stepBelow(Math.min(...book.asks.map(row=>row.price))):reference;
@@ -579,9 +576,9 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     if(!valid(price)||price>1e9)return null;
     return {price,demand:saleDemand(p,book,price,floor)};
   }
-  const netOf=(price,qty)=>price*qty-Math.floor(price*qty*taxBp/10000);
-  const merchantUnit=id=>Math.max(1,Math.floor((data.items[planner.base(id)]?.value??0)*.4));
-  const dayTicks=86400000/data.tickMs;
+  const netOf=(price,qty)=>netProceeds(price,qty,taxBp);
+  const merchantUnit=id=>merchantPrice(data,id);
+  const dayTicks=dayTicksOf(data);
   // Store the latest buyback report; the observed price ratio is what it
   // actually paid relative to the merchant price (capped at 1.5).
   function setBuyback(value,at=now()) {
@@ -666,7 +663,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     if(bb&&!previous?.buyback&&!preferListing&&buybackHolds()<2) {
       const asks=book.asks.map(row=>row.price);
       const price=priceDown(Math.min(bb.cap,asks.length?stepBelow(Math.min(...asks)):bb.cap));
-      const minimum=Math.floor(intent.floor/(1-taxBp/10000))+1;
+      const minimum=priceUp(minListPrice(intent.floor,taxBp));
       const expected=net(Math.round(bb.merchant*bb.ratio),1);
       if(price>=minimum&&(!bid||net(bid.price,1)<expected)) {
         status='城镇回购：挂单等待下次回购，成交前不降价';
@@ -725,8 +722,8 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       .map(row=>row.price).sort((a,b)=>a-b);
     if(!prices.length)return null;
     const reference=prices[Math.floor(prices.length/2)];
-    const vendor=Math.max(1,Math.floor(data.items[planner.base(id)].value*.4));
-    const minimum=priceUp(Math.max(Math.ceil(reference*.9),Math.floor(vendor/(1-taxBp/10000))+1));
+    const vendor=merchantPrice(data,id);
+    const minimum=priceUp(Math.max(Math.ceil(reference*.9),minListPrice(vendor,taxBp)));
     const bid=[...book.bids].sort((a,b)=>b.price-a.price).find(row=>row.price>=minimum);
     if(bid)return {qty:Math.min(qty,bid.qty),price:bid.price};
     const price=Math.max(minimum,priceDown(Math.min(reference,book.asks.length?stepBelow(Math.min(...book.asks.map(row=>row.price))):reference)));
@@ -749,7 +746,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const amount=Math.min(qty,ask.qty,Math.floor(available/ask.price),1000000);if(amount<1)return null;
     const rate=planner.coinRate?.(p),cost=amount*ask.price;
     if(!(rate>0)||!Number.isFinite(rate))return null;
-    const bankDistance=Math.min(...data.banks.map(b=>Math.max(Math.abs(p.x-b.approach.x),Math.abs(p.y-b.approach.y))));
+    const bankDistance=Math.min(...data.banks.map(b=>distance(p,b.approach)));
     const seconds=cost/rate+2*bankDistance*data.tickMs/1000;
     const self=planner.acquireEstimate?.(p,itemId,amount,profession);
     if(!self||seconds>(goal?.horizon??1800))return null;
@@ -807,11 +804,11 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
         before.route||before.path?.length||!slots(before)||hasOrder(intent.itemId))return false;
     }
     if(intent.t==='marketDump'&&plan?.illiquidSale) {
-      const book=quotes.get(intent.itemId),minimum=priceUp(Math.floor(intent.floor/(1-taxBp/10000))+1);
+      const book=quotes.get(intent.itemId),minimum=priceUp(minListPrice(intent.floor,taxBp));
       const price=Math.max(minimum,book?.asks.length?priceDown(stepBelow(Math.min(...book.asks.map(row=>row.price)))):minimum);
       if(!capacitySalesEnabled||!plan.capacitySale||inventoryBudget(data,planner,before).freeSlots>0||
         !book||now()-book.at>=ttl||!saleDemand(before,book,price,intent.floor).illiquid||
-        book.bids.some(row=>row.price*Math.min(intent.qty,row.qty)-Math.floor(row.price*Math.min(intent.qty,row.qty)*taxBp/10000)>
+        book.bids.some(row=>netOf(row.price,Math.min(intent.qty,row.qty))>
           intent.floor*Math.min(intent.qty,row.qty)))return false;
     }
     if(intent.t==='marketDump') {

@@ -1,4 +1,5 @@
-import {PROFESSIONS, autoUsableMaterial, craftRecipe, matchesProfessionWeapon, professionSkill, starterWeapon} from './professions.js';
+import {PROFESSIONS, autoUsableMaterial, canWear as canWearWith, craftRecipe, gearRequirementOf, matchesProfessionWeapon, professionSkill, starterWeapon} from './professions.js';
+import {baseId, distance, itemLabel, nearBank as nearBankAt, nearestBank as nearestBankTo, packCapacity, packQty, packUsed, plusOf, qualityPrefix, rarityOf} from './items.js';
 import {createCrafting, finishTaskReason} from './crafting.js';
 import {combatEstimate} from './estimates.js';
 import {combatSupplies} from './supplies.js';
@@ -43,9 +44,9 @@ export function createPlanner(data) {
     }
     return lo;
   };
-  const base = id => id % data.plusScale % data.rarityScale;
-  const plus = id => Math.floor(id/data.plusScale);
-  const rarity = id => Math.floor(id%data.plusScale/data.rarityScale);
+  const base = id => baseId(data,id);
+  const plus = id => plusOf(data,id);
+  const rarity = id => rarityOf(data,id);
   function equipmentStats(id) {
     const g=gear.get(base(id));
     if (!g) return null;
@@ -56,24 +57,16 @@ export function createPlanner(data) {
       luck:(g.luck??0)*tier*scale};
   }
   const name = id => data.items[base(id)]?.name ?? jobs.find(j=>j.output.itemId===base(id))?.name ?? `物品 ${id}`;
-  const RARITY_NAMES = ['','罕见','稀有','史诗','传说'];
-  // With quality and enhancement, e.g. "史诗 Steel blade +2".
-  const fullName = id => `${RARITY_NAMES[Math.floor(id%data.plusScale/data.rarityScale)]?`${RARITY_NAMES[Math.floor(id%data.plusScale/data.rarityScale)]} `:''}`+
-    `${name(id)}${id>=data.plusScale?` +${Math.floor(id/data.plusScale)}`:''}`;
-  const distance = (a,b) => Math.max(Math.abs(a.x-b.x),Math.abs(a.y-b.y));
+  const fullName = id => itemLabel(data,id,name(id));
   const levels = p => Object.fromEntries(data.skills.map(s=>[s,level(p.skills[s])]));
   // Count exact quality IDs; raw materials of different qualities are not interchangeable.
-  const count = (p,id) => id===data.coinId ? p.coins :
-    (p.bank[id]??0)+p.pack.filter(i=>i.itemId===id).reduce((n,i)=>n+i.qty,0);
+  // Overflow is excluded here: it cannot be withdrawn until storage frees up.
+  const count = (p,id) => id===data.coinId ? p.coins : (p.bank[id]??0)+packQty(p,id);
   const held = p => [...new Set([...Object.keys(p.bank).filter(id=>p.bank[id]>0).map(Number),
     ...p.pack.map(i=>i.itemId), ...Object.values(p.equipment).filter(Number.isFinite)])];
-  const nearBank = p => banks.some(b=>distance(p,b)<=1);
-  const nearestBank = p => [...banks].sort((a,b)=>distance(p,a)-distance(p,b))[0];
-  const gearRequirement = id => {
-    const g=gear.get(base(id));
-    return {skill:g.needs??data.toolSkills[g.slot]??'none',
-      level:g.levelReq??jobs.find(j=>j.output.itemId===base(id))?.levelReq??1};
-  };
+  const nearBank = p => nearBankAt(data,p);
+  const nearestBank = p => nearestBankTo(data,p);
+  const gearRequirement = id => gearRequirementOf(data,id);
   function gearScore(id,style) {
     const g=equipmentStats(id);
     if (!g) return 0;
@@ -136,7 +129,7 @@ export function createPlanner(data) {
     const stacks=job.inputs.filter(i=>data.items[base(i.itemId)]?.stackable).length;
     const units=job.inputs.reduce((n,i)=>n+(data.items[base(i.itemId)]?.stackable?0:i.qty),0);
     const outputStack=!!data.items[base(job.output.itemId)]?.stackable;
-    const room=28+(p.perks?.pockets??0)-stacks-Number(outputStack);
+    const room=packCapacity(p)-stacks-Number(outputStack);
     return Math.max(1,units?Math.floor(room/units):outputStack?50:room);
   }
   function productionDeparture(p,job,limit) {
@@ -487,12 +480,7 @@ export function createPlanner(data) {
       const weapon = gear.get(base(p.equipment.weapon??0));
       return weapon?.magic ? 'magic' : weapon?.ranged ? 'ranged' : 'melee';
     };
-    const canWear = id => {
-      const g = gear.get(base(id));
-      if (!g) return false;
-      const requirement=gearRequirement(id);
-      return requirement.skill==='none'||lv[requirement.skill]>=requirement.level;
-    };
+    const canWear = id => canWearWith(data,lv,id);
     function siteFor(job) {
       let choices = sites.filter(s=>s.jobIds.includes(job.id));
       if (job.grow) {
@@ -560,9 +548,8 @@ export function createPlanner(data) {
       if (['mining','fishing','woodcutting'].includes(job.skill)&&!job.inputs.length&&!data.items[job.output.itemId]?.stackable) {
         const departure=gatheringDeparture(p,job);
         if(departure)return departure;
-        const used=p.pack.reduce((n,i)=>n+(data.items[base(i.itemId)]?.stackable?1:i.qty),0);
         if(!goal.itemTarget||job.output.itemId!==goal.targetItemId)
-          quantity=Math.max(quantity,Math.ceil((28+(p.perks?.pockets??0)-used)/job.output.qty));
+          quantity=Math.max(quantity,Math.ceil((packCapacity(p)-packUsed(data,p))/job.output.qty));
       }
       const materialBatch = job.grow ? 1 : quantity;
       for (const ingredient of job.inputs) {
@@ -579,7 +566,7 @@ export function createPlanner(data) {
       const limit=exact?quantity:0,departure=productionDeparture(p,job,limit);
       if(departure)return departure;
       return action({t:'setRoute',siteId:site.id,jobId:job.id,onFull:'bank',limit,rarity:job.rarity??0},
-        `${['','罕见 ','稀有 ','史诗 ','传说 '][job.rarity??0]}${job.name}`,exact?`为${NAMES[goal.skill]}完成指定品质物品；${quantity} 次，按背包与仓库的同品质材料合批`:
+        `${qualityPrefix(data,job.output.itemId)}${job.name}`,exact?`为${NAMES[goal.skill]}完成指定品质物品；${quantity} 次，按背包与仓库的同品质材料合批`:
           `为${NAMES[goal.skill]}供料／练级；无限工作，按实际等级与材料在满包／原料批次结束时调整`);
     }
     function train(skill,target,trail=[]) {
@@ -1135,7 +1122,7 @@ export function createPlanner(data) {
       const variant=g=>[0,1,2,3].map(r=>g.itemId+r*data.rarityScale).find(better)??null;
       const candidates=[...new Set([...data.gear.filter(g=>matches(g.itemId)).map(variant).filter(id=>id!=null),
         ...owned.filter(id=>matches(id)&&autoUsableMaterial(data,id)&&better(id))])].filter(id=>id!==current);
-      const wearable=id=>{const r=gearRequirement(id);return r.skill==='none'||lv[r.skill]>=r.level;};
+      const wearable=id=>canWearWith(data,lv,id);
       const describe=id=>{
         if(id==null)return null;
         const job=jobs.find(j=>j.output.itemId===base(id));

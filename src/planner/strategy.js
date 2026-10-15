@@ -1,13 +1,13 @@
 import {autoUsableMaterial, matchesProfessionWeapon, professionSkill, starterWeapon} from './professions.js';
 import {combatEstimate, workEstimate} from './estimates.js';
 import {buffKey, combatSupplies} from './supplies.js';
+import {distance, nearestBank, packCapacity, rarityOf} from './items.js';
 
 // A rolling comparison of attainable routes, including their self-supply work.
 // Gold is a constraint from an actual planned expense, never an XP conversion.
 export function createStrategy(data, planner) {
   const horizon=1800, tick=data.tickMs/1000, jobs=data.jobs;
-  const distance=(a,b)=>Math.max(Math.abs(a.x-b.x),Math.abs(a.y-b.y));
-  const bankAt=p=>[...data.banks].sort((a,b)=>distance(p,a)-distance(p,b))[0];
+  const bankAt=p=>nearestBank(data,p);
   const siteAt=(p,j)=>data.sites.filter(s=>s.jobIds.includes(j.id))
     .sort((a,b)=>distance(p,a)-distance(p,b))[0];
   let measurements={};
@@ -43,7 +43,7 @@ export function createStrategy(data, planner) {
     return calibrated(p,`job:${j.id}${j.rarity?`:rarity:${j.rarity}`:''}`,workEstimate(data,j,lv[j.skill],{
       toolBonus:planner.equipmentStats(p.equipment[slot])?.bonus??0,
       quick:p.perks?.quick??0,hands:p.perks?.hands??0,
-      luck:(data.toolLuck[Math.floor((p.equipment[slot]??0)%data.plusScale/data.rarityScale)]??0)+
+      luck:(data.toolLuck[rarityOf(data,p.equipment[slot]??0)]??0)+
         (planner.equipmentStats(p.equipment.amulet)?.luck??0)}),lv);
   }
   function combatOptions(p,profession='magic') {
@@ -96,7 +96,7 @@ export function createStrategy(data, planner) {
         Number(!!data.items[j.output.itemId]?.stackable);
       const unitSlots=Math.max(data.items[j.output.itemId]?.stackable?0:j.output.qty,
         j.inputs.reduce((n,i)=>n+(data.items[i.itemId]?.stackable?0:i.qty),0));
-      const load=unitSlots?Math.max(1,Math.floor((28+(p.perks?.pockets??0)-stackSlots)/unitSlots)):Infinity;
+      const load=unitSlots?Math.max(1,Math.floor((packCapacity(p)-stackSlots)/unitSlots)):Infinity;
       if (includeTravel) seconds+=Math.max(0,Math.ceil(n/load)-1)*(2*distance(site,bank)+3)*tick;
       if(completeTrips)travel(bank.approach??bank);
       recipes[j.skill]??=j.id;supplyRecipes[j.output.itemId]=j.id;

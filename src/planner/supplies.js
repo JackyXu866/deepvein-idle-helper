@@ -1,4 +1,5 @@
 import {autoUsableMaterial} from './professions.js';
+import {baseId, distance, packCapacity, rarityOf} from './items.js';
 
 // Reviewed client index-O0haAaUW.js: Ah/g1 (potions), j4/Rt (quality
 // buckets), S1/$1/Or/T1 (food). A potion adds 6000 ticks at its own quality.
@@ -35,9 +36,9 @@ export function brewPower(data,p,kind) {
 }
 
 export function foodEffects(data,itemId) {
-  const base=itemId%data.plusScale%data.rarityScale;
+  const base=baseId(data,itemId);
   if(!(data.items[base]?.heals>0))return {fedTicks:0,rootedTicks:0};
-  const rarity=Math.max(0,Math.min(4,Math.floor(itemId%data.plusScale/data.rarityScale)));
+  const rarity=Math.max(0,Math.min(4,rarityOf(data,itemId)));
   const fedTicks=[0,200,1000,18000,144000][rarity];
   if(base<170||base>179)return {fedTicks,rootedTicks:0};
   const crops=data.jobs.filter(j=>j.skill==='farming'&&j.grow!==undefined&&
@@ -65,7 +66,7 @@ export function activeBuffs(data,p) {
 // unstackable, while combat loot that does not fit goes directly to the bank.
 
 export function foodHealing(data,planner,p,itemId,eatAt=.5) {
-  const base=planner.base(itemId),rarity=Math.floor(itemId%data.plusScale/data.rarityScale);
+  const base=baseId(data,itemId),rarity=rarityOf(data,itemId);
   const item=data.items[base];
   if(!item?.heals)return {heal:0,currentHeal:0,maxHp:0,rarity};
   const raw=Math.max(1,Math.round(item.heals*(data.foodHealingMultipliers??[1,1.2,1.5,2,3])[rarity]));
@@ -80,8 +81,8 @@ export function foodHealing(data,planner,p,itemId,eatAt=.5) {
 
 export function combatSupplies(data,planner,p,estimate,options={}) {
   const {zone,monster}=options;
-  const capacity=28+Math.max(0,Math.floor(p.perks?.pockets??0)),eatAt=options.eatAt??.5;
-  const rarity=id=>Math.floor(id%data.plusScale/data.rarityScale);
+  const capacity=packCapacity(p),eatAt=options.eatAt??.5;
+  const rarity=id=>rarityOf(data,id);
   const eligible=id=>autoUsableMaterial(data,id)&&data.items[planner.base(id)]?.heals>0&&rarity(id)<=(p.foodMaxTier??1)&&
     !options.excludeFoodIds?.includes(id);
   const stock=id=>planner.count(p,id);
@@ -91,7 +92,6 @@ export function combatSupplies(data,planner,p,estimate,options={}) {
   const possible=[...new Set([...owned,...recipes.map(j=>j.output.itemId)])];
   const preferred=options.foodItemId??(p.foodItemId>0?p.foodItemId:null);
   const damage=Math.max(0,estimate.damage??0),seconds=Math.max(data.tickMs/1000,estimate.seconds??1);
-  const distance=(a,b)=>Math.max(Math.abs(a.x-b.x),Math.abs(a.y-b.y));
   const bank=zone?[...data.banks].sort((a,b)=>distance(a,zone)-distance(b,zone))[0]:null;
   const roundTripSeconds=options.roundTripSeconds??(bank?
     (2*distance(bank,zone)+3)*data.tickMs/1000:3*data.tickMs/1000);

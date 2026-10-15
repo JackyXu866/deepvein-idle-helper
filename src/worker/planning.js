@@ -7,6 +7,7 @@ import {Trainer} from '../runtime/trainer.js';
 import {engineApi, engineRates, engineReady, engineStatus, loadEngine, mergeRates} from '../engine/runtime.js';
 import {chooseMastery} from '../engine/mastery.js';
 import {planView} from '../planner/plan-view.js';
+import {PLANNING_STORAGE_KEYS, enhancementStorage, wirePlanner} from '../economy/wiring.js';
 
 // Only the decision phase is transferable. The page owns the socket, receipts,
 // transaction journal, Boss lifecycle and every actual command submission.
@@ -44,20 +45,10 @@ export function runPlanning(data,input,inspectOnly=false) {
   if(engineApi())planner.masteryPurchase=(p,goal)=>chooseMastery(engineApi(),p,
     goal&&{...goal,inputs:data.jobs.find(j=>j.id===goal.recipeId)?.inputs??[]},
     {metric:goal?.specialization&&goal.rate?.coins>0?'coins':'xp'});
-  planner.enhancementTraining=createEnhancementTraining(data,planner,{
-    read:()=>{try{return JSON.parse(storage.getItem('deepvein-enhancement-training-v1')||'null');}catch{return null;}},
-    write:value=>storage.setItem('deepvein-enhancement-training-v1',JSON.stringify(value))});
+  planner.enhancementTraining=createEnhancementTraining(data,planner,enhancementStorage(storage));
   const economy=createEconomy(data,planner,input.settings),market=createMarket(data,planner,{...input.settings,storage,now:()=>input.now});
   economy.runtime(input.economy);market.runtime(input.market);
-  planner.maintenance=(...args)=>economy.maintenance(...args);
-  planner.investmentBudget=(...args)=>economy.investmentBudget(...args);
-  for(const [name,method]of Object.entries({marketSale:'sale',marketPurchase:'purchase',marketOpportunity:'opportunity',
-    watchMarket:'watch',marketEquipment:'equipmentPurchase',marketFood:'foodPurchase',marketBuffFood:'buffFood',
-    potionDose:'potionDose',marketAllowance:'purchaseAllowance',marketUnitCost:'marketUnitCost',marketSurplusValue:'surplusValue',watchPurchases:'watchPurchases'}))
-    planner[name]=(...args)=>market[method](...args);
-  planner.restockPotion=(...args)=>input.settings.potionRestock?market.restockPotion(...args):null;
-  planner.potionStatus=(...args)=>input.settings.potionRestock?market.potionStatus(...args):{key:'procurement-off',message:'药水未喝：库存不足，自动补药已关闭'};
-  planner.watchPotions=(p,ids)=>market.watchPotions(p,input.settings.potionRestock?ids:[]);
+  wirePlanner(planner,market,()=>economy,()=>!!input.settings.potionRestock);
   const commands=[],trainer=new Trainer(data,planner,intent=>commands.push(intent),()=>input.now);
   Object.assign(trainer,input.trainer);
   trainer.hotFollow=normalizeHotFollow(input.settings.hotFollow??trainer.hotFollow);
@@ -87,7 +78,7 @@ export function runPlanning(data,input,inspectOnly=false) {
 export function applyPlanning(trainer,planner,economy,market,result,storage) {
   if(!result.active)trainer.pause(result.decision.message);
   for(const [key,value]of Object.entries(result.writes)) {
-    if(!['deepvein-market-v1','deepvein-enhancement-training-v1'].includes(key))throw new Error('未知规划存储项');
+    if(!PLANNING_STORAGE_KEYS.includes(key))throw new Error('未知规划存储项');
     storage.setItem(key,value);
   }
   planner.runtime(result.planner);economy.runtime(result.economy);market.runtime(result.market);

@@ -1,5 +1,6 @@
-import {autoUsableMaterial, craftRecipe, matchesProfessionWeapon, professionSkill} from './professions.js';
+import {autoUsableMaterial, canWear, craftRecipe, gearRequirementOf, matchesProfessionWeapon, professionSkill, statsDominate} from './professions.js';
 import {cropReserve, herbloreNeeds} from './farming.js';
+import {baseId, foodCarry, itemLabel, merchantPrice, plusOf, rarityOf, tradableBase} from './items.js';
 
 // Read-only budgets and quotes; economy.js turns verified surplus into actions.
 // Vendor, storage and worn-enhancement rules checked in index-DeoJ7Jh9.js.
@@ -21,7 +22,7 @@ export function reserveWaitingGoals(goal,waitingGoals={}) {
 // Colour alone does not identify renewable surplus: mounts and rare bonus
 // drops also have ordinary IDs. Reuse this gate at the final sale boundary.
 export function saleProtectionReason(data,id,marketEquipment=false) {
-  const base=id%data.plusScale%data.rarityScale;
+  const base=baseId(data,id);
   if(!Number.isSafeInteger(id)||!data.items[base])return '未知物品，保留';
   if(!autoUsableMaterial(data,id))return '传说物品由玩家支配，保留';
   if(id!==base&&!(marketEquipment&&data.gear.some(g=>g.itemId===base)))return '稀有或已强化物品，保留';
@@ -60,7 +61,7 @@ export function inventoryBudget(data, planner, p, goal=null,consuming=false) {
     reserve(id,qty);
     if(trail.includes(id))return;
     const sources=data.jobs.filter(j=>j.output.itemId===planner.base(id))
-      .map(j=>craftRecipe(data,j,Math.floor(id%data.plusScale/data.rarityScale))).filter(Boolean).sort((a,b)=>a.levelReq-b.levelReq);
+      .map(j=>craftRecipe(data,j,rarityOf(data,id))).filter(Boolean).sort((a,b)=>a.levelReq-b.levelReq);
     const job=sources.find(j=>levels[j.skill]>=j.levelReq)??(goal?.itemTarget?sources[0]:null);
     if(job)for(const input of job.inputs)material(input.itemId,
       Math.ceil(qty/job.output.qty)*input.qty,[...trail,id]);
@@ -69,9 +70,7 @@ export function inventoryBudget(data, planner, p, goal=null,consuming=false) {
     if(upgrade?.id!=null)material(upgrade.id%data.plusScale,1);
   if(goal?.itemTarget)material(goal.targetItemId,goal.qty);
   // Food is a renewable supply, but a reserve must survive a sale and a new trip.
-  const packCapacity=28+Math.max(0,p.perks?.pockets??0);
-  const carry=p.foodPerTrip===-1?packCapacity:p.foodPerTrip===-2?Math.max(1,packCapacity-1):p.foodPerTrip??20;
-  for(const item of Object.values(data.items))if(item.heals)reserve(item.id,Math.max(50,carry*3));
+  for(const item of Object.values(data.items))if(item.heals)reserve(item.id,Math.max(50,foodCarry(p)*3));
   // A replenishable pantry protects against disposal, not useful consumption.
   if(!consuming&&levels.farming>=Math.max(...data.farmUnlocks)) {
     const herblore=herbloreNeeds(data,p,levels,planner.thresholds);
@@ -80,8 +79,7 @@ export function inventoryBudget(data, planner, p, goal=null,consuming=false) {
   return {items,coins:Math.max(0,...plans.map(plan=>plan.budget?.coins??0)),capacity,used,freeSlots:capacity-used,pressure,recoverableOverflow};
 }
 export function enhanceQuote(data, planner, p, itemId) {
-  const base=planner.base(itemId),n=Math.floor(itemId/data.plusScale);
-  const rarity=Math.floor(itemId%data.plusScale/data.rarityScale);
+  const base=baseId(data,itemId),n=plusOf(data,itemId),rarity=rarityOf(data,itemId);
   const recipe=data.jobs.find(j=>j.output.itemId===base);
   const tier=recipe?data.enhanceThresholds.filter(v=>recipe.levelReq>=v).length:3;
   const house=p.houseFurniture?.lectern?1+.01*(p.house?.lectern??0):1;
@@ -95,8 +93,7 @@ export function enhanceQuote(data, planner, p, itemId) {
 
 export function reviewInventory(data, planner, p, goal=null, style='magic',budget=inventoryBudget(data,planner,p,goal)) {
   const lv=planner.levels(p),combatSkill=professionSkill(style);
-  const name=id=>`${data.items[planner.base(id)]?.name??`物品 ${id}`}`+
-    (id===planner.base(id)?'':`（品质 ${Math.floor(id%data.plusScale/data.rarityScale)}，+${Math.floor(id/data.plusScale)}）`);
+  const name=id=>itemLabel(data,id);
   const seeds=new Set(data.jobs.filter(j=>j.grow).flatMap(j=>j.inputs.map(i=>i.itemId)));
   const inputs=new Set(data.jobs.flatMap(j=>j.inputs.map(i=>i.itemId)));
   const houseMaterials=new Set([...data.jobs.filter(j=>['mining','woodcutting','fishing','farming'].includes(j.skill))
@@ -116,8 +113,8 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
   // Saved sets resolve a missing enhancement level to another level of the same
   // base item and rarity (client a$). Preserve that fallback too.
   const lockedVariants=new Set([...locked].filter(Number.isFinite).map(id=>id%data.plusScale));
-  const requirement=g=>g.levelReq??data.jobs.find(j=>j.output.itemId===planner.base(g.itemId))?.levelReq??1;
-  const wearable=g=>lv[g.needs??data.toolSkills[g.slot]]>=requirement(g)||g.needs==='none';
+  const requirement=g=>gearRequirementOf(data,g.itemId).level;
+  const wearable=g=>canWear(data,lv,g.itemId);
   const relevant=g=>Object.hasOwn(data.toolSkills,g.slot)||(!g.style||g.style===combatSkill)&&
     (g.slot!=='weapon'||matchesProfessionWeapon(g,style))&&
     (g.slot!=='shield'||style!=='melee_twohand');
@@ -131,14 +128,11 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
   const line=g=>[g.slot,g.style??'',g.needs??'',!!g.twoHanded,g.slot==='weapon'&&g.needs==='ranged'?g.speed:''].join('|');
   function dominated(g) {
     return heldGear.some(h=>h.itemId!==g.itemId&&line(h)===line(g)&&
-      (wearable(h)||requirement(h)<=requirement(g))&&
-      ['bonus','accuracy','strength','defence','luck'].every(k=>(h[k]??0)>=(g[k]??0))&&
-      (h.speed??0)<=(g.speed??0)&&
-      (['bonus','accuracy','strength','defence','luck'].some(k=>(h[k]??0)>(g[k]??0))||(h.speed??0)<(g.speed??0)));
+      (wearable(h)||requirement(h)<=requirement(g))&&statsDominate(h,g));
   }
   // Of one piece of gear only the highest rarity (then enhancement) copy is a
   // possible upgrade; lower copies are surplus even before they can be worn.
-  const rank=id=>Math.floor(id%data.plusScale/data.rarityScale)*1000+Math.floor(id/data.plusScale);
+  const rank=id=>rarityOf(data,id)*1000+plusOf(data,id);
   const superseded=id=>[...stock.values()].some(row=>row.itemId!==id&&planner.base(row.itemId)===planner.base(id)&&
     row.bank+row.pack+row.worn+row.overflow>0&&rank(row.itemId)>rank(id));
   const items=[...stock.values()].map(row=>{
@@ -177,9 +171,7 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
         '保留一件未被替代的工具／装备（各职业分别保留），重复成品可处理';
     }
     keep=Math.max(keep,Math.min(total,budget.items[id]??0),row.worn);
-    const tradable=base!==data.coinId&&![294,295,296,297].includes(base)&&
-      (data.items[base]?.value>0||base===70);
-    const sell=tradable?Math.max(0,total-keep):0,vendorUnit=Math.max(1,Math.floor((data.items[base]?.value??0)*.4));
+    const sell=tradableBase(data,base)?Math.max(0,total-keep):0,vendorUnit=merchantPrice(data,base);
     if(sell>0)category='可卖候选';
     return {...row,total,keep,sell,sellFromBank:Math.min(row.bank,sell),
       sellFromPack:Math.min(row.pack,Math.max(0,sell-row.bank)),vendorUnit,category,reason,marketOnly,

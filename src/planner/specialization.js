@@ -1,5 +1,6 @@
 import {matchesProfessionWeapon, professionSkill} from './professions.js';
 import {reviewInventory} from './inventory.js';
+import {packCapacity} from './items.js';
 
 export const MAIN_TRADES={auto:'自动选择（按收益）',mining:'采矿',fishing:'钓鱼',woodcutting:'伐木',
   thieving:'盗窃',cooking:'烹饪',smithing:'锻造',fletching:'箭术制作',herblore:'炼药',crafting:'制作',combat:'战斗（按所选职业）'};
@@ -20,7 +21,7 @@ export function createSpecialization(data,planner) {
       if(c.output&&c.output.itemId!==data.coinId) {
         const {itemId,qty}=c.output;
         const minSale=['mining','fishing','woodcutting'].includes(c.skill)&&!data.items[itemId]?.stackable?
-          Math.min(qty,28+(p.perks?.pockets??0)):1;
+          Math.min(qty,packCapacity(p)):1;
         const before=reviewInventory(data,planner,p,c,style).items.find(i=>i.itemId===itemId);
         let saleQty=0,multiplier=1;
         for(;multiplier<=4;multiplier++) {

@@ -1,9 +1,11 @@
 // Informational only: frontend filenames and file hashes never gate startup.
+// The game's bundled client script, e.g. /assets/index-DAY9oe71.js.
+export const CLIENT_ASSET=/^\/assets\/index-[\w-]+\.js$/;
 export async function checkClient(data, sources, pageUrl) {
   const page=new URL(pageUrl);
   const clients=[data,...(data.compatibleClients??[])];
   const urls=[...new Set(sources.filter(Boolean))].map(src=>new URL(src,page))
-    .filter(url=>url.origin===page.origin&&/^\/assets\/index-[\w-]+\.js$/.test(url.pathname));
+    .filter(url=>url.origin===page.origin&&CLIENT_ASSET.test(url.pathname));
   const known=urls.find(url=>clients.some(c=>url.pathname===`/assets/${c.client}`));
   if (known) return {ok:true,message:`已核对游戏版本：${known.pathname.split('/').pop()}`};
   return {ok:true,message:urls.length?
@@ -159,7 +161,7 @@ export function extractGameTables(source, parse, baseline) {
 
 export async function refreshGameData(data,sources,pageUrl,{fetch:request,parse,storage,extract}={}) {
   const page=new URL(pageUrl),url=sources.filter(Boolean).map(s=>new URL(s,page))
-    .find(u=>u.origin===page.origin&&/^\/assets\/index-[\w-]+\.js$/.test(u.pathname));
+    .find(u=>u.origin===page.origin&&CLIENT_ASSET.test(u.pathname));
   if(!url)return {updated:false,message:'未识别公开表入口；使用内置数据，未知内容跳过'};
   const client=url.pathname.split('/').pop(),key='deepvein-public-tables-v1';
   if(client===data.client)return {updated:false,message:`数据已核对：${client}`};

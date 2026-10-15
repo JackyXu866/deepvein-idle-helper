@@ -3,6 +3,7 @@ import {finishTaskReason} from '../planner/crafting.js';
 import {combatEstimate, workEstimate} from '../planner/estimates.js';
 import {enhanceQuote, inventoryBudget, reviewInventory} from '../planner/inventory.js';
 import {planEnhancement} from '../planner/enhancement.js';
+import {distance, merchantPrice, nearestBank, packCapacity, packQty, packUsed, plusOf} from '../planner/items.js';
 
 // Items made by crafting skills (cooking, smithing, fletching, crafting).
 // Potions are protected separately and never sold.
@@ -15,9 +16,8 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
   const budget=(p,goal)=>inventoryBudget(data,planner,p,goal);
   const review=(p,goal,style='magic')=>reviewInventory(data,planner,p,goal,style);
   const action=(intent,label,reason='',extra={})=>({intent,label,reason,...extra});
-  const value=id=>Math.max(1,Math.floor((data.items[planner.base(id)]?.value??0)*.4));
-  const distance=(a,b)=>Math.max(Math.abs(a.x-b.x),Math.abs(a.y-b.y));
-  const bankFor=p=>[...data.banks].sort((a,b)=>distance(p,a)-distance(p,b))[0];
+  const value=id=>merchantPrice(data,id);
+  const bankFor=p=>nearestBank(data,p);
   const atBank=(p,intent,label,reason,extra={})=>planner.nearBank(p)?action(intent,label,reason,extra):
     action({t:'walk',...bankFor(p).approach},'整理库存 · 前往仓库',reason||label,extra);
   function investment(p,goal,style,reserve,includeUnfunded=false) {
@@ -39,7 +39,7 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
     const candidates=[];
     for(const [slot,id]of Object.entries(p.equipment)) {
       const gear=planner.equipmentStats(id);
-      if(!gear||Math.floor(id/data.plusScale)!==0||slot==='hoe'||slot==='mount')continue;
+      if(!gear||plusOf(data,id)!==0||slot==='hoe'||slot==='mount')continue;
       if(planner.enhancementTraining?.blocked(p,id,slot))continue;
       if(!relevant(gear))continue;
       if(goal?.upgrade?.slot===slot)continue;
@@ -118,7 +118,7 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
     if((capacity.recoverableOverflow||recovery?.itemId!=null)&&p.enhance)
       return action(null,'等待当前强化完成后归仓','保留正在进行的强化尝试，完成后再处理溢出物品',recoveryFlags);
     if(recovery?.itemId!=null) {
-      const carried=p.pack.filter(i=>i.itemId===recovery.itemId).reduce((n,i)=>n+i.qty,0);
+      const carried=packQty(p,recovery.itemId);
       if(recovery.phase==='withdrawing'&&carried>=recovery.packBefore+1) {
         recovery.phase='returning';
         return atBank(p,{t:'depositItem',itemId:recovery.itemId,qty:1},'归还归仓触发物品',
@@ -132,13 +132,13 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
       if(recovery?.key===overflowKey())return waiting();
       if(!planner.nearBank(p))return atBank(p,null,'溢出物品可归仓，先返回仓库','',recoveryFlags);
       if(p.route||p.path?.length)return action({t:'clearRoute'},'归仓前停止旧路线','等待停止确认后再操作仓库',recoveryFlags);
-      const packSize=p.pack.reduce((n,i)=>n+(data.items[planner.base(i.itemId)]?.stackable?1:i.qty),0);
+      const packSize=packUsed(data,p);
       const newKinds=Object.entries(p.overflow??{}).filter(([id,n])=>n>0&&!(p.bank[id]>0)).length;
       const donor=Object.entries(p.bank).find(([id,n])=>n>0&&data.items[planner.base(+id)]&&
         (n>1||(p.overflow?.[id]??0)>0||capacity.freeSlots>newKinds));
       if(!donor)return waiting();
-      const itemId=Number(donor[0]),packBefore=p.pack.filter(i=>i.itemId===itemId).reduce((n,i)=>n+i.qty,0);
-      if(packSize>=28+(p.perks?.pockets??0)&&!(data.items[planner.base(itemId)].stackable&&packBefore>0)) {
+      const itemId=Number(donor[0]),packBefore=packQty(p,itemId);
+      if(packSize>=packCapacity(p)&&!(data.items[planner.base(itemId)].stackable&&packBefore>0)) {
         const depositable=p.pack.find(i=>(p.bank[i.itemId]??0)>0||capacity.freeSlots>0);
         if(depositable)return action({t:'depositItem',itemId:depositable.itemId,qty:depositable.qty},
           '归仓前腾出背包位置','只存入仓库当前能容纳的物品，再重新核对仓位',recoveryFlags);

@@ -5,7 +5,12 @@ export const HOUSE_NAMES={mine:'矿井',sawmill:'锯木厂',pond:'鱼塘',garden
   lockbox:'锁箱工作台',range:'炉灶',fletchrack:'制箭架',herbrack:'药草架',loom:'织布机',lectern:'符文讲台',
   post:'陪练桩',armour:'护甲架',target:'箭靶',altar:'祭坛',shrine:'幸运神龛',storeroom:'储藏室'};
 export const HOUSE_ACTIONS=new Set(['buildRoom','placeFurniture','convertHouse','upgradeRoom']);
-export const houseDistance=(a,b)=>Math.max(Math.abs(a.x-b.x),Math.abs(a.y-b.y));
+import {distance as houseDistance} from './items.js';
+export {houseDistance};
+// The command that restarts a route where it was: same site or zone, remaining
+// count, banking rule and work quality.
+export const resumeIntent=(p,route=p.route)=>route.zoneId!=null?{t:'fight',zoneId:route.zoneId,limit:route.limit??0}:
+  {t:'setRoute',jobId:route.jobId,siteId:route.siteId,limit:route.limit??0,onFull:route.onFull??'bank',rarity:p.workRarity??route.rarity??0};
 export function atHome(data,p) {
   const r=data?.houseTravel?.region;
   return !!r&&p.x>=r.x&&p.y>=r.y&&p.x<r.x+r.width&&p.y<r.y+r.height;
@@ -128,8 +133,7 @@ export function createHousing(data,planner) {
       if(!work(p,goal,style,mode))return null;
       const route=p.route;
       if(route?.questId!=null)return null;
-      const resume=!route||route.limit===0?null:route.zoneId!=null?{t:'fight',zoneId:route.zoneId,limit:route.limit??0}:
-        {t:'setRoute',jobId:route.jobId,siteId:route.siteId,limit:route.limit??0,onFull:route.onFull??'bank',rarity:p.workRarity??route.rarity??0};
+      const resume=!route||route.limit===0?null:resumeIntent(p,route);
       const portal=[...data.houseTravel.portals].sort((a,b)=>houseDistance(p,a)-houseDistance(p,b))[0];
       visit={phase:'enter',portalId:portal.id,resume};
     }

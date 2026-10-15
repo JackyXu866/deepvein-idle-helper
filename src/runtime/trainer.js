@@ -3,12 +3,13 @@ import {bankedGatheringLoad, finishTaskReason} from '../planner/crafting.js';
 import {POTIONS, POTION_TICKS, foodEffects} from '../planner/supplies.js';
 import {inventoryBudget, reserveWaitingGoals} from '../planner/inventory.js';
 import {MAIN_TRADES} from '../planner/specialization.js';
-import {HOUSE_ACTIONS, atHome} from '../planner/housing.js';
+import {HOUSE_ACTIONS, atHome, resumeIntent} from '../planner/housing.js';
 import {NAMES} from '../planner/planner.js';
 import {Telemetry} from './telemetry.js';
 import {hotSkillAt, hotWindows, normalizeHotFollow} from './hot-follow.js';
 import {createWorldBoss} from './world-boss.js';
 import {fallbackKey, fallbackOwnership} from '../planner/fallback.js';
+import {distance, nearestBank, stockQty} from '../planner/items.js';
 
 // State-dependent refusals in the reviewed client sr() message table. Unknown
 // codes remain a stop, not an invitation to replay a command.
@@ -25,9 +26,12 @@ export const GUILD_REFUSALS=new Set(['guild-name','guild-tag','guild-name-taken'
 export function isGuildRefusal(code) {return GUILD_REFUSALS.has(code);}
 // Optional quest-board actions. Their refusal codes are not reviewed, so a
 // refusal disables the action for a while instead of pausing the helper.
+// Growth modes and their labels (the UI uses the same names).
+export const MODE_LABELS={balanced:'自主发展',experience:'经验优先',business:'主业经营',assist:'只收菜＋蹭世界 Boss'};
 export const SOFT_ACTIONS=new Set(['rerollQuest','buyPerk','masteryConfirm','setFallback']);
 export const ROUTE_STOPS=new Set(['noMaterials','storageFull','unreachable','levelTooLow','noSuchSite']);
-export const quantity=(p,id)=>(p.bank[id]??0)+(p.overflow?.[id]??0)+p.pack.filter(i=>i.itemId===id).reduce((n,i)=>n+i.qty,0);
+// Bank, overflow and pack (shared definition in planner/items.js).
+export const quantity=stockQty;
 export const equipmentProject=goal=>goal?.upgrade?.priority||goal?.toolUpgrade?.upgrade?.priority;
 
 export function depositReachedBank(before,p,intent) {
@@ -68,7 +72,7 @@ export function acknowledged(before, p, intent, data=null) {
     case 'fight': return p.route?.zoneId===intent.zoneId ||
       (p.lastStop?.jobId===null&&p.lastStop.reason==='done'&&p.lastStop.tick>before.lastTick&&
         ['melee','ranged','magic'].some(s=>p.skills[s]>before.skills[s]));
-    case 'walk': return Math.max(Math.abs(p.x-intent.x),Math.abs(p.y-intent.y))<=1;
+    case 'walk': return distance(p,intent)<=1;
     case 'wear': case 'equipFromBank': return Object.values(p.equipment).includes(intent.itemId);
     case 'deposit': return p.pack.length<before.pack.length || p.pack.length===0;
     case 'dropItem': {
@@ -197,19 +201,21 @@ export class Trainer {
     if (!Object.hasOwn(PROFESSIONS,style)||style===this.style) return;
     this.cancelItemTarget();
     this.style=style;
-    this.goal=null; this.plan=null; this.served={}; this.deferred={}; this.questDeferred={}; this.waitingGoals={}; this.blockedReasons={};
+    this.resetPlans();
     this.pause(`已选择${PROFESSIONS[style]}，点击开始重新规划；游戏当前任务仍继续`);
   }
+  // A changed style, mode or main trade starts planning from scratch.
+  resetPlans() {
+    this.goal=null;this.plan=null;this.served={};this.deferred={};this.questDeferred={};this.waitingGoals={};this.blockedReasons={};
+  }
   setMode(mode) {
-    const names={balanced:'自主发展',experience:'经验优先',business:'主业经营',assist:'只收菜＋蹭世界 Boss'};
-    if(!Object.hasOwn(names,mode)||mode===this.mode)return;
+    if(!Object.hasOwn(MODE_LABELS,mode)||mode===this.mode)return;
     this.cancelItemTarget();
-    this.mode=mode;this.goal=null;this.plan=null;this.served={};this.deferred={};
-    this.questDeferred={};this.waitingGoals={};this.blockedReasons={};
+    this.mode=mode;this.resetPlans();
     this.planner.resetSpecialization?.();
     this.planner.resetDevelopment?.();
     if(this.player)this.planner.watchMarket?.(this.player,[]);
-    this.pause(`已选择${names[mode]}，点击开始应用；先完成当前背包或批次`);
+    this.pause(`已选择${MODE_LABELS[mode]}，点击开始应用；先完成当前背包或批次`);
   }
   chooseGoal(p) {
     if(this.planner.selectGoal)return this.planner.selectGoal(p,this.served,this.deferred,this.style,this.mode,this.mainTrade,this.mainJobId,this.mainMonsterId);
@@ -220,7 +226,7 @@ export class Trainer {
     if(this.itemTarget){this.cancelItemTarget();this.pause('主业已更改，物品目标已取消');}
     this.mainTrade=mainTrade;this.mainJobId=null;this.mainMonsterId=null;this.planner.resetSpecialization?.();
     if(this.mode!=='business')return;
-    this.goal=null;this.plan=null;this.served={};this.deferred={};this.questDeferred={};this.waitingGoals={};this.blockedReasons={};
+    this.resetPlans();
     if(this.player)this.planner.watchMarket?.(this.player,[]);
     this.pause(`已选择主业：${MAIN_TRADES[mainTrade]}，点击开始应用；先完成当前背包或批次`);
   }
@@ -230,7 +236,7 @@ export class Trainer {
     this.cancelItemTarget();
     this.mainJobId=jobId;this.planner.resetSpecialization?.();
     if(this.mode!=='business')return;
-    this.goal=null;this.plan=null;this.served={};this.deferred={};this.questDeferred={};this.waitingGoals={};this.blockedReasons={};
+    this.resetPlans();
     if(this.player)this.planner.watchMarket?.(this.player,[]);
     this.pause(`已选择${job?`固定工作：${job.name}`:'自动选择工作'}，点击开始应用；游戏当前任务仍继续`);
   }
@@ -240,7 +246,7 @@ export class Trainer {
     this.cancelItemTarget();
     this.mainMonsterId=monsterId;this.planner.resetSpecialization?.();
     if(this.mode!=='business')return;
-    this.goal=null;this.plan=null;this.served={};this.deferred={};this.questDeferred={};this.waitingGoals={};this.blockedReasons={};
+    this.resetPlans();
     if(this.player)this.planner.watchMarket?.(this.player,[]);
     this.pause(`已选择${monster?`固定怪物：${monster.name}`:'自动选择怪物'}，点击开始应用；游戏当前任务仍继续`);
   }
@@ -596,8 +602,7 @@ export class Trainer {
       p.activity==='idle'&&route?.phase==='toWork');
     if(!(this.bankedLoad||banking)||!this.planner.nearBank(p)||!route||route.limit===0||route.errand||route.questId!=null||
       p.held||p.raidHeld||p.queue?.length||p.enhance)return false;
-    const resume=route.zoneId!=null?{t:'fight',zoneId:route.zoneId,limit:route.limit??0}:
-      {t:'setRoute',jobId:route.jobId,siteId:route.siteId,limit:route.limit??0,onFull:route.onFull??'bank',rarity:p.workRarity??route.rarity??0};
+    const resume=resumeIntent(p,route);
     // Probe only a confirmed banking boundary, keeping the live route's input
     // reserve. Unknown prices never stop native work just to await a quote.
     const reserved={...goal,budget:inventoryBudget(this.data,this.planner,p,goal,true)};
@@ -697,7 +702,7 @@ export class Trainer {
     if(Object.values(p.overflow??{}).some(n=>n>0)){this.pause('物品目标等待仓库空间；目标已保留，请整理后继续');return true;}
     if(enough) {
       if(p.pack.length) {
-        const bank=[...this.data.banks].sort((a,b)=>Math.max(Math.abs(p.x-a.x),Math.abs(p.y-a.y))-Math.max(Math.abs(p.x-b.x),Math.abs(p.y-b.y)))[0];
+        const bank=nearestBank(this.data,p);
         this.issue(this.planner.nearBank(p)?{intent:{t:'deposit'},label:'目标完成前将随身物资存仓'}:
           {intent:{t:'walk',...bank.approach},label:'目标数量已够，返回仓库'});return true;
       }

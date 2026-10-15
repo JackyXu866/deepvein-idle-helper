@@ -4,6 +4,7 @@ import {HOUSE_ACTIONS, validHomePortal} from '../planner/housing.js';
 import {nextPerkCost} from '../planner/perks.js';
 import {FALLBACK_SKILLS} from '../planner/fallback.js';
 import {onPriceStep} from '../economy/market.js';
+import {baseId, dayTicks, merchantPrice, nearBank, packCapacity, packQty, packUsed} from '../planner/items.js';
 import {MASTERY_RANK_LIMIT, MASTERY_TRACKS} from '../engine/mastery-rules.js';
 
 export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mode='balanced',waitingGoals={}}={}) {
@@ -13,11 +14,11 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
   if(intent.t==='foodMaxTier')return Number.isInteger(intent.tier)&&intent.tier>=0&&intent.tier<4;
   if(intent.t==='deposit'||intent.t==='depositItem') {
     if(p.route||p.path?.length||['walking','banking'].includes(p.activity)||p.enhance||
-      !data.banks.some(b=>Math.max(Math.abs(p.x-b.x),Math.abs(p.y-b.y))<=1))return false;
+      !nearBank(data,p))return false;
     if(intent.t==='deposit')return p.pack.some(i=>i.qty>0);
-    return Number.isSafeInteger(intent.itemId)&&!!data.items[intent.itemId%data.plusScale%data.rarityScale]&&
+    return Number.isSafeInteger(intent.itemId)&&!!data.items[baseId(data,intent.itemId)]&&
       Number.isSafeInteger(intent.qty)&&intent.qty>0&&
-      p.pack.filter(i=>i.itemId===intent.itemId).reduce((sum,i)=>sum+i.qty,0)>=intent.qty;
+      packQty(p,intent.itemId)>=intent.qty;
   }
   if(intent.t==='dropItem') {
     const safe=planner?.gatheringSurplus?.(p,goal,style,mode,waitingGoals)?.intent;
@@ -26,16 +27,16 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
   if(HOUSE_ACTIONS.has(intent.t))return planner?.validateHousing(p,intent,goal,style,mode)===true;
   if(intent.t==='portal')return validHomePortal(data,p,intent);
   if(intent.t==='withdraw') {
-    const item=data.items[intent.itemId%data.plusScale%data.rarityScale],used=p.pack.reduce((n,i)=>n+(data.items[i.itemId%data.plusScale%data.rarityScale]?.stackable?1:i.qty),0);
+    const item=data.items[baseId(data,intent.itemId)],used=packUsed(data,p);
     return Number.isInteger(intent.itemId)&&!!item&&intent.qty===1&&(p.bank[intent.itemId]??0)>=1&&
-      !p.route&&!p.path?.length&&!p.enhance&&data.banks.some(b=>Math.max(Math.abs(p.x-b.x),Math.abs(p.y-b.y))<=1)&&
-      (used<28+(p.perks?.pockets??0)||item.stackable&&p.pack.some(i=>i.itemId===intent.itemId&&i.qty>0));
+      !p.route&&!p.path?.length&&!p.enhance&&nearBank(data,p)&&
+      (used<packCapacity(p)||item.stackable&&p.pack.some(i=>i.itemId===intent.itemId&&i.qty>0));
   }
   if(intent.t==='setAside')return intent.raid===true&&!!p.route&&!p.route.errand&&!p.held&&!p.enhance;
   if(intent.t==='startQueued')return intent.index===0&&p.held===true&&p.raidHeld===true&&!p.route&&!!p.queue?.length;
   if(intent.t==='drink') {
-    const carried=p.pack.filter(i=>i.itemId===intent.itemId).reduce((n,i)=>n+i.qty,0);
-    const atBank=data.banks.some(b=>Math.max(Math.abs(p.x-b.x),Math.abs(p.y-b.y))<=1);
+    const carried=packQty(p,intent.itemId);
+    const atBank=nearBank(data,p);
     const base=intent.itemId%data.rarityScale;
     return Number.isInteger(intent.itemId)&&intent.itemId>=220&&intent.itemId<data.rarityScale*5&&base>=220&&base<=227&&
       data.jobs.some(j=>j.skill==='herblore'&&j.output.itemId===base)&&
@@ -43,11 +44,11 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
       intent.qty<=carried+(atBank?(p.bank[intent.itemId]??0):0);
   }
   if(intent.t==='claimQuest')return typeof intent.id==='string'&&['daily','weekly'].some(period=>
-    p.quests?.[period==='daily'?'day':'week']===Math.floor(p.lastTick/(86400000/data.tickMs)/(period==='daily'?1:7))&&
+    p.quests?.[period==='daily'?'day':'week']===Math.floor(p.lastTick/dayTicks(data)/(period==='daily'?1:7))&&
     p.quests?.[period]?.some(q=>q.id===intent.id&&!q.claimed&&Number.isInteger(q.goal)&&q.goal>0&&Number.isInteger(q.done)&&q.done>=q.goal));
   if(intent.t==='rerollQuest') {
     // Server rule: once per day, an unstarted and unclaimed daily.
-    const day=Math.floor(p.lastTick/(86400000/data.tickMs));
+    const day=Math.floor(p.lastTick/dayTicks(data));
     return typeof intent.id==='string'&&p.quests?.day===day&&p.quests.rerolled!==day&&
       p.quests.daily?.some(q=>q.id===intent.id&&!q.claimed&&q.done===0)===true;
   }
@@ -77,7 +78,7 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
     intent.qty>=1&&intent.qty<=100&&data.items[190]?.value>0;
   if (['marketDepth','marketBook','marketBuy','marketSell'].includes(intent.t)) {
     const known=Number.isSafeInteger(intent.itemId)&&intent.itemId>0&&
-      Object.hasOwn(data.items,intent.itemId%data.plusScale%data.rarityScale);
+      Object.hasOwn(data.items,baseId(data,intent.itemId));
     if (['marketDepth','marketBook'].includes(intent.t)) return known;
     if(intent.t==='marketSell'&&saleProtectionReason(data,intent.itemId)) {
       const row=planner&&reviewInventory(data,planner,p,goal,style).items.find(i=>i.itemId===intent.itemId);
@@ -100,10 +101,10 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
     data.items[intent.itemId%data.rarityScale]?.heals>0&&intent.qty===1&&
     (intent.shelf===undefined||typeof intent.shelf==='boolean');
   if(['wear','equipFromBank','enhance','marketDump'].includes(intent.t)) {
-    const base=intent.itemId%data.plusScale%data.rarityScale;
+    const base=baseId(data,intent.itemId);
     if(!Object.hasOwn(data.items,base))return false;
     if(intent.t==='marketDump')return !saleProtectionReason(data,intent.itemId)&&intent.itemId===base&&Number.isInteger(intent.qty)&&intent.qty>0&&
-      Number.isFinite(intent.floor)&&intent.floor>=Math.max(1,Math.floor(data.items[base].value*.4));
+      Number.isFinite(intent.floor)&&intent.floor>=merchantPrice(data,base);
     return data.gear.some(g=>g.itemId===base);
   }
   return true;

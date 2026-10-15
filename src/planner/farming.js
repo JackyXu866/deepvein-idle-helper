@@ -1,5 +1,6 @@
 import {autoUsableMaterial} from './professions.js';
 import {foodEffects} from './supplies.js';
+import {baseId, foodCarry, rarityOf, stockQty} from './items.js';
 
 // Ordinary and rare crops share a pantry reserve, but recipe demands keep
 // their exact quality IDs. Growing crops count only as future supply.
@@ -9,7 +10,7 @@ import {foodEffects} from './supplies.js';
 export const POTION_FLOOR=50;
 
 const herbIds=data=>new Set(data.jobs.filter(j=>j.grow).map(j=>j.output.itemId));
-const held=(p,id)=>(p.bank[id]??0)+(p.overflow?.[id]??0)+p.pack.filter(i=>i.itemId===id).reduce((n,i)=>n+i.qty,0);
+const held=stockQty;
 
 // Herblore drives herb farming: each level band uses thousands of herbs, one
 // per potion. The next recipe is the best-experience unlocked one whose other
@@ -62,23 +63,21 @@ export function cropReserve(data,p,job,levels,herblore=herbloreNeeds(data,p,leve
       (other.heals>item.heals||buff.fedTicks>effects.fedTicks||buff.rootedTicks>effects.rootedTicks);
   });
   if(replaced)return 0;
-  const capacity=28+Math.max(0,p.perks?.pockets??0);
-  const carry=p.foodPerTrip===-1?capacity:p.foodPerTrip===-2?Math.max(1,capacity-1):p.foodPerTrip??20;
-  return Math.max(500,carry*3);
+  return Math.max(500,foodCarry(p)*3);
 }
 
 // Crops below target, in priority order: the current plan's shortfall, then
 // herbs for the next herblore recipe, then the potion floor and food reserve.
 // With nothing short, the planner keeps the fields busy on farming experience.
 export function farmingStocks(data,p,levels,goal=null,thresholds=null) {
-  const base=id=>id%data.plusScale%data.rarityScale,stock={...p.bank};
+  const base=id=>baseId(data,id),stock={...p.bank};
   for(const i of p.pack)stock[i.itemId]=(stock[i.itemId]??0)+i.qty;
   for(const [id,qty]of Object.entries(p.overflow??{}))stock[id]=(stock[id]??0)+qty;
   const herblore=herbloreNeeds(data,p,levels,thresholds);
   return data.jobs.filter(j=>j.grow&&j.levelReq<=levels.farming).map(job=>{
     const itemId=job.output.itemId,future={};
     for(const plot of Object.values(p.plots??{}))if(base(plot.seedItemId)===job.inputs[0].itemId) {
-      const id=itemId+Math.floor(plot.seedItemId%data.plusScale/data.rarityScale)*data.rarityScale;
+      const id=itemId+rarityOf(data,plot.seedItemId)*data.rarityScale;
       future[id]=(future[id]??0)+3; // Minimum confirmed native yield per field.
     }
     const growing=Object.values(future).reduce((a,b)=>a+b,0);

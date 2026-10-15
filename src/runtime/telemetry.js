@@ -1,4 +1,5 @@
 import {buffKey} from '../planner/supplies.js';
+import {BOSS_LOOT_RECEIPT, BOSS_LOOT_SENDERS} from '../ui/boss-loot.js';
 
 export function measurementKeys(data,p,level) {
   const job=data.jobs.find(j=>j.id===p.route?.jobId),zone=data.zones.find(z=>z.id===p.route?.zoneId);
@@ -20,8 +21,7 @@ export class Telemetry {
     // frame before observing it; unrelated rewards must not calibrate a route.
     if(frame.m.some(m=>m.t==='marketFilled'||m.t==='streak'||
       m.t==='batch'&&m.e?.some(e=>e.kind==='achievement'||e.kind==='boxOpened')||
-      m.t==='chat'&&['The Deep','Deep Vein'].includes(m.name)&&
-        /^Your share of the .+: .+ — on your shelf at the depot\.$/.test(m.text??'')))this.dirty=true;
+      m.t==='chat'&&BOSS_LOOT_SENDERS.includes(m.name)&&BOSS_LOOT_RECEIPT.test(m.text??'')))this.dirty=true;
   }
   observe(p,now,{reset=false}={}) {
     if(this.playerId!==null&&this.playerId!==p.id){

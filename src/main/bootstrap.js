@@ -12,13 +12,14 @@ import {NAMES, createPlanner} from '../planner/planner.js';
 import {createEconomy} from '../economy/economy.js';
 import {createMarket} from '../economy/market.js';
 import {createNativeBossJoinCapture} from '../runtime/world-boss.js';
-import {SOFT_ACTIONS, Trainer, acknowledged, isGuildRefusal} from '../runtime/trainer.js';
-import {refreshGameData} from '../data/public-tables.js';
+import {MODE_LABELS, SOFT_ACTIONS, Trainer, acknowledged, isGuildRefusal} from '../runtime/trainer.js';
+import {CLIENT_ASSET, refreshGameData} from '../data/public-tables.js';
 import {validateIntent} from '../runtime/intents.js';
 import {createUpdateChecker} from '../ui/update-checker.js';
 import {gameLabel, translateGameText} from '../ui/labels-zh.js';
 import {createBossLootChat, createBossLootHistory} from '../ui/boss-loot.js';
 import {applyPlanning, createPlanningClient, planningGuard, planningState} from '../worker/planning.js';
+import {PLANNING_STORAGE_KEYS, enhancementStorage, wirePlanner} from '../economy/wiring.js';
 import {fallbackOwnership} from '../planner/fallback.js';
 
 // Runs in the page at document-start. Uses the game's existing connection;
@@ -65,34 +66,15 @@ import {fallbackOwnership} from '../planner/fallback.js';
   let profitFloor=0;
   try {profitFloor=validProfitFloor(Number(localStorage.getItem(profitFloorKey)));}catch{}
   planner.profitFloor=profitFloor;
-  const enhancementStorage={
-    read:()=>{try {return JSON.parse(localStorage.getItem('deepvein-enhancement-training-v1')||'null');}catch{return null;}},
-    write:value=>{try {localStorage.setItem('deepvein-enhancement-training-v1',JSON.stringify(value));}catch{}}
-  };
-  planner.enhancementTraining=createEnhancementTraining(GAME_DATA,planner,enhancementStorage);
+  const enhancementStore=enhancementStorage(localStorage);
+  planner.enhancementTraining=createEnhancementTraining(GAME_DATA,planner,enhancementStore);
   let economy=createEconomy(GAME_DATA,planner,{autoSell,capacitySales,sellCrafted});
-  planner.maintenance=(...args)=>economy.maintenance(...args);
-  planner.investmentBudget=(...args)=>economy.investmentBudget(...args);
   const market=createMarket(GAME_DATA,planner,{now:()=>Date.now(),storage:localStorage,autoSell,capacitySales,salePricing});
   const procurementKey='deepvein-procurement-v1';
   let procurement;
   try {procurement=market.configureProcurement(JSON.parse(localStorage.getItem(procurementKey)||'{}'));}
   catch {procurement=market.configureProcurement();}
-  planner.marketSale=(...args)=>market.sale(...args);
-  planner.marketPurchase=(...args)=>market.purchase(...args);
-  planner.marketOpportunity=(...args)=>market.opportunity(...args);
-  planner.watchMarket=(...args)=>market.watch(...args);
-  planner.restockPotion=(...args)=>potionRestock?market.restockPotion(...args):null;
-  planner.potionStatus=(...args)=>potionRestock?market.potionStatus(...args):{key:'procurement-off',message:'药水未喝：库存不足，自动补药已关闭'};
-  planner.watchPotions=(p,itemIds)=>market.watchPotions(p,potionRestock?itemIds:[]);
-  planner.marketEquipment=(...args)=>market.equipmentPurchase(...args);
-  planner.marketFood=(...args)=>market.foodPurchase(...args);
-  planner.marketBuffFood=(...args)=>market.buffFood(...args);
-  planner.potionDose=(...args)=>market.potionDose(...args);
-  planner.marketAllowance=(...args)=>market.purchaseAllowance(...args);
-  planner.marketUnitCost=(...args)=>market.marketUnitCost(...args);
-  planner.marketSurplusValue=(...args)=>market.surplusValue(...args);
-  planner.watchPurchases=(...args)=>market.watchPurchases(...args);
+  wirePlanner(planner,market,()=>economy,()=>potionRestock);
   const NativeWebSocket=window.WebSocket;
   let socket=null, panel=null, rendered='', farmingOptions='', mainJobOptions='', mainMonsterOptions='', targetOptions='', targetIdentity='', checking=false, startCheck=0, compatibilityMessage='', pumping=false,nativeBossClick=null;
   let foregroundSequence=-1,pendingNativeJoin=null;
@@ -108,7 +90,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
   const mainMonsterKey='deepvein-trainer-main-monster-v1';
   const validMainJob=(jobId,trade)=>Number.isInteger(jobId)&&GAME_DATA.jobs.some(j=>j.id===jobId&&!j.grow&&j.skill===trade)?jobId:null;
   const validMainMonster=(monsterId,trade)=>trade==='combat'&&Number.isInteger(monsterId)&&GAME_DATA.monsters.some(m=>m.id===monsterId)?monsterId:null;
-  const TRAINING_MODE_LABELS={balanced:'自主发展',experience:'经验优先',business:'主业经营',assist:'只收菜＋蹭世界 Boss'};
+  const TRAINING_MODE_LABELS=MODE_LABELS;
   const modeInfo={
     balanced:'以全面成长为长期目标，先做值得投入的发展计划：结合库存、供料时间、解锁与收入连续推进，达标后复盘，再补长期落后的能力。',
     experience:'比较供料与往返后的总经验效率，允许技能等级拉开差距。',
@@ -239,7 +221,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
   }):null;
   const planningSettings=()=>({autoSell,capacitySales,sellCrafted,autoFallback,potionRestock,profitFloor,salePricing,hotFollow:trainer.getHotFollow()});
   function planningStorage() {
-    return Object.fromEntries(['deepvein-market-v1','deepvein-enhancement-training-v1'].map(key=>[key,localStorage.getItem(key)]));
+    return Object.fromEntries(PLANNING_STORAGE_KEYS.map(key=>[key,localStorage.getItem(key)]));
   }
   function planningInput(deferBoss=false) {
     let storage={},storageUnavailable=false;
@@ -313,7 +295,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
     engineCheck=(async()=>{
       const page=new URL(location.href);
       const url=[...document.scripts].map(s=>s.src).filter(Boolean).map(s=>new URL(s,page))
-        .find(u=>u.origin===page.origin&&/^\/assets\/index-[\w-]+\.js$/.test(u.pathname));
+        .find(u=>u.origin===page.origin&&CLIENT_ASSET.test(u.pathname));
       if(!url){engine.message='未识别客户端入口，引擎模拟未启用；沿用公式估算';return;}
       const client=url.pathname.split('/').pop();
       let cached=null;
@@ -374,20 +356,13 @@ import {fallbackOwnership} from '../planner/fallback.js';
         const refreshed=createPlanner(GAME_DATA);
         refreshed.housingRuntime(planner.housingRuntime());
         refreshed.setFarmingPreference(planner.farmingPreference());
-        refreshed.enhancementTraining=createEnhancementTraining(GAME_DATA,refreshed,enhancementStorage);
-        refreshed.marketSale=planner.marketSale;refreshed.marketPurchase=planner.marketPurchase;
-        refreshed.marketOpportunity=planner.marketOpportunity;refreshed.watchMarket=planner.watchMarket;
-        refreshed.restockPotion=planner.restockPotion;
-        refreshed.potionStatus=planner.potionStatus;
-        refreshed.watchPotions=planner.watchPotions;
-        for(const key of ['marketEquipment','marketFood','marketBuffFood','potionDose','marketUnitCost','marketSurplusValue','marketAllowance','watchPurchases'])refreshed[key]=planner[key];
-        refreshed.investmentBudget=planner.investmentBudget;
+        refreshed.enhancementTraining=createEnhancementTraining(GAME_DATA,refreshed,enhancementStore);
         Object.assign(planner,refreshed);
         trainer.mainJobId=validMainJob(trainer.mainJobId,trainer.mainTrade);
         trainer.mainMonsterId=validMainMonster(trainer.mainMonsterId,trainer.mainTrade);
         trainer.telemetry.level=planner.level;trainer.telemetry.rates={};trainer.telemetry.previous=null;
-        economy=createEconomy(GAME_DATA,planner,{autoSell,capacitySales,sellCrafted});planner.maintenance=(...args)=>economy.maintenance(...args);
-        planner.investmentBudget=(...args)=>economy.investmentBudget(...args);
+        economy=createEconomy(GAME_DATA,planner,{autoSell,capacitySales,sellCrafted});
+        wirePlanner(planner,market,()=>economy,()=>potionRestock);
         trainer.goal=null;trainer.plan=null;
       }
       compatibilityMessage=result.message;dataReady=true;render();

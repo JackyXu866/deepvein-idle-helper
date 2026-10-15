@@ -1,5 +1,6 @@
-import {autoUsableMaterial, matchesProfessionWeapon, professionSkill} from './professions.js';
+import {autoUsableMaterial, gearRequirementOf, matchesProfessionWeapon, professionSkill, statsDominate} from './professions.js';
 import {ENHANCEMENT_BASELINE, enhanceQuote} from './inventory.js';
+import {itemLabel, plusOf} from './items.js';
 
 // Count before sending so a refresh or an unconfirmed command cannot reset the
 // attempt allowance. Failed/ambiguous work waits for the next equipment-use stage.
@@ -61,16 +62,14 @@ export function createEnhancementTraining(data,planner,{read=()=>null,write=()=>
 export function planEnhancement(data,planner,p,style='magic',goal=null) {
   if(p.enhance)return {intent:null,label:'等待本次强化结果',reason:'已有强化进行中，确认结果后再规划'};
   const lv=planner.levels(p),combatSkill=professionSkill(style);
-  const attributes=['accuracy','strength','defence','luck','bonus'];
   const relevant=g=>g&&g.slot!=='hoe'&&(data.toolSkills[g.slot]||
     g.slot!=='mount'&&(!g.style||g.style===combatSkill)&&
     (g.slot!=='weapon'||matchesProfessionWeapon(g,style))&&
     (g.slot!=='shield'||style!=='melee_twohand'));
   const recipe=id=>data.jobs.find(j=>j.output.itemId===planner.base(id));
-  const requirement=g=>g.levelReq??recipe(g.itemId)?.levelReq??1;
-  const wearable=g=>!g.needs||g.needs==='none'?data.toolSkills[g.slot]:g.needs;
-  const better=(a,b)=>attributes.every(k=>(a[k]??0)>=(b[k]??0))&&
-    attributes.some(k=>(a[k]??0)>(b[k]??0));
+  // Wearable now or at the very next level.
+  const nearlyWearable=id=>{const r=gearRequirementOf(data,id);return r.skill==='none'||r.level<=(lv[r.skill]??0)+1;};
+  const better=statsDominate;
   const owned=[...Object.keys(p.bank).filter(id=>p.bank[id]>0).map(Number),...p.pack.map(i=>i.itemId)];
   const options=[];
   let deferredReason='暂无值得强化的在用装备：先换阶段装备，或等待有实际属性收益的升级；不制造备用装备刷强化等级';
@@ -78,7 +77,7 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
     const gear=planner.equipmentStats(itemId);
     if(goal?.specialization&&(goal.mainSkill===combatSkill?!!data.toolSkills[slot]:
       data.toolSkills[slot]!==goal.mainSkill))continue;
-    if(!relevant(gear)||!autoUsableMaterial(data,itemId)||Math.floor(itemId/data.plusScale)>=ENHANCEMENT_BASELINE||goal?.upgrade?.slot===slot)continue;
+    if(!relevant(gear)||!autoUsableMaterial(data,itemId)||plusOf(data,itemId)>=ENHANCEMENT_BASELINE||goal?.upgrade?.slot===slot)continue;
     if(goal?.enhancement&&goal.enhancement.itemId!==itemId)continue;
     const quote=enhanceQuote(data,planner,p,itemId),after=planner.equipmentStats(itemId+data.plusScale);
     const target=planner.equipmentStats(itemId%data.plusScale+ENHANCEMENT_BASELINE*data.plusScale);
@@ -102,8 +101,7 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
     const replacement=[...data.gear.map(g=>g.itemId),...owned].some(id=>{
       const g=planner.equipmentStats(id),job=recipe(id);
       if(!relevant(g)||g.slot!==slot||!better(g,gear))return false;
-      const skill=wearable(g),level=skill?lv[skill]:Infinity;
-      return requirement(g)<=level+1&&(owned.includes(id)||job&&job.levelReq<=(lv[job.skill]??1)+1);
+      return nearlyWearable(id)&&(owned.includes(id)||job&&job.levelReq<=(lv[job.skill]??1)+1);
     });
     if(replacement)continue;
     const currentJob=data.jobs.find(j=>j.id===p.route?.jobId);
@@ -117,7 +115,7 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
   const {itemId,slot,quote,otherCoins,otherShards}=chosen;
   const budget={coins:otherCoins+quote.gold,items:{...goal?.budget?.items,[data.shardId]:otherShards+quote.shards}};
   const enhancement={itemId,slot,toPlus:quote.toPlus,quote,gold:quote.gold,shards:quote.shards};
-  const label=`强化在用装备 · ${data.items[planner.base(itemId)].name} +${quote.toPlus}`;
+  const label=`强化在用装备 · ${itemLabel(data,itemId%data.plusScale)} +${quote.toPlus}`;
   const reason=`本次成功率 ${(quote.chance*100).toFixed(0)}%；消耗 ${quote.gold} 金币、${quote.shards} 碎片，获得 ${quote.xp} 强化经验；`+
     (quote.chance<1?'失败会回到 +0；':'')+
     '保留其它计划预算，在用装备目标 +5；逐级确认，同装备每阶段最多五次，失败后该阶段停止';
