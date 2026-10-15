@@ -1238,7 +1238,7 @@ export function createPlanner(data) {
       const n=Math.ceil(qty/recipe.output.qty);
       for(const input of recipe.inputs)if(rarity(input.itemId)>0) {
         const need=input.qty*n,used=Math.min(need,have(input.itemId));
-        left[input.itemId]-=used;out[input.itemId]=(out[input.itemId]??0)+used;
+        left[input.itemId]-=used;if(used>0)out[input.itemId]=(out[input.itemId]??0)+used;
         if(need>used&&!trail.includes(input.itemId))reserve(input.itemId,need-used,[...trail,input.itemId]);
       }
     };

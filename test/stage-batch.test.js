@@ -8,8 +8,13 @@ function smith(ore, extra = {}) {
   const bar = d.jobs.find(j => j.skill === 'smithing' && j.name === 'Bronze bar');
   const [copper, tin] = bar.inputs.map(i => i.itemId), bank = d.banks[0];
   const quality = typeof extra === 'function' ? extra(copper, tin, d.rarityScale) : extra;
+  // Top-tier legendary gear everywhere: nothing better to plan, so these tests
+  // see the stage logic alone (gear-first is covered in gear-first.test.js).
+  const melee = g => (!g.style || g.style === 'melee') && (g.slot !== 'weapon' || g.needs === 'melee' && !g.twoHanded);
+  const top = Object.fromEntries([...new Set(d.gear.map(g => g.slot))].filter(slot => slot !== 'mount').map(slot =>
+    [slot, d.gear.filter(g => g.slot === slot && melee(g)).sort((a, b) => (b.levelReq ?? 0) - (a.levelReq ?? 0))[0].itemId + 4 * d.rarityScale]));
   const p = player(planner, {levels: {smithing: 20, mining: 30}, x: bank.x, y: bank.y, bank: {[copper]: ore, [tin]: ore, ...quality},
-    equipment: {hammer: d.gear.find(g => g.slot === 'hammer' && d.items[g.itemId].name === 'Iron hammer').itemId},
+    equipment: top,
     coins: 0, hp: 100, activity: 'idle', path: null, held: false, route: null});
   const goal = {skill: 'smithing', target: 25, development: true, growth: true, recipeId: bar.id, recipes: {smithing: bar.id},
     budget: {coins: 0, items: {}}};
