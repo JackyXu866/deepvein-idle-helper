@@ -260,16 +260,32 @@ export function createStrategy(data, planner) {
     }
     return candidates.sort((a,b)=>b.rate.xp-a.rate.xp||b.rate.coins-a.rate.coins||a.recipeId-b.recipeId);
   }
-  function chooseGoal(p,served={},deferred={},style='magic') {
-    const choices=candidates(p,style,deferred);
+  // Profit floor (gold/hour): keep only tasks earning at least that much,
+  // counting sales the current bids absorb, then maximise XP. If none
+  // qualifies, earn as fast as possible instead.
+  function withProfitFloor(p,choices,style,floor) {
+    planner.watchMarket?.(p,choices.map(c=>c.output?.itemId??data.monsters.find(m=>m.id===c.monsterId)?.drop).filter(Boolean));
+    const priced=planner.incomeChoices?planner.incomeChoices(p,choices,style):choices.filter(c=>c.rate.coins>0);
+    const enough=priced.filter(c=>c.rate.coins*3600>=floor).sort((a,b)=>b.rate.xp-a.rate.xp);
+    if(enough.length)return {choices:enough,note:`收益不低于 ${floor} 金币/小时的工作中经验最高`};
+    const richest=[...priced].sort((a,b)=>b.rate.coins-a.rate.coins);
+    return {choices:richest,note:richest.length?`没有工作达到 ${floor} 金币/小时，改做收益最高的工作`:''};
+  }
+  function chooseGoal(p,served={},deferred={},style='magic',options={}) {
+    let choices=candidates(p,style,deferred),note='';
+    const floor=Math.max(0,typeof options==='object'&&options?.profitFloor||0);
+    if(floor>0&&choices.length){
+      const filtered=withProfitFloor(p,choices,style,floor);
+      if(filtered.choices.length)({choices,note}=filtered);
+    }
     if (!choices.length) return null;
     let best=choices[0];
     const current=choices.find(c=>c.recipeId===p.route?.jobId||c.monsterId&&data.zones.find(z=>z.id===p.route?.zoneId)?.monsterId===c.monsterId);
     // The model already charges travel; retain an active route within 5% to
     // absorb stochastic estimates without endless switching.
     if (current&&current.rate.xp>=best.rate.xp*.95) best=current;
-    const goal={...best,reason:`滚动 ${horizon/60} 分钟：采购／自备后的总经验约 ${(best.rate.xp*60).toFixed(0)}/分，`+
-      `直接金币约 ${(best.rate.coins*60).toFixed(1)}/分（盈余出售另计）；已计供料与旅行`};
+    const goal={...best,reason:`${note?note+'；':''}滚动 ${horizon/60} 分钟：采购／自备后的总经验约 ${(best.rate.xp*60).toFixed(0)}/分，`+
+      `${note?'收益':'直接金币'}约 ${(best.rate.coins*60).toFixed(1)}/分${note?'':'（盈余出售另计）'}；已计供料与旅行`};
     const investment=planner.investmentBudget?.(p,goal,style);
     if (investment) {
       goal.budget.coins=Math.max(goal.budget.coins,investment.coins);

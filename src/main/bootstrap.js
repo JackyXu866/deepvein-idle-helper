@@ -42,6 +42,12 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     potionRestock=localStorage.getItem(potionRestockKey)!=='false';
     capacitySales=localStorage.getItem(capacitySalesKey)!=='false';
   }catch{potionRestock=false;capacitySales=false;}
+  // Experience mode: minimum gold per hour a chosen task must earn (0 = off).
+  const profitFloorKey='deepvein-profit-floor-v1';
+  const validProfitFloor=value=>Number.isFinite(value)&&value>0?Math.min(1e9,Math.floor(value)):0;
+  let profitFloor=0;
+  try {profitFloor=validProfitFloor(Number(localStorage.getItem(profitFloorKey)));}catch{}
+  planner.profitFloor=profitFloor;
   const enhancementStorage={
     read:()=>{try {return JSON.parse(localStorage.getItem('deepvein-enhancement-training-v1')||'null');}catch{return null;}},
     write:value=>{try {localStorage.setItem('deepvein-enhancement-training-v1',JSON.stringify(value));}catch{}}
@@ -214,7 +220,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     const url=URL.createObjectURL(new Blob([PLANNING_WORKER_SOURCE],{type:'text/javascript'}));
     try{return new Worker(url);}finally{URL.revokeObjectURL(url);}
   }):null;
-  const planningSettings=()=>({autoSell,capacitySales,potionRestock,hotFollow:trainer.getHotFollow()});
+  const planningSettings=()=>({autoSell,capacitySales,potionRestock,profitFloor,hotFollow:trainer.getHotFollow()});
   function planningStorage() {
     return Object.fromEntries(['deepvein-market-v1','deepvein-enhancement-training-v1'].map(key=>[key,localStorage.getItem(key)]));
   }
@@ -1486,6 +1492,10 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
                   </div>
                   <p class="muted setting-note">农业继续后台合批种收；强化随有用装备升级。手选主业不会被更赚钱的其它技能替换。</p>
                 </div>
+                <div data-profit-floor-controls hidden>
+                  <label>最低收益（金币/小时）<input type="number" min="0" step="100" inputmode="numeric" data-profit-floor aria-label="最低收益（金币/小时）"></label>
+                  <p class="muted setting-note">只选择收益不低于此值的工作，再比经验；出售收入按当前买单扣税估算，需开启自动出售。都达不到时改做最赚钱的工作。0 为不限制。</p>
+                </div>
                 <div data-hot-follow-controls hidden>
                   <p data-hot-unavailable class="muted setting-note" hidden></p>
                   <div data-hot-body>
@@ -1713,6 +1723,12 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
       trainer.setMode(event.currentTarget.value);releaseLease();
       try {localStorage.setItem(modeKey,trainer.mode);}
       catch {trainer.log('策略已切换，但无法保存偏好；刷新后默认均衡成长');}
+      render();
+    };
+    panel.querySelector('[data-profit-floor]').onchange=event=>{
+      profitFloor=validProfitFloor(Number(event.currentTarget.value));planner.profitFloor=profitFloor;
+      try {localStorage.setItem(profitFloorKey,String(profitFloor));}
+      catch {trainer.log('最低收益设置无法保存，刷新后恢复为不限制');}
       render();
     };
     panel.querySelector('[data-main-trade]').onchange=event=>{
@@ -2436,6 +2452,9 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     panel.querySelector('[data-item-target-start]').disabled=checking||!!trainer.recovery||!p||!trainer.compatible||!filteredTargets.length;
     panel.querySelector('[data-item-target-cancel]').disabled=!itemTarget;
     panel.querySelector('[data-main-trade-controls]').hidden=trainer.mode!=='business';
+    panel.querySelector('[data-profit-floor-controls]').hidden=trainer.mode!=='experience';
+    const floorInput=panel.querySelector('[data-profit-floor]');
+    if(document.activeElement!==floorInput)floorInput.value=String(profitFloor);
     panel.querySelector('[data-main-trade]').value=trainer.mainTrade;
     panel.querySelector('[data-main-job-controls]').hidden=trainer.mode!=='business'||['auto','combat'].includes(trainer.mainTrade);
     const mainJobSelect=panel.querySelector('[data-main-job]'),mainJobSignature=JSON.stringify(mainJobs);

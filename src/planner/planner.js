@@ -1209,7 +1209,8 @@ export function createPlanner(data) {
       return {farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote,specialization:specialization.runtime(),development:growth.runtime(),housing:housing.runtime()};
     },
     selectGoal(p,served,deferred,style,mode='balanced',mainTrade='auto',mainJobId=null,mainMonsterId=null) {
-      if(mode!=='business'&&mode!=='balanced')this.watchMarket?.(p,[]);
+      if(mode!=='business'&&mode!=='balanced'&&!(mode==='experience'&&this.profitFloor>0))this.watchMarket?.(p,[]);
+      if(mode==='experience')return this.chooseGoal(p,served,deferred,style,{profitFloor:this.profitFloor??0});
       return (mode==='business'?this.specialistChooseGoal:mode==='experience'?this.chooseGoal:
         this.growthChooseGoal??this.chooseGoal)(p,served,deferred,style,mainTrade,mainJobId,mainMonsterId);
     },

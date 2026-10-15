@@ -29,6 +29,7 @@ export function runPlanning(data,input,inspectOnly=false) {
     input.storage[key]=value;writes[key]=value;
   }};
   planner.runtime(input.planner);
+  planner.profitFloor=input.settings.profitFloor??0;
   planner.setMeasurements(input.rates);
   planner.enhancementTraining=createEnhancementTraining(data,planner,{
     read:()=>{try{return JSON.parse(storage.getItem('deepvein-enhancement-training-v1')||'null');}catch{return null;}},
