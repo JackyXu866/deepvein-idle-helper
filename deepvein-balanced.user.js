@@ -25791,8 +25791,8 @@ function createPlanningClient(makeWorker, { timeout = 8e3, setTimer = setTimeout
         min-height: 0;
         overflow-y: auto;
         padding: 10px 12px;
-        scrollbar-width: thin;
-        scrollbar-color: var(--edge) transparent;
+        /* Same scrollbar as the inner boxes (the panel's dark color-scheme
+           default): full width, arrows and an easy-to-grab thumb. */
         overscroll-behavior: contain;
       }
       [role="tabpanel"] {
