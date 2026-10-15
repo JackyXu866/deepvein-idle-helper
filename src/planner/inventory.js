@@ -83,7 +83,9 @@ export function enhanceQuote(data, planner, p, itemId) {
   const recipe=data.jobs.find(j=>j.output.itemId===base);
   const tier=recipe?data.enhanceThresholds.filter(v=>recipe.levelReq>=v).length:3;
   const house=p.houseFurniture?.lectern?1+.01*(p.house?.lectern??0):1;
-  const chance=Math.min(1,Math.max(.2,1-.06*n)*house*(1+.0025*(p.masteries?.enhance??0)));
+  // Client 1.0.1189: each Enhancing level above 1 multiplies the odds by +0.2%.
+  const skill=1+.002*((planner.levels(p).enhancing??1)-1);
+  const chance=Math.min(1,Math.max(.2,1-.06*n)*house*skill*(1+.0025*(p.masteries?.enhance??0)));
   return {fromPlus:n,toPlus:n+1,chance,gold:data.enhanceGold[tier]*[1,3,8,20,50][rarity]*(n+1),
     shards:data.enhanceShards*(n+1),xp:Math.round(20*(n+1)*data.rarityXp[rarity]),
     failurePlus:0};

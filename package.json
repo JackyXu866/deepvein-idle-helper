@@ -5,7 +5,8 @@
   "description": "Deep Vein Idle userscript, built from src/ modules",
   "type": "module",
   "scripts": {
-    "build": "node scripts/build.mjs"
+    "build": "node scripts/build.mjs",
+    "test": "node --test \"test/**/*.test.js\""
   },
   "devDependencies": {
     "esbuild": "0.24.2"

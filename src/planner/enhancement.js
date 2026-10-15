@@ -55,8 +55,9 @@ export function createEnhancementTraining(data,planner,{read=()=>null,write=()=>
   return {blocked,issued,observe};
 }
 
-// Enhancing levels do not unlock recipes or improve success odds. Train by
-// improving equipment that will be used, never by manufacturing spare XP sinks.
+// Enhancing levels do not unlock recipes; each level adds 0.2% to the success
+// multiplier (see enhanceQuote). Train by improving equipment that will be
+// used, never by manufacturing spare XP sinks.
 export function planEnhancement(data,planner,p,style='magic',goal=null) {
   if(p.enhance)return {intent:null,label:'等待本次强化结果',reason:'已有强化进行中，确认结果后再规划'};
   const lv=planner.levels(p),combatSkill=professionSkill(style);
