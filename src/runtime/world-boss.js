@@ -44,6 +44,7 @@ export function createWorldBoss(data,now=()=>Date.now()){
   const setParticipation=value=>participation=value==='tag'?'tag':'full';
   let boss=null,run=null,external=false,externalUntil=null,ignored=null,lastDeath=null,lastResult=null;
   let tick=0,received=now(),fresh=false,playerId=null,snapshotAt=0,visibleBossId=null,observationSince=now();
+  let nextRise=null; // server tick of the next announced spawn (`bossNext`)
   const currentTick=()=>tick+Math.max(0,now()-received)/(data.tickMs??600);
   const recentActivity=()=>fresh&&run?.stage==='fighting'&&Number.isFinite(run.lastActivityAt)&&
     now()>=run.lastActivityAt&&now()-run.lastActivityAt<=30000;
@@ -124,6 +125,7 @@ export function createWorldBoss(data,now=()=>Date.now()){
           if(run&&run.name===b.name&&run.until!=null)boss.until=run.until;
         }
       }
+      if(m.t==='bossNext'&&Number.isFinite(m.tick))nextRise=m.tick;
       if(m.t==='move'&&boss?.id!=null&&m.id===boss.id&&point(m)){
         boss.x=m.x;boss.y=m.y;
       }
@@ -153,7 +155,9 @@ export function createWorldBoss(data,now=()=>Date.now()){
       }
     }
   }
-  function next(p){
+  // interruptWalk: the helper's own walk (bank, market, portal) may be dropped
+  // for a Boss; a player's walk in assist mode is left alone.
+  function next(p,{interruptWalk=false}={}){
     if(!p)return null;
     if(external&&externalUntil!==null&&currentTick()>=externalUntil){external=false;externalUntil=null;}
     if(run&&p.id!==run.playerId){finish();return null;}
@@ -218,7 +222,8 @@ export function createWorldBoss(data,now=()=>Date.now()){
     const remaining=boss.until==null?null:boss.until-currentTick(),steps=Math.max(0,distance(p,boss)-3);
     if(remaining!==null&&remaining<Math.max(15,steps*2+10))return null;
     if(remaining===null&&steps>0)return null;
-    if(p.route?.errand||p.enhance||p.held||!p.route&&(p.path?.length||p.activity==='walking'||p.queue?.length))return null;
+    const walking=!p.route&&(p.path?.length||p.activity==='walking');
+    if(p.route?.errand||p.enhance||p.held||!p.route&&p.queue?.length||walking&&!interruptWalk)return null;
     if(p.route)return action({t:'setAside',raid:true},'临时保留当前任务的剩余份额和原队列，再参加世界 Boss');
     return distance(p,boss)<=3?action({t:'attackWorldBoss'},'使用当前装备参加世界 Boss'):
       action({t:'walk',x:boss.x,y:boss.y},'前往世界 Boss；不增加或覆盖玩家队列');
@@ -273,7 +278,8 @@ export function createWorldBoss(data,now=()=>Date.now()){
       (boss.until==null||currentTick()<boss.until),visible:fresh&&visibleBossId!=null&&visibleBossId===boss?.id,
       phase:run?.stage??(external?'manual':'watching'),skipped:skipped(),
       hit:run?.hit??false,recentActivity:recentActivity()===true,lastActivityAt:run?.lastActivityAt??null,
-      owned:!!run,until:boss?.until??run?.until??null,lastResult:copy(lastResult)}),
+      owned:!!run,until:boss?.until??run?.until??null,lastResult:copy(lastResult),
+      nextIn:nextRise!=null&&nextRise>currentTick()?(nextRise-currentTick())*(data.tickMs??600)/1000:null}),
     save:()=>copy({v:1,participation,boss,run,external,externalUntil,ignored,lastDeath,playerId,lastResult}),
     restore(value){
       if(value?.v!==1)return;

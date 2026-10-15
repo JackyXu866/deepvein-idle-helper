@@ -743,7 +743,8 @@ export class Trainer {
       this.noteConsumable('boss-food',bossFood.reason);
     }
     if(bossFood?.intent) {this.plan=bossFood;this.issue(bossFood);return;}
-    let bossPlan=bossFoodBlocked?null:this.boss.next(p);
+    // The helper's own errand walks yield to a Boss; in assist mode the walk is the player's.
+    let bossPlan=bossFoodBlocked?null:this.boss.next(p,{interruptWalk:this.mode!=='assist'});
     const bossStatus=this.boss.status();
     if(bossStatus.owned&&['attacking','fighting'].includes(bossStatus.phase)&&this.combatFoodPlan(p))
       bossPlan={intent:{t:'leaveWorldBoss'},label:'保护传说食物，结束本轮 Boss',
@@ -817,7 +818,11 @@ export class Trainer {
       this.waitingGoals[this.mainTrade==='combat'?professionSkill(this.style):this.mainTrade]??this.chooseGoal(p):null);
     const maintenanceGoal=reserveWaitingGoals(projectGoal,this.waitingGoals);
     if(this.refillAtBank(p,maintenanceGoal)){this.goal=projectGoal;return;}
-    const housing=this.planner.housingPlan?.(p,maintenanceGoal,this.style,this.mode,this.bankedLoad);
+    // Do not start a home trip just before a Boss rises: the portal detour can
+    // make it unreachable. A trip already under way is finished normally.
+    const bossSoon=(this.boss.status().nextIn??Infinity)<=300;
+    let housing=this.planner.housingPlan?.(p,maintenanceGoal,this.style,this.mode,this.bankedLoad);
+    if(bossSoon&&housing&&!atHome(this.data,p)&&['portal','walk','clearRoute'].includes(housing.intent?.t))housing=null;
     if(housing){
       this.goal=projectGoal;this.plan=housing;
       if(housing.intent)return this.issue(housing);
