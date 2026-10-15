@@ -11,7 +11,7 @@ import {createSpecialization} from './specialization.js';
 import {createQuests} from './quests.js';
 import {createHousing} from './housing.js';
 import {planGatheringSurplus} from './gathering-surplus.js';
-import {choosePerk, perkOverview} from './perks.js';
+import {perkOverview} from './perks.js';
 import {HOT_FOLLOW_SKILLS, hotSkillAt, hotWindows} from '../runtime/hot-follow.js';
 
 export const NAMES = {
@@ -1243,5 +1243,5 @@ export function createPlanner(data) {
     },
     questRead:quests.read,questClaim:quests.claim,questChooseGoal:quests.chooseGoal,questCompleted:quests.completed,
     questReroll:quests.reroll,questOverview:quests.overview,
-    perkOverview:(p,goal,style)=>perkOverview(api,p,goal,style,{usage:api.perkUsage}),perkPurchase:(p,goal,style)=>choosePerk(api,p,goal,style,{usage:api.perkUsage})});
+    perkOverview:p=>perkOverview(p)});
 }

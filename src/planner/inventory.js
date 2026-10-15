@@ -123,11 +123,13 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
     .map(row=>planner.equipmentStats(row.itemId)).filter(Boolean);
   const selfSource=(id,trail=[])=>!trail.includes(id)&&(id===data.coinId||data.jobs.some(j=>
     j.output.itemId===id&&lv[j.skill]>=j.levelReq&&j.inputs.every(i=>selfSource(i.itemId,[...trail,id]))));
+  // Gear is compared within its own line (slot, style, weapon type), for every
+  // style. A better piece replaces it only once that piece can be worn no later
+  // than this one, so the wearable-now piece for a lower level is kept.
+  const line=g=>[g.slot,g.style??'',g.needs??'',!!g.twoHanded,g.slot==='weapon'&&g.needs==='ranged'?g.speed:''].join('|');
   function dominated(g) {
-    return heldGear.some(h=>h.itemId!==g.itemId&&h.slot===g.slot&&relevant(h)&&
-      (g.slot!=='weapon'||h.needs===g.needs)&&
-      (h.style??combatSkill)===(g.style??combatSkill)&&!!h.twoHanded===!!g.twoHanded&&
-      wearable(h)&&
+    return heldGear.some(h=>h.itemId!==g.itemId&&line(h)===line(g)&&
+      (wearable(h)||requirement(h)<=requirement(g))&&
       ['bonus','accuracy','strength','defence','luck'].every(k=>(h[k]??0)>=(g[k]??0))&&
       (h.speed??0)<=(g.speed??0)&&
       (['bonus','accuracy','strength','defence','luck'].some(k=>(h[k]??0)>(g[k]??0))||(h.speed??0)<(g.speed??0)));
@@ -148,9 +150,8 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
     else if(marketOnly) {
       keep=row.worn;
       if(superseded(id))reason='已持有同款更高品质／强化的一件；按原品质和强化等级仅售市场';
-      else if(!relevant(g))reason='非所选职业装备，不会成为升级；按原品质和强化等级仅售市场';
-      else if(dominated(g))reason='已有属性全面更好且可穿戴的替代装备；按原品质和强化等级仅售市场';
-      else {keep=Math.max(1,keep);reason='同款最高品质且可能成为升级，保留一件；重复的仅售市场';}
+      else if(dominated(g))reason='同类已有更好且不晚于它可穿戴的装备；按原品质和强化等级仅售市场';
+      else {keep=Math.max(1,keep);reason='该职业同类最高品质且可能成为升级，保留一件；重复的仅售市场';}
     }
     else if(seeds.has(base))reason='种子用于持续补种，不作为普通盈余出售';
     else if(data.items[base]?.heals) {keep=Math.min(total,budget.items[base]??50);reason='保留至少三趟战斗食物及当前计划需要量';}
@@ -166,13 +167,12 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
     else if(base===70) {keep=0;category='可卖候选';reason='烧焦食物，出售回收金币';}
     else if(g) {
       keep=row.worn;
-      if(relevant(g)&&!dominated(g)&&!superseded(id))keep=Math.max(1,keep);
+      if(!dominated(g)&&!superseded(id))keep=Math.max(1,keep);
       keep=Math.min(total,keep);
       category=keep<total?'可卖候选':'保留';
       reason=superseded(id)?'已持有同款更高品质的一件；普通品质的出售':
-        !relevant(g)?'非所选职业的普通成品；已穿戴和套装引用另行保护':
-        dominated(g)?'已有同位置且可替代的更好装备；已穿戴的仍保留':
-        '保留一件未被现有装备替代的工具／本职业装备，重复成品可处理';
+        dominated(g)?'同类已有更好且不晚于它可穿戴的装备；已穿戴的仍保留':
+        '保留一件未被替代的工具／装备（各职业分别保留），重复成品可处理';
     }
     keep=Math.max(keep,Math.min(total,budget.items[id]??0),row.worn);
     const tradable=base!==data.coinId&&![294,295,296,297].includes(base)&&

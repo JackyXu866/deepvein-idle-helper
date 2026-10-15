@@ -63,6 +63,21 @@ test('crafted gear: only one copy of the highest rarity that could be an upgrade
   assert.equal(rows[id + 2 * R].sell, 1, 'its duplicate is surplus');
   assert.equal(rows[id + R].sell, 2, 'lower rarity is surplus');
   assert.equal(rows[id].sell, 3, 'common is surplus');
+  // Every style keeps its own best piece, and the wearable-now lower-level
+  // piece is kept beside a higher one that cannot be worn yet.
+  const helmets = d.gear.filter(g => g.slot === 'helmet' && g.style === 'melee' &&
+    d.jobs.some(j => j.skill === 'smithing' && j.output.itemId === g.itemId)).sort((a, b) => a.levelReq - b.levelReq);
+  const low = helmets[0], high = helmets.at(-1);
+  const magic = d.gear.find(g => g.slot === 'helmet' && g.style === 'magic');
+  const mixed = Object.fromEntries(reviewInventory(d, planner, {...p, bank: {[low.itemId]: 2, [high.itemId]: 2, [magic.itemId]: 2}},
+    null, 'melee').items.map(r => [r.itemId, r]));
+  assert.equal(mixed[low.itemId].keep, 1, 'wearable lower-level piece kept');
+  assert.equal(mixed[high.itemId].keep, 1, 'highest piece kept for later');
+  assert.equal(mixed[magic.itemId].keep, 1, 'other style keeps its own best');
+  const levelled = Object.fromEntries(reviewInventory(d, planner,
+    {...p, skills: {...p.skills, melee: player(planner, {levels: {melee: 99}}).skills.melee},
+      bank: {[low.itemId]: 2, [high.itemId]: 2}}, null, 'melee').items.map(r => [r.itemId, r]));
+  assert.equal(levelled[low.itemId].keep, 0, 'once the better piece can be worn, the old one is surplus');
   // A legendary copy outranks everything and is itself never sold.
   const legendary = id + (d.rarityMultipliers.length - 1) * R;
   const withLegendary = reviewInventory(d, planner, {...p, bank: {...p.bank, [legendary]: 1}}, null, 'melee').items;

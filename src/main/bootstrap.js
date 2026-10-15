@@ -1690,7 +1690,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
                   <p class="fine-print">开启：每次回仓时，把所有超出保留量的普通物品按下方“出售方式”挂单或卖出。关闭：只出售为赚钱而选择的工作的产出（主业经营、最低收益按售价选中的工作，其收益本就按出售计算），其他物品只在仓库满时按“满仓时出售普通盈余”清理。保留量：当前计划和供料链需要的材料、每种 50 件周转材料、3 趟战斗食物、种子与作物储备；药水、稀有／特殊掉落、坐骑宠物、传说物品、强化材料和装备方案一律不卖。关闭时会撤回助手自己尚未成交的挂单，不动你的手动挂单。</p>
                   <label>满仓时出售普通盈余<input type="checkbox" data-capacity-sales aria-label="满仓时出售普通盈余"></label>
                   <label>出售制作产出（保留可能的升级）<input type="checkbox" data-sell-crafted aria-label="出售制作产出，保留可能的升级"></label>
-                  <p class="fine-print">烹饪、锻造、制箭、制作的产出，超出计划用量、周转库存和口粮储备的部分会出售。装备每款只留一件最高品质、且可能比现有装备更好的；其余品质／强化件按同品质成交价仅挂市场。传说、药水和稀有材料不卖。平时出售关闭时也生效。</p>
+                  <p class="fine-print">烹饪、锻造、制箭、制作的产出，超出计划用量、周转库存和口粮储备的部分会出售。装备按位置和职业分别比较，每款只留一件最高品质；当前能穿的低级件和还穿不上的高级件都保留，被更好且已可穿的装备取代后才出售；其余品质／强化件按同品质成交价仅挂市场。传说、药水和稀有材料不卖。平时出售关闭时也生效。</p>
                   <label>出售方式<select data-sale-pricing aria-label="出售方式"><option value="list">挂单：按卖盘价等待成交</option><option value="bid">直接卖给买单：立即成交</option></select></label>
                   <p class="fine-print">挂单：比最低卖价低一档挂出，税后须比最高买单多 5% 以上，且近 2 小时成交量足以消化同价排队卖量，否则直接卖给买单；同一批挂两轮仍未卖完时改为卖给买单。商人（系统回收，基础价值 40%）始终可卖，是所有估值的下限：为赚钱选中的工作，市场无法高于商人价时直接卖给商人。城镇回购：每小时读取回购记录；上次被回购的普通物品按其实付均价（约商人价的倍数）估值，挂单价不超过商人价 1.5 倍并低于最低卖价一档，保留到下次回购后才复核，未成交转商人；同时最多 2 笔，留出挂单槽。收益规划也按同样方式估值。</p>
                   <p data-market class="muted"></p>
@@ -2517,10 +2517,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
       [el('p',{className:'muted',textContent:'今天的任务已全部领取'})]);
     const perks=view.perks,mastery=view.mastery;
     set('[data-plan-points]',[
-      perks?`任务点数 ${perks.points}`+(perks.next?(perks.next.affordable?
-        `：下一步兑换 ${perks.next.name} ${perks.next.rank} 级（${perks.next.cost} 点，效率 +${(perks.next.gain*100).toFixed(2)}%）`:
-        `：为 ${perks.next.name} ${perks.next.rank} 级攒点（需 ${perks.next.cost}，效率 +${(perks.next.gain*100).toFixed(2)}%）`):
-        '：常做的工作暂无可测收益的特权，点数保留'):null,
+      perks?`任务点数 ${perks.points}：不自动兑换，由你自行分配`:null,
       mastery?`精通点数可用 ${fmt(mastery.earned-mastery.spent)}（共获得 ${fmt(mastery.earned)}），按当前工作模拟收益分配`:'精通点数：引擎模拟启用后计算',
     ].filter(Boolean).join('；'));
   }

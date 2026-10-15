@@ -584,12 +584,17 @@ export class Trainer {
       p.foeTicks,p.workJobId,p.workSiteId,p.stunUntil,job?p.skills[job.skill]:[p.skills[professionSkill(this.style)],p.skills.defence],
       p.route?.errand?p.plots:null]);
     const routeKey=`${p.route?.jobId??''}:${p.route?.zoneId??''}`;
+    const xp=job?p.skills[job.skill]:p.skills[professionSkill(this.style)]+p.skills.defence;
     if(!this.progress||this.progress.signature!==signature){
-      if(this.progress?.routeKey===routeKey)this.failures=[];
-      this.progress={signature,routeKey,since:this.now()};this.stallCheck=null;return false;
+      // Only real experience clears earlier stalls: re-issuing the same stuck
+      // route also changes the signature and must not restart the count.
+      if(this.progress?.routeKey===routeKey&&xp>this.progress.xp)this.failures=[];
+      this.progress={signature,routeKey,xp,since:this.now()};this.stallCheck=null;return false;
     }
     // A long recipe or an explicit stun may legitimately take several minutes.
-    const budget=Math.max(120000,(job?.baseTicks??0)*this.data.tickMs*4+60000);
+    // A crafting or gathering route left idle with no path is not working at all.
+    const idle=p.activity==='idle'&&!p.path?.length&&job&&!job.grow&&!p.route.errand;
+    const budget=idle?30000:Math.max(120000,(job?.baseTicks??0)*this.data.tickMs*4+60000);
     if(this.now()-this.progress.since<budget||p.stunUntil>p.lastTick)return false;
     if(!this.stallCheck){
       this.stallCheck={sequence:this.snapshotSequence};this.syncAfter=this.snapshotSequence;
@@ -598,7 +603,16 @@ export class Trainer {
     }
     if(this.snapshotSequence<=this.stallCheck.sequence)return true;
     if(!this.fault('任务停滞',`stall:${routeKey}`))return true;
-    this.stallCheck=null;this.progress=null;
+    // Keep the experience baseline so a restart is not mistaken for progress.
+    this.stallCheck=null;this.progress={...this.progress,signature:null};
+    // The same route stalled again after a restart: set this goal aside for
+    // ten minutes and do other work instead of idling on it.
+    if(this.failures.length>=2&&this.goal) {
+      if(this.goal.quest)this.questDeferred[this.goal.quest.key]=this.now()+600000;
+      else this.deferred[this.goal.skill]=this.now()+600000;
+      this.blockedReasons[this.goal.skill]=`${job?.name??'当前任务'} 重启后仍然停滞，暂缓 10 分钟`;
+      this.log(this.blockedReasons[this.goal.skill]);this.goal=null;
+    }
     this.issue({intent:{t:'clearRoute'},label:'停止停滞路线并重新规划'});return true;
   }
   runItemTarget(p) {
@@ -809,8 +823,8 @@ export class Trainer {
     const softReady=t=>!((this.softRefused[t]??0)>this.now());
     const reroll=softReady('rerollQuest')&&this.planner.questReroll?.(p,this.style);
     if(reroll?.intent)return this.issue(reroll);
-    const perk=softReady('buyPerk')&&this.planner.perkPurchase?.(p,this.goal,this.style);
-    if(perk?.intent)return this.issue(perk);
+    // Quest points are left to the player: pocket space and small speed perks
+    // cannot be valued reliably enough to spend them automatically.
     const mastery=softReady('masteryConfirm')&&this.planner.masteryPurchase?.(p,this.goal,this.style);
     if(mastery?.intent)return this.issue(mastery);
     if(this.goal?.enhancementProject&&this.goal.enhancement&&
@@ -880,17 +894,16 @@ export class Trainer {
     }
     for(let attempt=0;attempt<this.data.skills.length;attempt++) {
       let proposedGoal=null;
-      const fixedTrade=this.mode==='business'&&(this.mainJobId!=null||this.mainMonsterId!=null);
       const questsOpen=!this.goal?.hot&&this.goal?.quest?.period!=='daily'&&!this.goal?.craftPreparation&&!equipmentProject(this.goal)&&
         (this.bankedLoad||!this.planner.taskBoundary||this.planner.taskBoundary(p))&&
         this.planner.questRead?.(p).some(q=>!q.claimed&&q.remaining>0);
       if(questsOpen&&!hotActive) {
-        // Dailies are mandatory in every growth mode, including a fixed trade;
-        // weeklies stay optional and never displace a fixed trade.
+        // Dailies, then weeklies, are mandatory in every growth mode, including
+        // a fixed trade. One quest goal is finished before the next weekly.
         proposedGoal=this.goal??this.chooseGoal(p);
         const quest=!equipmentProject(proposedGoal)&&!proposedGoal?.craftPreparation&&
           this.planner.questChooseGoal(p,proposedGoal,this.style,this.questDeferred);
-        if(quest&&(quest.quest.period==='daily'||!fixedTrade&&!this.goal?.quest)){this.goal=quest;this.goalSince=now;}
+        if(quest&&(quest.quest.period==='daily'||!this.goal?.quest)){this.goal=quest;this.goalSince=now;}
       } else if(questsOpen) {
         // A hot-skill window only delays a daily until it risks missing the reset.
         const quest=this.planner.questChooseGoal(p,this.goal,this.style,this.questDeferred);

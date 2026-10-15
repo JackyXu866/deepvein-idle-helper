@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createQuests} from '../src/planner/quests.js';
-import {choosePerk, nextPerkCost} from '../src/planner/perks.js';
+import {nextPerkCost, perkOverview} from '../src/planner/perks.js';
 import {validateIntent} from '../src/runtime/intents.js';
 import {acknowledged} from '../src/runtime/trainer.js';
 import {data, makePlanner, player} from './helpers.js';
@@ -54,36 +54,19 @@ test('perk costs follow the client formulas and max ranks', () => {
   assert.equal(validateIntent(d, {perks: {}, questPoints: 15}, {t: 'buyPerk', id: 'quick'}), true);
 });
 
-test('perk choice uses the measured gain on the current activity', () => {
+test('quest points are reported, never spent automatically', () => {
+  assert.deepEqual(perkOverview({questPoints: 40, perks: {}}), {points: 40});
+  assert.equal(perkOverview({perks: {}}), null);
   const planner = makePlanner();
-  const mining = planner.data.jobs.find(j => j.skill === 'mining' && j.levelReq === 1 && !j.inputs.length);
-  const p = player(planner, {levels: {mining: 30}, questPoints: 40, perks: {}});
-  const plan = choosePerk(planner, p, {skill: 'mining', recipeId: mining.id}, 'melee');
-  assert.equal(plan.intent.t, 'buyPerk');
-  assert.ok(['pockets', 'quick'].includes(plan.intent.id), `gathering perk chosen, got ${plan.intent.id}`);
-  assert.equal(choosePerk(planner, {...p, questPoints: undefined}, null, 'melee'), null, 'unknown points: do nothing');
+  assert.equal(planner.perkPurchase, undefined);
 });
 
-test('no goal and no history: points are kept, not spent blindly', () => {
-  const planner = makePlanner();
-  const p = player(planner, {levels: {mining: 30}, questPoints: 12, perks: {}});
-  assert.equal(choosePerk(planner, p, null, 'melee'), null);
-});
-
-test('Steady hands is never bought for mining; points are saved for a useful perk', () => {
-  const planner = makePlanner();
-  const mining = planner.data.jobs.find(j => j.skill === 'mining' && j.levelReq === 1 && !j.inputs.length);
-  // 12 points: only Steady hands (10) and Hearty meals (10) are affordable.
-  const p = player(planner, {levels: {mining: 30}, questPoints: 12, perks: {}});
-  assert.equal(choosePerk(planner, p, {skill: 'mining', recipeId: mining.id}, 'melee'), null);
-});
-
-test('time spent on routes weights the perk value', () => {
-  const planner = makePlanner(), d = planner.data;
-  const cook = d.jobs.find(j => j.skill === 'cooking' && j.burn && j.levelReq === 1);
-  const p = player(planner, {levels: {cooking: 1, mining: 30}, questPoints: 10, perks: {}});
-  // Mostly cooking (burns at low level): Steady hands is now a measured gain.
-  const usage = {[`job:${cook.id}`]: {seconds: 36000, samples: 50}};
-  const plan = choosePerk(planner, p, null, 'melee', {usage});
-  assert.equal(plan?.intent.id, 'hands', JSON.stringify(plan));
+test('a long weekly is taken after dailies, whatever it pays', () => {
+  const weekly = {...daily('w0:a'), id: 'w0:a', goal: 240};
+  const q = createQuests(d, stub(1300));
+  const goal = q.chooseGoal(withQuests([], {weekly: [weekly]}), {rate: {xp: 1e9, coins: 1e9}}, 'melee');
+  assert.equal(goal?.quest.period, 'weekly');
+  assert.equal(goal.mandatory, true);
+  const both = q.chooseGoal(withQuests([daily('d0:a')], {weekly: [weekly]}), null, 'melee');
+  assert.equal(both.quest.period, 'daily', 'dailies still come first');
 });

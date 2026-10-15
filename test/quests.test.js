@@ -40,12 +40,12 @@ test('a daily that cannot finish before reset is skipped', () => {
   assert.equal(createQuests(d, planner).chooseGoal(playerWith([quest('d0:craft:x')], lateTick), null), null);
 });
 
-test('dailies ignore the business coin threshold; weeklies keep it', () => {
+test('dailies and weeklies both ignore the business coin threshold', () => {
   const {planner} = stub({seconds: 300, coins: 0});
   const baseline = {specialization: true, mainSkill: 'mining', rate: {xp: 1e9, coins: 1e9}};
   const q = createQuests(d, planner);
   assert.ok(q.chooseGoal(playerWith([quest('d0:craft:x')]), baseline));
-  assert.equal(q.chooseGoal(playerWith([quest('w0:craft:x')]), baseline), null);
+  assert.equal(q.chooseGoal(playerWith([quest('w0:craft:x')]), baseline)?.quest.period, 'weekly');
 });
 
 test('daily input chains are put on the market watch list', () => {
