@@ -230,6 +230,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     return {data:GAME_DATA,trainer:planningState(trainer),planner:planner.runtime(),market:market.runtime(),
       economy:economy.runtime(),boss:trainer.boss.status(),rates:trainer.metrics.rates,now:Date.now(),
       settings:planningSettings(),storage,storageUnavailable,deferBoss,
+      ...(engine.ready&&engine.workerId!==engine.client?{engine:{id:engine.client,factory:engine.factory}}:{}),
       details:{inventory:!!panel?.querySelector('[data-economy-details]')?.open,
         equipment:!!panel?.querySelector('[data-equipment-details]')?.open}};
   }
@@ -242,6 +243,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     const input=planningInput(deferBoss),guard=planningGuard(trainer,planner,market,planningSettings());
     const ledger=JSON.stringify(input.storage),requested=Date.now();planningStarted=requested;
     background.request('advance',input).then(result=>{
+      noteEngine(result.engine);
       // Native work continues while computing. Do not stop it to acquire a lock.
       if(Date.now()-requested>3000)throw new Error('本次规划耗时过长，重新计算');
       if(!trainer.active||!trainer.compatible||trainer.awaitInitial||Date.now()-trainer.received>45000||trainer.pending||trainer.recovery||
@@ -265,11 +267,64 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     if(key===planningViewKey||trainer.active)return;
     planningViewKey=key;
     background.request('inspect',planningInput()).then(result=>{
+      noteEngine(result.engine);
       if(key===viewKey()){planningView=result.view;render();}
     }).catch(error=>{planningError=error.message;render();});
   }
   const updates=createUpdateChecker({version:SCRIPT_VERSION,distribution:SCRIPT_DISTRIBUTION,fetch:(...args)=>fetch(...args),onChange:()=>render()});
   trainer.market=market;
+  // The game's own simulation engine, extracted from the public client in the
+  // Worker and cached per client build. Without it, formula estimates are used.
+  const engineKey='deepvein-engine-v1';
+  const engine={client:null,factory:null,ready:false,workerId:null,message:'引擎模拟：等待客户端数据'};
+  let engineCheck=null;
+  async function idleRequest(kind,input,waitMs=30000) {
+    const until=Date.now()+waitMs;
+    while(background.busy&&Date.now()<until)await new Promise(resolve=>setTimeout(resolve,200));
+    return background.request(kind,input);
+  }
+  function prepareEngine() {
+    if(!background){engine.message='引擎模拟需要 Worker，沿用公式估算';return null;}
+    if(engineCheck)return engineCheck;
+    engineCheck=(async()=>{
+      const page=new URL(location.href);
+      const url=[...document.scripts].map(s=>s.src).filter(Boolean).map(s=>new URL(s,page))
+        .find(u=>u.origin===page.origin&&/^\/assets\/index-[\w-]+\.js$/.test(u.pathname));
+      if(!url){engine.message='未识别客户端入口，引擎模拟未启用；沿用公式估算';return;}
+      const client=url.pathname.split('/').pop();
+      let cached=null;
+      try{cached=JSON.parse(localStorage.getItem(engineKey)||'null');}catch{}
+      let input;
+      if(cached?.client===client&&typeof cached.factory==='string')input={id:client,factory:cached.factory};
+      else {
+        const response=await fetch(url.href,{credentials:'omit',signal:AbortSignal.timeout(15000)});
+        if(!response.ok)throw new Error('客户端暂不可读');
+        input={id:client,source:await response.text()};
+      }
+      engine.message='引擎模拟：正在从客户端提取并自检';render();
+      const result=await idleRequest('engine',input);
+      if(!result.ok) {
+        try{if(cached?.client===client)localStorage.removeItem(engineKey);}catch{}
+        engine.message=`引擎模拟未启用：${result.error??'未知原因'}${result.problems?.length?`（${result.problems.slice(0,3).join('；')}）`:''}；沿用公式估算`;
+        return;
+      }
+      const factory=input.factory??result.factory;
+      Object.assign(engine,{client,factory,ready:true,workerId:client});
+      if(result.factory)try{localStorage.setItem(engineKey,JSON.stringify({client,factory}));}catch{}
+      engine.message=`引擎模拟已启用：${client}${result.stats?`，${result.stats.units} 个函数`:'（本机缓存）'}`;
+      planningViewKey='';
+    })().catch(error=>{engine.message=`引擎模拟未启用：${error.message}；沿用公式估算`;}).finally(()=>render());
+    return engineCheck;
+  }
+  // Track what the Worker holds; a recreated Worker gets the engine again.
+  function noteEngine(status) {
+    if(!engine.ready||!status)return;
+    engine.workerId=status.ok?status.id:null;
+    if(status.id===engine.client&&!status.ok) {
+      engine.ready=false;engine.message=`引擎模拟已停用：${status.error??'加载失败'}；沿用公式估算`;
+      try{localStorage.removeItem(engineKey);}catch{}
+    }
+  }
   async function prepareData() {
     if(dataCheck)return dataCheck;
     dataCheck=(async()=>{
@@ -2356,7 +2411,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     syncIntegration();
     render();
     updates.check();
-    prepareData().then(()=>{if(trainer.recovery||trainer.active)pump();});
+    prepareData().then(()=>{if(trainer.recovery||trainer.active)pump();prepareEngine();});
   }
   function render() {
     bossLootChat.refresh();
@@ -2715,7 +2770,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
       `${e.name} +${e.fromPlus}→+${e.toPlus}：${e.recommendation}\n${e.benefit}\n${e.gold} 金币 + ${e.shards} 碎片；成功率 ${(e.chance*100).toFixed(1)}%${e.affordable?'':'；当前材料不足'}`
     ).join('\n\n'):'等待装备状态';
     panel.querySelector('[data-blocked]').textContent=Object.entries(trainer.blockedReasons).map(([skill,why])=>`暂缓${NAMES[skill]}：${why}`).join('；');
-    panel.querySelector('[data-client]').textContent=compatibilityMessage+`；${background?'后台 Worker 规划':'当前浏览器不支持 Worker，使用兼容计算'}${planningStarted?' · 正在计算，原任务继续':''}${planningError?' · '+planningError:''}`;
+    panel.querySelector('[data-client]').textContent=compatibilityMessage+`；${engine.message}；${background?'后台 Worker 规划':'当前浏览器不支持 Worker，使用兼容计算'}${planningStarted?' · 正在计算，原任务继续':''}${planningError?' · '+planningError:''}`;
     panel.querySelector('[data-start]').disabled=checking||trainer.active||!!trainer.recovery||!p||!trainer.compatible;
     panel.querySelector('[data-pause]').disabled=!checking&&!trainer.active&&!trainer.recovery;
     panel.querySelector('section').setAttribute('data-running',String(checking||trainer.active||!!trainer.recovery));

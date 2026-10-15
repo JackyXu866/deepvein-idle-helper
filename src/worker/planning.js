@@ -4,6 +4,7 @@ import {createEconomy} from '../economy/economy.js';
 import {createMarket} from '../economy/market.js';
 import {normalizeHotFollow} from '../runtime/hot-follow.js';
 import {Trainer} from '../runtime/trainer.js';
+import {engineRates, engineReady, engineStatus, loadEngine, mergeRates} from '../engine/runtime.js';
 
 // Only the decision phase is transferable. The page owns the socket, receipts,
 // transaction journal, Boss lifecycle and every actual command submission.
@@ -30,7 +31,11 @@ export function runPlanning(data,input,inspectOnly=false) {
   }};
   planner.runtime(input.planner);
   planner.profitFloor=input.settings.profitFloor??0;
-  planner.setMeasurements(input.rates);
+  // The game's own engine (when loaded) calibrates every candidate; real
+  // measurements of the current route still take precedence.
+  if(input.engine)loadEngine(input.engine);
+  const simulated=engineReady()&&input.trainer?.player?engineRates(data,planner,input.trainer.player,{budgetMs:500}):{};
+  planner.setMeasurements(mergeRates(simulated,input.rates));
   planner.enhancementTraining=createEnhancementTraining(data,planner,{
     read:()=>{try{return JSON.parse(storage.getItem('deepvein-enhancement-training-v1')||'null');}catch{return null;}},
     write:value=>storage.setItem('deepvein-enhancement-training-v1',JSON.stringify(value))});
@@ -64,7 +69,8 @@ export function runPlanning(data,input,inspectOnly=false) {
   };
   return {decision:Object.fromEntries(decisionFields.map(key=>[key,trainer[key]])),active:trainer.active,proposal,commands,
     sync:{syncAfter:trainer.syncAfter,nextSync:trainer.nextSync,lastSync:trainer.lastSync},
-    planner:planner.runtime(),economy:economy.runtime(),market:market.runtime(),writes,view};
+    planner:planner.runtime(),economy:economy.runtime(),market:market.runtime(),writes,view,
+    engine:{...engineStatus(),simulated:Object.keys(simulated).length}};
 }
 
 export function applyPlanning(trainer,planner,economy,market,result,storage) {
