@@ -328,6 +328,13 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     })().catch(error=>{engine.message=`引擎模拟未启用：${error.message}；沿用公式估算`;}).finally(()=>render());
     return engineCheck;
   }
+  // Town buyback report (the market's 🏛️ 回购 view): read-only, hourly.
+  async function refreshBuyback() {
+    try {
+      const response=await fetch('/api/buyback',{credentials:'same-origin',signal:AbortSignal.timeout(10000)});
+      if(response.ok){market.setBuyback(await response.json());planningViewKey='';}
+    } catch { /* Without it, sales are valued without the buyback. */ }
+  }
   // Track what the Worker holds; a recreated Worker gets the engine again.
   function noteEngine(status) {
     if(!engine.ready||!status)return;
@@ -1679,7 +1686,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
                   <p class="fine-print">开启：每次回仓时，把所有超出保留量的普通物品按下方“出售方式”挂单或卖出。关闭：只出售为赚钱而选择的工作的产出（主业经营、最低收益按售价选中的工作，其收益本就按出售计算），其他物品只在仓库满时按“满仓时出售普通盈余”清理。保留量：当前计划和供料链需要的材料、每种 50 件周转材料、3 趟战斗食物、种子与作物储备；药水、稀有／特殊掉落、坐骑宠物、传说物品、强化材料和装备方案一律不卖。关闭时会撤回助手自己尚未成交的挂单，不动你的手动挂单。</p>
                   <label>满仓时出售普通盈余<input type="checkbox" data-capacity-sales aria-label="满仓时出售普通盈余"></label>
                   <label>出售方式<select data-sale-pricing aria-label="出售方式"><option value="list">挂单：按卖盘价等待成交</option><option value="bid">直接卖给买单：立即成交</option></select></label>
-                  <p class="fine-print">挂单：比最低卖价低一档挂出，税后须比最高买单多 5% 以上，且近 2 小时成交量足以消化同价排队卖量，否则直接卖给买单；同一批挂两轮仍未卖完时改为卖给买单。商人（系统回收，基础价值 40%）始终可卖，是所有估值的下限：为赚钱选中的工作，市场无法高于商人价时直接卖给商人。收益规划也按同样方式估值。</p>
+                  <p class="fine-print">挂单：比最低卖价低一档挂出，税后须比最高买单多 5% 以上，且近 2 小时成交量足以消化同价排队卖量，否则直接卖给买单；同一批挂两轮仍未卖完时改为卖给买单。商人（系统回收，基础价值 40%）始终可卖，是所有估值的下限：为赚钱选中的工作，市场无法高于商人价时直接卖给商人。城镇回购：每小时读取回购记录；上次被回购的普通物品按其实付均价（约商人价的倍数）估值，挂单价不超过商人价 1.5 倍并低于最低卖价一档，保留到下次回购后才复核，未成交转商人；同时最多 2 笔，留出挂单槽。收益规划也按同样方式估值。</p>
                   <p data-market class="muted"></p>
                   <details><summary>出售范围与保护</summary><p class="fine-print">日常出售默认关闭，满仓清理默认开启。扣除计划用量后处理普通盈余和淘汰装备。品质／强化装备只有已有可穿戴且属性全面更好的替代品、没有在用或套装／目标引用时才可卖；按同品质同强化近 2 小时成交中位价参考，最多下浮 10%，没有可靠行情或需求不足则保留，绝不转系统回收。所有坐骑、宠物、低概率掉落（含白色）、稀有材料、种子、药水、食物储备和装备方案均保留。保护也覆盖旧版脚本挂单，未成交的会撤回，不动玩家手动单。按所选出售方式挂单或成交买单；挂售量参考近 2 小时可见成交和排队卖量。满仓且最新有效记录显示滞销的普通盈余可直接系统回收；其他仍需挂售至少 2 小时并重新定价。查询失败、历史缺失或挂单槽满不会触发直接回收。不自动捐赠。</p></details>
                 </details>
@@ -2452,6 +2459,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     render();
     updates.check();
     prepareData().then(()=>{if(trainer.recovery||trainer.active)pump();prepareEngine();});
+    refreshBuyback();setInterval(refreshBuyback,3600000);
   }
   function setProfitFloor(value) {
     profitFloor=validProfitFloor(value);planner.profitFloor=profitFloor;

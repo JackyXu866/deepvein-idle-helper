@@ -20,6 +20,9 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
   // more than the best bid and recent trades show buyers at that price;
   // 'bid': fill the best buy order immediately (the original behaviour).
   let pricing=salePricing==='bid'?'bid':'list';
+  // Town buyback (城镇回购, /api/buyback): once a day the town buys
+  // over-supplied common goods listed at up to 1.5x the merchant price.
+  let buyback=null;
   let need=null,recentOwned=[],reviewOrderId=null,status=salesEnabled?
     '市场优先；挂售至少 2 小时并重新定价后才回收':'平时出售已关闭，物品留给玩家处理';
   const persist=()=>{
@@ -211,7 +214,14 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     if(p.ironman)return null;
     if(!tradable(itemId)||saleProtectionReason(data,itemId)||!valid(qty))return null;
     const floor=Math.max(1,Math.floor(data.items[itemId].value*.4));
-    const merchant={net:floor*qty,qty,merchant:true};
+    let merchant={net:floor*qty,qty,merchant:true};
+    // Town buyback: valued at what it actually paid on average, for at most
+    // half of its last daily volume (other sellers compete for it).
+    const bb=buybackFor(p,itemId);
+    if(bb&&qty+quantity(p,itemId)<=bb.qty/2) {
+      const value=netOf(Math.round(bb.merchant*bb.ratio),qty);
+      if(value>merchant.net)merchant={net:value,qty,buyback:true};
+    }
     if(state.attempt||!slots(p)||hasOrder(itemId)||(cooldowns.get(itemId)??0)>now())return merchant;
     const book=quotes.get(itemId);
     if(!book||now()-book.at>=ttl)return merchant;
@@ -515,6 +525,31 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     return {price,demand:saleDemand(p,book,price,floor)};
   }
   const netOf=(price,qty)=>price*qty-Math.floor(price*qty*taxBp/10000);
+  const merchantUnit=id=>Math.max(1,Math.floor((data.items[planner.base(id)]?.value??0)*.4));
+  const dayTicks=86400000/data.tickMs;
+  // Store the latest buyback report; the observed price ratio is what it
+  // actually paid relative to the merchant price (capped at 1.5).
+  function setBuyback(value,at=now()) {
+    const last=value?.last;
+    if(!last||!Number.isFinite(last.tick)||!Number.isFinite(last.coins)||!Array.isArray(last.items))return;
+    const items=last.items.filter(r=>Number.isSafeInteger(r?.itemId)&&r.itemId>0&&Number.isSafeInteger(r.qty)&&r.qty>0&&data.items[planner.base(r.itemId)]);
+    const atMerchant=items.reduce((n,r)=>n+r.qty*merchantUnit(r.itemId),0);
+    if(!atMerchant)return;
+    buyback={at,tick:last.tick,coins:last.coins,purse:Number.isFinite(value.purse)?value.purse:null,
+      ratio:Math.min(1.5,Math.max(1,last.coins/atMerchant)),items:items.map(r=>({itemId:r.itemId,qty:r.qty}))};
+  }
+  // Buyback terms for an item bought in the last run: daily volume, the
+  // observed price ratio, the 1.5x cap and the next run's tick.
+  function buybackFor(p,itemId) {
+    if(!buyback||now()-buyback.at>6*3600000||itemId!==planner.base(itemId))return null;
+    const row=buyback.items.find(r=>r.itemId===itemId);
+    if(!row)return null;
+    const merchant=merchantUnit(itemId);
+    let nextTick=buyback.tick+dayTicks;
+    while(nextTick<=p.lastTick)nextTick+=dayTicks;
+    return {qty:row.qty,ratio:buyback.ratio,merchant,cap:Math.floor(merchant*1.5),nextTick};
+  }
+  const buybackHolds=()=>Object.values(state?.owned??{}).filter(o=>o.buyback).length;
   // Listing is worth waiting for: >5% more after tax than the bid, and buyers
   // traded at that price recently beyond what is already queued ahead.
   const listingWorthIt=(listing,bidPrice)=>!!listing&&listing.demand.volume>listing.demand.ahead&&
@@ -568,6 +603,30 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     // failed to sell through two re-pricings.
     const preferListing=pricing==='list'&&!(previous?.rounds>=2)&&book.tradesKnown===true&&
       listingWorthIt(listingQuote(p,book,intent.floor,previous),bid?.price);
+    // Town buyback: list one below the cheapest ask, never above 1.5x the
+    // merchant price, and hold through the next daily run. Taken only when
+    // the bid pays less than the buyback's observed average and no ordinary
+    // listing is clearly better; one attempt per batch, keeping a slot free.
+    const bb=buybackFor(p,id);
+    if(bb&&!previous?.buyback&&!preferListing&&buybackHolds()<2) {
+      const asks=book.asks.map(row=>row.price);
+      const price=Math.min(bb.cap,asks.length?Math.min(...asks)-1:bb.cap);
+      const minimum=Math.floor(intent.floor/(1-taxBp/10000))+1;
+      const expected=net(Math.round(bb.merchant*bb.ratio),1);
+      if(price>=minimum&&(!bid||net(bid.price,1)<expected)) {
+        status='城镇回购：挂单等待下次回购，成交前不降价';
+        const hours=Math.max(0,Math.ceil((bb.nextTick-p.lastTick)*data.tickMs/3600000));
+        return {...scoped(atBank(p,{t:'marketSell',itemId:id,qty:safeQty,price},
+          `城镇回购挂单 · ${data.items[id].name} × ${safeQty}，单价 ${price}`,false)),
+          buyback:{holdUntilTick:bb.nextTick+Math.ceil(3600000/data.tickMs)},
+          reason:`上次回购买入 ${bb.qty} 件，均价约商人价 ${bb.ratio.toFixed(2)} 倍；按不超过 1.5 倍（${bb.cap}）挂单，约 ${hours} 小时后回购，之后未成交转商人`};
+      }
+    }
+    if(previous?.buyback&&!bid) {
+      status='城镇回购未成交，按商人价出售';
+      return scoped({...vendorPlan,intent:{...intent,qty:safeQty},label:`回购未成交 · ${data.items[id].name} × ${safeQty}，卖给商人`,
+        reason:'上次回购没有买下本批挂单，按商人价出售剩余盈余'});
+    }
     if(bid&&safeQty>0&&!preferListing) {
       status=pricing==='list'?'卖盘价没有明显更高或近期成交不足，直接成交买单':'优先成交税后高于系统回收的买单';
       return scoped(atBank(p,{t:'marketSell',itemId:id,qty:Math.min(safeQty,bid.qty),price:bid.price},
@@ -726,7 +785,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const itemId=intent.itemId??cancelled?.itemId;
     state.attempt={intent:{...intent},at:now(),baselineIds:orders.map(o=>o.id),revision,
       cancelledOrder:order?{...cancelled,qtyRemaining:order.qtyRemaining}:cancelled,
-      capacitySale:plan?.capacitySale===true,profitSale:plan?.profitSale===true,
+      capacitySale:plan?.capacitySale===true,profitSale:plan?.profitSale===true,buyback:plan?.buyback??null,
       equipmentSale:!!equipmentSale,
       reviewSale:!!cancelled&&reviewOrderId===intent.orderId,
       before:{id:before.id,coins:before.coins,quantity:itemId?quantity(before,itemId):0},filled:0};
@@ -766,7 +825,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
           const returned=Math.min(attempt.cancelledOrder?.qtyRemaining??0,
             Math.max(0,quantity(p,owned.itemId)-attempt.before.quantity));
           if(attempt.reviewSale&&returned>0)state.sales[owned.itemId]={qty:returned,stock:quantity(p,owned.itemId),price:owned.price,
-            listedMs:(owned.listedMs??0)+Math.max(0,attempt.at-owned.at),rounds:owned.rounds??1,capacitySale:owned.capacitySale===true,profitSale:owned.profitSale===true};
+            listedMs:(owned.listedMs??0)+Math.max(0,attempt.at-owned.at),rounds:owned.rounds??1,capacitySale:owned.capacitySale===true,profitSale:owned.profitSale===true,buyback:!!owned.buyback};
           else delete state.sales[owned.itemId];
         }
       }
@@ -775,7 +834,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       const created=orders.filter(o=>!attempt.baselineIds.includes(o.id)&&matching(o,intent));
       const previous=intent.t==='marketSell'?state.sales[intent.itemId]:null;
       if(created.length===1)state.owned[created[0].id]={...created[0],at:attempt.at,
-        listedMs:previous?.listedMs??0,rounds:(previous?.rounds??0)+1,capacitySale:attempt.capacitySale===true,profitSale:attempt.profitSale===true,equipmentSale:attempt.equipmentSale===true};
+        listedMs:previous?.listedMs??0,rounds:(previous?.rounds??0)+1,capacitySale:attempt.capacitySale===true,profitSale:attempt.profitSale===true,equipmentSale:attempt.equipmentSale===true,buyback:attempt.buyback??null};
       if(intent.t==='marketSell')delete state.sales[intent.itemId];
       quotes.delete(intent.itemId);requests.delete(intent.itemId);
     }
@@ -809,6 +868,8 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       const reserves=inventoryBudget(data,planner,p,goal).items;
       const needed=(reserves?.[order.itemId]??0)>quantity(p,order.itemId)||
         (need?.itemId===order.itemId&&now()-need.at<ttl);
+      // A buyback listing is held, not re-priced, until just after the next daily run.
+      if(order.side==='sell'&&!needed&&owned.buyback&&p.lastTick<owned.buyback.holdUntilTick)continue;
       if(order.side==='buy'||needed||now()-owned.at>=reviewMs) {
         reviewOrderId=order.side==='sell'&&!needed?order.id:null;
         return atBank(p,{t:'marketCancel',orderId:order.id},order.side==='buy'?
@@ -840,13 +901,19 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     if(id!=null){cooldowns.set(id,now()+coolMs);quotes.delete(id);requests.delete(id);tops.delete(id);bookRequests.delete(id);}
     state.attempt=null;status='市场暂不可用，短暂冷却后再比价';persist();
   }
-  const summary=()=>`${status}；成交净收入 ${state?.income??0}，采购支出 ${state?.spent??0}，自有挂单 ${Object.keys(state?.owned??{}).length}；近一小时补药承诺 ${potionBudgetSpent()}`+
+  const buybackSummary=()=>{
+    if(!buyback)return '';
+    const held=buybackHolds(),hours=Math.round((buyback.tick+dayTicks-snapshotTick)*data.tickMs/3600000);
+    return `；城镇回购：上次买入 ${buyback.items.length} 种，均价约商人价 ${buyback.ratio.toFixed(2)} 倍`+
+      (Number.isFinite(hours)&&hours>0?`，约 ${hours} 小时后再次回购`:'')+(held?`，等待回购的挂单 ${held} 笔`:'');
+  };
+  const summary=()=>`${status}${buybackSummary()}；成交净收入 ${state?.income??0}，采购支出 ${state?.spent??0}，自有挂单 ${Object.keys(state?.owned??{}).length}；近一小时补药承诺 ${potionBudgetSpent()}`+
     (procurement?.enabled?`；按收益／节时采购，无固定金币底线和小时限额；近一小时承诺 ${purchaseSpent()}`:'');
   function runtime(value) {
-    if(value) {({saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status}=value);if(value.pricing)pricing=value.pricing;state=playerId===null?null:playerState(playerId);}
-    return {saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status,pricing};
+    if(value) {({saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status}=value);if(value.pricing)pricing=value.pricing;if('buyback' in value)buyback=value.buyback;state=playerId===null?null:playerState(playerId);}
+    return {saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status,pricing,buyback};
   }
-  return {runtime,receive,next,sale,purchase,restockPotion,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setSalePricing,
+  return {runtime,receive,next,sale,purchase,restockPotion,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setSalePricing,setBuyback,
     configureProcurement,equipmentPurchase,foodPurchase,buffFood,potionDose,marketUnitCost,surplusValue,watchPurchases:scan,
     purchaseAllowance:(p,goal)=>{select(p);return purchaseAllowance(p,goal);}};
 }
