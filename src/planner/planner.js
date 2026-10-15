@@ -1174,6 +1174,21 @@ export function createPlanner(data) {
   function gearTargets(p,profession='magic') {
     const skill=professionSkill(profession),lv=levels(p),owned=held(p);
     const slots=['weapon','helmet','body','legs','shield','ring','amulet',...Object.keys(data.toolSkills)];
+    // Quality materials are shared: pieces are planned in slot order and each
+    // takes its materials out of this pool, so the plan never promises more.
+    const pool={...p,pack:[],bank:{...p.bank}};
+    for(const item of p.pack)pool.bank[item.itemId]=(pool.bank[item.itemId]??0)+item.qty;
+    const take=(id,qty)=>{
+      const job=jobs.find(j=>j.output.itemId===base(id)&&j.inputs.length&&!j.grow);
+      const recipe=job&&craftRecipe(data,job,rarity(id));
+      if(!recipe)return;
+      const n=Math.ceil(qty/recipe.output.qty);
+      for(const input of recipe.inputs)if(rarity(input.itemId)>0) {
+        const want=input.qty*n,have=Math.min(want,pool.bank[input.itemId]??0);
+        pool.bank[input.itemId]=(pool.bank[input.itemId]??0)-have;
+        if(want>have)take(input.itemId,want-have);
+      }
+    };
     return slots.filter(slot=>slot!=='shield'||profession!=='melee_twohand').map(slot=>{
       const current=p.equipment[slot],score=id=>gearScore(id,data.toolSkills[slot]??skill);
       const matches=id=>{const g=gear.get(base(id));return g?.slot===slot&&
@@ -1185,7 +1200,21 @@ export function createPlanner(data) {
       const wearable=id=>canWearWith(data,lv,id);
       const available=candidates.filter(wearable).sort((a,b)=>score(b)-score(a)||a-b);
       const future=candidates.filter(id=>!wearable(id)).sort((a,b)=>gearRequirement(a).level-gearRequirement(b).level||score(b)-score(a));
-      return {slot,current,upgrade:available[0]??null,next:future[0]??null};
+      // The quality to plan for a target piece: the highest (up to epic) that
+      // is owned or whose quality materials are all held, whatever the crafting
+      // level today (that only decides when it is made); without such
+      // materials, the lowest that beats the worn piece, as a target to look for.
+      const planned=id=>{
+        if(id==null)return null;
+        for(let r=3;r>=1;r--) {
+          const quality=base(id)+r*data.rarityScale;
+          if(!better(quality))continue;
+          if(count(p,quality)>0)return quality;
+          if(!Object.keys(api.crafting.shortfall(pool,quality,1).missing).length){take(quality,1);return quality;}
+        }
+        return id;
+      };
+      return {slot,current,upgrade:planned(available[0]??null),next:planned(future[0]??null)};
     });
   }
   // Planned quality pieces not yet owned. Their quality materials belong to
@@ -1198,16 +1227,19 @@ export function createPlanner(data) {
   // The quality materials those pieces need, down their quality chain: the
   // bars, and the ore for any bars not yet made. Plain inputs (coal) are not held.
   function plannedGearReserve(p,profession='magic',except=null) {
-    const out={};
+    // Held materials are shared between pieces: a bar held for one is not
+    // counted again for the next, which holds the ore for its own bar instead.
+    const out={},left={};
+    const have=id=>left[id]??=count(p,id);
     const reserve=(id,qty,trail)=>{
       const job=jobs.find(j=>j.output.itemId===base(id)&&j.inputs.length&&!j.grow);
       const recipe=job&&craftRecipe(data,job,rarity(id));
       if(!recipe)return;
       const n=Math.ceil(qty/recipe.output.qty);
       for(const input of recipe.inputs)if(rarity(input.itemId)>0) {
-        const need=input.qty*n;out[input.itemId]=(out[input.itemId]??0)+need;
-        const missing=Math.max(0,need-count(p,input.itemId));
-        if(missing>0&&!trail.includes(input.itemId))reserve(input.itemId,missing,[...trail,input.itemId]);
+        const need=input.qty*n,used=Math.min(need,have(input.itemId));
+        left[input.itemId]-=used;out[input.itemId]=(out[input.itemId]??0)+used;
+        if(need>used&&!trail.includes(input.itemId))reserve(input.itemId,need-used,[...trail,input.itemId]);
       }
     };
     for(const id of plannedQualityGear(p,profession))if(id!==except)reserve(id,1,[id]);
