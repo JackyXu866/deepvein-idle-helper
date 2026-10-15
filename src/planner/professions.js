@@ -1,4 +1,4 @@
-import {baseId} from './items.js';
+import {COAL_ID, baseId} from './items.js';
 
 export const PROFESSIONS={magic:'法师',melee:'单手战士',melee_twohand:'双手战士',ranged:'短弓游侠',ranged_long:'长弓游侠'};
 
@@ -49,6 +49,6 @@ export function craftRecipe(data,job,tier=0) {
     ...data.jobs.filter(j=>j.grow).map(j=>j.inputs[0].itemId)]));
   const materials=qualityMaterials.get(data),offset=tier*data.rarityScale;
   return {...job,rarity:tier,xp:Math.round(job.xp*data.rarityXp[tier]),
-    inputs:job.inputs.map(i=>i.itemId!==5&&!(i.itemId>=201&&i.itemId<=207)&&materials.has(i.itemId)?
+    inputs:job.inputs.map(i=>i.itemId!==COAL_ID&&!(i.itemId>=201&&i.itemId<=207)&&materials.has(i.itemId)?
       {...i,itemId:i.itemId+offset}:i),output:{...job.output,itemId:job.output.itemId+offset}};
 }

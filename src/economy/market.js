@@ -278,6 +278,22 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     }
     return bidValue&&bidValue.net>merchant.net?bidValue:merchant;
   }
+  // What one unit would sell for through the three selling layers: the market
+  // (bid, or listing in listing mode), the town buyback and the merchant.
+  // Quality items are not sold automatically, so their market value is the
+  // best fresh bid (live book or price feed) that could take the quantity.
+  function unitValue(p,id,qty=1) {
+    select(p);
+    const merchant=merchantPrice(data,id);
+    if(id===planner.base(id)) {
+      const best=opportunity(p,id,qty);
+      return Math.max(merchant,best?.net>0?best.net/qty:0);
+    }
+    const live=quotes.get(id);
+    const bid=live&&now()-live.at<ttl?[...live.bids].sort((a,b)=>b.price-a.price).find(row=>row.qty>=qty)?.price:
+      feedRow(id)?.bidQty>=qty?feedRow(id).bid:null;
+    return Math.max(merchant,bid?netOf(bid,qty)/qty:0);
+  }
   // Freshness counts from our fetch; a feed whose own timestamp is far from it
   // (an old cached copy, or a badly wrong clock) is not used.
   function setPriceFeed(value,at=now()) {
@@ -967,7 +983,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     if(value) {({saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status}=value);if(value.pricing)pricing=value.pricing;if('buyback' in value)buyback=value.buyback;if('feed' in value)feed=value.feed;state=playerId===null?null:playerState(playerId);}
     return {saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status,pricing,buyback,feed};
   }
-  return {runtime,receive,next,sale,purchase,restockPotion,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setSalePricing,setBuyback,setPriceFeed,priceFeedAge:()=>feed?now()-feed.at:null,
+  return {runtime,receive,next,sale,purchase,restockPotion,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setSalePricing,setBuyback,setPriceFeed,unitValue,priceFeedAge:()=>feed?now()-feed.at:null,
     configureProcurement,equipmentPurchase,foodPurchase,buffFood,potionDose,marketUnitCost,surplusValue,watchPurchases:scan,
     purchaseAllowance:(p,goal)=>{select(p);return purchaseAllowance(p,goal);}};
 }

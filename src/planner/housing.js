@@ -1,5 +1,6 @@
-import {professionSkill} from './professions.js';
-import {inventoryBudget, reviewInventory} from './inventory.js';
+import {autoUsableMaterial, professionSkill} from './professions.js';
+import {inventoryBudget, reviewInventory, saleProtectionReason} from './inventory.js';
+import {COAL_ID, baseId, merchantPrice, plusOf, rarityOf} from './items.js';
 
 export const HOUSE_NAMES={mine:'矿井',sawmill:'锯木厂',pond:'鱼塘',garden:'花园',forge:'锻造炉',yard:'训练场',
   lockbox:'锁箱工作台',range:'炉灶',fletchrack:'制箭架',herbrack:'药草架',loom:'织布机',lectern:'符文讲台',
@@ -22,11 +23,17 @@ export function validHomePortal(data,p,intent) {
     intent.dir==='out'&&atHome(data,p)&&houseDistance(p,travel.exit)<=1;
 }
 
-// Native portal geometry: index-CoaXHkN-.js. The server additionally requires
-// Home for housing commands (house-away); client-side affordability is insufficient.
-export function createHousing(data,planner) {
-  let owner=null,visit=null,retryAt=0,review=[];
-  const rules=data.houseRules,rooms=data.houseRooms??[],materials=new Map();
+// House points per item (client Tg/M$, index-DAY9oe71.js): a raw material
+// gives its tier in its family; a crafted item gives the tier points of its raw
+// inputs, x min(2, 1 + 0.5 x recipe depth), in the family that dominates them.
+// Each quality step triples it; enhanced items cannot be converted.
+const pointTables=new WeakMap();
+export function housePointsOf(data,id) {
+  if(!pointTables.has(data))pointTables.set(data,buildPointTable(data));
+  return pointTables.get(data)(id);
+}
+function buildPointTable(data) {
+  const materials=new Map();
   const families={woodcutting:'wood',mining:'stone',fishing:'fish',farming:'crop'};
   for(const job of data.jobs)if(families[job.skill]&&(job.skill==='farming'||!job.inputs.length))
     materials.set(job.output.itemId,{family:families[job.skill],level:job.levelReq});
@@ -36,6 +43,68 @@ export function createHousing(data,planner) {
     const levels=[...new Set([...materials.values()].filter(m=>m.family===family).map(m=>m.level))].sort((a,b)=>a-b);
     for(const material of materials.values())if(material.family===family)material.points=levels.indexOf(material.level)+1;
   }
+  const RARITY_POINTS=3,craftJobs=new Map(),crafted=new Map();
+  for(const job of data.jobs)if(job.inputs.length&&!materials.has(job.output.itemId)&&!craftJobs.has(job.output.itemId))
+    craftJobs.set(job.output.itemId,job);
+  function craftedPoints(base) {
+    if(crafted.has(base))return crafted.get(base);
+    crafted.set(base,null);
+    const families=new Map();let depth=0;
+    (function walk(id,qty,level) {
+      const raw=materials.get(baseId(data,id));
+      if(raw){families.set(raw.family,(families.get(raw.family)??0)+qty*raw.points);return;}
+      const job=level<=8&&craftJobs.get(baseId(data,id));
+      if(!job)return;
+      depth=Math.max(depth,level+1);
+      for(const input of job.inputs)walk(input.itemId,qty*input.qty/job.output.qty,level+1);
+    })(base,1,0);
+    let family=null,total=0,top=0;
+    for(const [name,n]of families){total+=n;if(n>top){top=n;family=name;}}
+    const result=family&&total>0?{family,each:total*Math.min(2,1+.5*depth)}:null;
+    crafted.set(base,result);return result;
+  }
+  return id=>{
+    if(plusOf(data,id)>0)return null;
+    const base=baseId(data,id),raw=materials.get(base),made=raw?null:craftedPoints(base);
+    const family=raw?.family??made?.family;
+    return family?{family,each:(raw?raw.points:made.each)*RARITY_POINTS**rarityOf(data,id)}:null;
+  };
+}
+
+// Fuel for missing house points is whatever gives them most cheaply: each
+// candidate is valued at its best sale (market, town buyback or merchant) per
+// point it yields. Any quality except legendary; never planned materials, food
+// reserve, worn or locked gear, enhanced or bank-locked items, or common coal.
+export function chooseHouseFuel(data,{p,families,missing,inventory,budget,unitValue}) {
+  const donors=Object.entries(p.bank).map(([key,qty])=>{
+    const id=Number(key),points=housePointsOf(data,id);
+    if(!(qty>0)||!points||!families.includes(points.family)||id===COAL_ID||!autoUsableMaterial(data,id)||
+      p.bankLocked?.includes(id))return null;
+    const row=inventory.items.find(r=>r.itemId===id),base=baseId(data,id);
+    // Ordinary surplus as the inventory review sees it; a quality material
+    // (not gear, not otherwise protected) beyond what the plans reserve.
+    const available=row?.sellFromBank>0?row.sellFromBank:
+      rarityOf(data,id)>0&&!data.gear.some(g=>g.itemId===base)&&(base===COAL_ID||!saleProtectionReason(data,base))?
+        Math.max(0,qty-(budget.items[id]??0)):0;
+    if(available<=0)return null;
+    return {itemId:id,available,each:points.each,unit:unitValue(id,available)};
+  }).filter(Boolean).sort((a,b)=>a.unit/a.each-b.unit/b.each||a.itemId-b.itemId);
+  let remaining=missing,cost=0;const conversions=[];
+  for(const donor of donors) {
+    const qty=Math.min(donor.available,Math.ceil(remaining/donor.each));
+    if(qty<=0)continue;
+    conversions.push({itemId:donor.itemId,qty});cost+=qty*donor.unit;remaining-=Math.floor(qty*donor.each);
+    if(remaining<=0)break;
+  }
+  return {donors,conversions,cost,remaining};
+}
+
+// Native portal geometry: index-CoaXHkN-.js. The server additionally requires
+// Home for housing commands (house-away); client-side affordability is insufficient.
+export function createHousing(data,planner) {
+  let owner=null,visit=null,retryAt=0,review=[];
+  const rules=data.houseRules,rooms=data.houseRooms??[];
+  const housePoints=id=>housePointsOf(data,id);
   const known=p=>rules&&rooms.length&&Array.isArray(p.houseCells)&&p.houseCells.length>0&&
     p.houseCells.every(c=>Number.isInteger(c)&&c>=0&&c<rules.grid**2)&&p.houseFurniture&&p.house&&p.housePoints&&p.houseUpgrades;
   const roomName=id=>HOUSE_NAMES[id]??id;
@@ -90,21 +159,9 @@ export function createHousing(data,planner) {
       if(!missing)return action({t:'upgradeRoom',room:room.id},`升级${roomName(room.id)} · ${(p.house[room.id]??0)+1} 级`,
         `使用 ${needed} 点已有房屋点数；升级在后台计时，原任务继续`);
       if(!(coinRate>0)){review.push(`${roomName(room.id)}：缺 ${missing} 点，收益暂无法估算，暂缓投料`);continue;}
-      const donors=inventory.items.filter(row=>row.sellFromBank>0&&row.itemId===planner.base(row.itemId)&&
-        !data.gear.some(g=>g.itemId===row.itemId)&&feeds(room).includes(materials.get(row.itemId)?.family))
-        .map(row=>{
-          const material=materials.get(row.itemId),marketSeconds=planner.marketUnitCost?.(p,row.itemId,row.sellFromBank);
-          const unit=Math.max(row.vendorUnit,Number.isFinite(marketSeconds)?marketSeconds*coinRate:0);
-          return {...row,...material,unit};
-        }).sort((a,b)=>a.unit/a.points-b.unit/b.points);
-      let remaining=missing,cost=0;const conversions=[];
-      for(const donor of donors) {
-        const qty=Math.min(donor.sellFromBank,Math.ceil(remaining/donor.points));
-        if(qty<=0)continue;
-        conversions.push({itemId:donor.itemId,qty});cost+=qty*donor.unit;remaining-=qty*donor.points;
-        if(remaining<=0)break;
-      }
-      if(remaining>0){review.push(`${roomName(room.id)}：缺 ${missing} 点，普通盈余可补 ${missing-remaining} 点，不足整次升级`);continue;}
+      const {donors,conversions,cost,remaining}=chooseHouseFuel(data,{p,families:feeds(room),missing,inventory,budget,
+        unitValue:(id,qty)=>planner.marketUnitValue?.(p,id,qty)??merchantPrice(data,id)});
+      if(remaining>0){review.push(`${roomName(room.id)}：缺 ${missing} 点，可用材料可补 ${missing-remaining} 点，不足整次升级`);continue;}
       const level=p.house[room.id]??0,delay=rules.upgradeTicks*rules.upgradeGrowth**level*data.tickMs/1000;
       const share=mode==='business'&&current(room)?1:1/Math.max(1,trained.length);
       const gain=rules.bonusPerLevel*room.rate/(1+rules.bonusPerLevel*room.rate*level);
@@ -115,8 +172,9 @@ export function createHousing(data,planner) {
       // two levels are needed for a slot, so halve the value on the odd step.
       const worth=room.id==='storeroom'?1000*1.5**(p.bankSlotsBought??0)/(level%2?1:2):timeSaved*coinRate;
       if(!Number.isFinite(worth)||cost>worth){review.push(`${roomName(room.id)}：材料约 ${Math.ceil(cost)} 金币，超过预计收益 ${Math.floor(worth)}，暂缓投料`);continue;}
-      return action({t:'convertHouse',...conversions[0]},`准备${roomName(room.id)}升级 · 转换普通盈余`,
-        `还需 ${missing} 点，本批材料价值约 ${Math.ceil(cost)} 金币；`+
+      const first=donors.find(d=>d.itemId===conversions[0].itemId);
+      return action({t:'convertHouse',...conversions[0]},`准备${roomName(room.id)}升级 · 转换最省钱的材料`,
+        `还需 ${missing} 点，本批材料售价合计约 ${Math.ceil(cost)} 金币；先用每点最便宜的（本项约 ${(first.unit/first.each).toFixed(1)} 金币/点）；`+
         (room.id==='storeroom'?'仓库紧张，优先增加仓位':'按七天有效挂机、分摊各职业使用时间估算收益')+'；保留原计划材料、口粮和稀有物品');
     }
     return null;

@@ -9,7 +9,7 @@ export const PLANNING_STORAGE_KEYS=['deepvein-market-v1',ENHANCEMENT_TRAINING_KE
 const MARKET_HOOKS={marketSale:'sale',marketPurchase:'purchase',marketOpportunity:'opportunity',
   watchMarket:'watch',marketEquipment:'equipmentPurchase',marketFood:'foodPurchase',marketBuffFood:'buffFood',
   potionDose:'potionDose',marketAllowance:'purchaseAllowance',marketUnitCost:'marketUnitCost',
-  marketSurplusValue:'surplusValue',watchPurchases:'watchPurchases'};
+  marketSurplusValue:'surplusValue',watchPurchases:'watchPurchases',marketUnitValue:'unitValue'};
 
 export function wirePlanner(planner,market,economy,potionRestock) {
   planner.maintenance=(...args)=>economy().maintenance(...args);

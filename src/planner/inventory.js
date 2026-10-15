@@ -1,6 +1,6 @@
 import {autoUsableMaterial, canWear, craftRecipe, gearRequirementOf, matchesProfessionWeapon, professionSkill, statsDominate} from './professions.js';
 import {cropReserve, herbloreNeeds} from './farming.js';
-import {baseId, foodCarry, itemLabel, merchantPrice, plusOf, rarityOf, tradableBase} from './items.js';
+import {COAL_ID, baseId, foodCarry, itemLabel, merchantPrice, plusOf, rarityOf, tradableBase} from './items.js';
 
 // Read-only budgets and quotes; economy.js turns verified surplus into actions.
 // Vendor, storage and worn-enhancement rules checked in index-DeoJ7Jh9.js.
@@ -25,6 +25,7 @@ export function saleProtectionReason(data,id,marketEquipment=false) {
   const base=baseId(data,id);
   if(!Number.isSafeInteger(id)||!data.items[base])return '未知物品，保留';
   if(!autoUsableMaterial(data,id))return '传说物品由玩家支配，保留';
+  if(id===COAL_ID)return '普通煤炭用于所有品质的冶炼，从不出售';
   if(id!==base&&!(marketEquipment&&data.gear.some(g=>g.itemId===base)))return '稀有或已强化物品，保留';
   if(data.gear.some(g=>g.itemId===base&&['mount','pet'].includes(g.slot)))return '坐骑／宠物，所有品质和重复个体均保留';
   if([...data.jobs,...data.monsters].some(row=>row.bonus?.itemId===base))return '低概率副产物／特殊掉落，不按普通盈余处理';

@@ -41,6 +41,9 @@ export function baseStride(data,p) {
 
 // Prices: the merchant pays 40% of base value (at least 1); market sales pay
 // the tax in basis points; a listing must clear the floor after tax.
+// Coal fuels every bar at every quality (rarity recipes keep it common), so
+// common coal is never sold or converted; rarer coal is only worth house points.
+export const COAL_ID=5;
 // Base items that can be sold at all: not coins, not the four untradable
 // special items, and worth something (burnt food 70 sells for scrap).
 export const tradableBase=(data,base)=>base!==data.coinId&&![294,295,296,297].includes(base)&&

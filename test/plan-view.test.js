@@ -39,9 +39,13 @@ test('plan view explains the layer, candidates and points', () => {
   const view = planView(d, planner, trainer, p);
   assert.equal(view.layer, '经验优先');
   assert.equal(view.goal.reason, 'test reason');
-  assert.ok(view.candidates.length > 0);
-  assert.ok(view.candidates.some(c => c.chosen), 'current goal is marked');
-  assert.ok(view.candidates.every(c => ['formula', 'simulated', 'measured'].includes(c.source)));
+  assert.equal(view.xpSkill, 'mining');
+  assert.ok(view.xpCandidates.length > 0);
+  assert.ok(view.xpCandidates.every(c => c.skill === 'mining'), 'XP is compared within the goal skill only');
+  assert.ok(view.xpCandidates.some(c => c.chosen), 'current goal is marked');
+  assert.ok(new Set(view.goldCandidates.map(c => c.skill)).size > 1, 'gold is compared across skills');
+  assert.ok(view.goldCandidates.every((c, i, list) => i === 0 || list[i - 1].coinsH >= c.coinsH || c.chosen));
+  assert.ok([...view.xpCandidates, ...view.goldCandidates].every(c => ['formula', 'simulated', 'measured'].includes(c.source)));
   assert.ok(view.frontier.length > 0 && view.frontier[0].floor === 0);
   assert.equal(view.perks.points, 7);
   const daily = planView(d, planner, {...trainer, goal: {...trainer.goal, quest: {period: 'daily', id: 'd1:x'}}}, p);

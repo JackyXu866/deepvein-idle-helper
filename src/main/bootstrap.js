@@ -2511,17 +2511,19 @@ import {fallbackOwnership} from '../planner/fallback.js';
     set('[data-plan-action]',view.action?.label?`${view.action.label}${view.action.reason?`：${view.action.reason}`:''}`:view.message??'');
     set('[data-plan-goal]',view.goal?`目标：${view.goal.label??''}${view.goal.target?` → ${view.goal.target} 级`:''}`+
       `${view.goal.via?`（当前做 ${view.goal.via}）`:''}${view.goal.reason?`；${view.goal.reason}`:''}`:'尚未选择目标');
-    set('[data-plan-basis]',(view.mode==='business'?'按金币/时排序':'按经验/时排序')+(view.mode==='experience'&&view.profitFloor>0?` · 最低收益 ${fmt(view.profitFloor)}/时`:''));
-    fill('[data-plan-candidates]',JSON.stringify(view.candidates),()=>{
-      if(!view.candidates.length)return [el('p',{className:'muted',textContent:'暂无可比较的工作（等级、装备或供料条件不足）'})];
-      const head=el('tr',{},['任务','经验/时','金币/时','来源'].map(text=>el('th',{textContent:text})));
-      const rows=view.candidates.map(c=>{
-        const row=el('tr',{},[el('td',{textContent:`${c.chosen?'★ ':''}${translateGameText(c.label)}`}),el('td',{textContent:fmt(c.xpH)}),
-          el('td',{textContent:fmt(c.coinsH)}),el('td',{},[el('span',{className:'plan-source',textContent:SOURCE_LABELS[c.source]??c.source})])]);
-        row.dataset.chosen=String(c.chosen);row.lastChild.firstChild.dataset.source=c.source;return row;
-      });
-      return [el('table',{className:'plan-table'},[el('thead',{},[head]),el('tbody',{},rows)])];
-    });
+    set('[data-plan-basis]',view.mode==='experience'&&view.profitFloor>0?`最低收益 ${fmt(view.profitFloor)}/时`:'');
+    // XP is compared only within one skill; gold across all skills.
+    const table=(title,columns,list,cells)=>[el('p',{className:'label',textContent:title}),list.length?
+      el('table',{className:'plan-table'},[el('thead',{},[el('tr',{},columns.map(text=>el('th',{textContent:text})))]),
+        el('tbody',{},list.map(c=>{
+          const row=el('tr',{},[el('td',{textContent:`${c.chosen?'★ ':''}${translateGameText(c.label)}`}),...cells(c).map(text=>el('td',{textContent:text})),
+            el('td',{},[el('span',{className:'plan-source',textContent:SOURCE_LABELS[c.source]??c.source})])]);
+          row.dataset.chosen=String(c.chosen);row.lastChild.firstChild.dataset.source=c.source;return row;
+        }))]):el('p',{className:'muted',textContent:'暂无可比较的工作（等级、装备或供料条件不足）'})];
+    fill('[data-plan-candidates]',JSON.stringify([view.xpSkill,view.xpCandidates,view.goldCandidates]),()=>[
+      ...(view.xpSkill?table(`${view.xpSkillName}：同技能内按经验/时比较`,['任务','经验/时','金币/时','来源'],view.xpCandidates,
+        c=>[fmt(c.xpH),fmt(c.coinsH)]):[]),
+      ...table('全部技能按金币/时比较',['任务','技能','金币/时','来源'],view.goldCandidates,c=>[c.skillName,fmt(c.coinsH)])]);
     fill('[data-plan-quests]',JSON.stringify(view.quests),()=>view.quests.length?view.quests.map(q=>el('p',{className:'muted',
       textContent:`${q.period==='daily'?'每日（必做）':'每周'} · ${translateGameText(q.title)} ${q.done}/${q.goal} · ${q.status}`+
         (q.seconds?` 约 ${Math.ceil(q.seconds/60)} 分钟`:'')+(q.buys?' · 含市场补料':'')})):

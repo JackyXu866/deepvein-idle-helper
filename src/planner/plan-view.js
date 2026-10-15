@@ -37,18 +37,26 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
     goal?.quest ? (goal.quest.period === 'daily' ? '每日任务（必做）' : '每周任务') :
     goal?.upgrade?.priority ? '装备升级' : goal?.hot ? '热门技能' : MODE_LAYERS[trainer.mode] ?? '成长策略';
 
-  let candidates = [], frontier = [];
+  // Experience is not comparable between skills (each has its own XP scale and
+  // level table), so XP is ranked only within the skill being levelled toward
+  // its next unlock. Gold is comparable everywhere and is ranked across skills.
+  let xpSkill = null, xpCandidates = [], goldCandidates = [], frontier = [];
   try {
     const list = planner.candidates(p, style, trainer.deferred ?? {});
     const priced = new Map((planner.incomeChoices?.(p, list, style) ?? []).map(c => [keyOf(c), c.rate.coins]));
-    const rows = list.map(c => ({key: keyOf(c), label: label(c), skill: c.skill, xpH: c.rate.xp * 3600,
+    const rows = list.map(c => ({key: keyOf(c), label: label(c), skill: c.skill, skillName: NAMES[c.skill] ?? c.skill, xpH: c.rate.xp * 3600,
       coinsH: (priced.get(keyOf(c)) ?? c.rate.coins) * 3600, source: planner.rateSource?.(p, keyOf(c)) ?? 'formula',
       chosen: goal != null && (goal.monsterId != null ? goal.monsterId === c.monsterId : goal.recipeId != null && goal.recipeId === c.recipeId)}));
     frontier = profitFrontier(rows);
-    const byMode = trainer.mode === 'business' ? (a, b) => b.coinsH - a.coinsH : (a, b) => b.xpH - a.xpH;
-    candidates = [...rows].sort(byMode).slice(0, 8);
-    const chosen = rows.find(r => r.chosen);
-    if (chosen && !candidates.includes(chosen)) candidates.push(chosen);
+    const top = (sorted, keep) => {
+      const shown = sorted.slice(0, 8), chosen = keep.find(r => r.chosen);
+      if (chosen && !shown.includes(chosen)) shown.push(chosen);
+      return shown;
+    };
+    xpSkill = goal?.quest || goal?.itemTarget ? null : goal?.mainSkill ?? goal?.skill ?? null;
+    const sameSkill = rows.filter(r => r.skill === xpSkill);
+    xpCandidates = top([...sameSkill].sort((a, b) => b.xpH - a.xpH), sameSkill);
+    goldCandidates = top([...rows].sort((a, b) => b.coinsH - a.coinsH), rows);
   } catch { /* A planner failure must not hide the rest of the panel. */ }
 
   let mastery = null;
@@ -73,5 +81,5 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
         target: null, via: null, reason: goal.reason ?? null} :
       {label: goal.skill ? NAMES[goal.skill] ?? goal.skill : null, target: goal.target ?? null,
         via: goal.monsterId != null ? label(goal) : goal.recipeId != null ? jobName(goal.recipeId) : null, reason: goal.reason ?? null}) : null,
-    candidates, frontier, quests, perks, mastery};
+    xpSkill, xpSkillName: xpSkill ? NAMES[xpSkill] ?? xpSkill : null, xpCandidates, goldCandidates, frontier, quests, perks, mastery};
 }
