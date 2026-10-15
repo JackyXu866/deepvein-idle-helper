@@ -21,7 +21,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
   // 'bid': fill the best buy order immediately (the original behaviour).
   let pricing=salePricing==='bid'?'bid':'list';
   let need=null,recentOwned=[],reviewOrderId=null,status=salesEnabled?
-    '市场优先；挂售至少 2 小时并重新定价后才回收':'自动出售已关闭，物品留给玩家处理';
+    '市场优先；挂售至少 2 小时并重新定价后才回收':'平时出售已关闭，物品留给玩家处理';
   const persist=()=>{
     if(!storageReadable)return false;
     try {const text=JSON.stringify(saved);storage?.setItem(key,text);savedText=text;return true;} catch {return false;}
@@ -523,7 +523,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     select(p);
     if(p.ironman)return defer(ironmanReason);
     const capacitySale=capacitySalesEnabled&&vendorPlan?.capacitySale===true;
-    if(!salesEnabled&&!capacitySale)return defer('自动出售已关闭，物品留给玩家处理');
+    if(!salesEnabled&&!capacitySale)return defer('平时出售已关闭，物品留给玩家处理');
     const scoped=result=>capacitySale?{...result,capacitySale:true}:result;
     const intent=vendorPlan?.intent;
     if(intent?.t!=='marketDump')return vendorPlan;
@@ -784,7 +784,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       if((cooldowns.get(order.itemId)??0)>now())continue;
       if(order.side==='sell'&&!salesEnabled&&!(capacitySalesEnabled&&owned.capacitySale===true)) {
         reviewOrderId=null;
-        const cancel=atBank(p,{t:'marketCancel',orderId:order.id},'自动出售已关闭，撤回脚本挂单');
+        const cancel=atBank(p,{t:'marketCancel',orderId:order.id},'平时出售已关闭，撤回助手自己的挂单');
         if(cancel.intent)return cancel;
         deferredCancel??=cancel;continue;
       }
@@ -806,7 +806,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       watched=[];priorityItem=null;watchCursor=0;reviewOrderId=null;
       for(const [id,request]of requests)if(request.background)requests.delete(id);
     }
-    status=salesEnabled?'市场优先；挂售至少 2 小时并重新定价后才回收':'自动出售已关闭，物品留给玩家处理';
+    status=salesEnabled?'市场优先；挂售至少 2 小时并重新定价后才回收':'平时出售已关闭，物品留给玩家处理';
   }
   function setCapacitySales(enabled) {capacitySalesEnabled=enabled===true;}
   function setSalePricing(value) {pricing=value==='bid'?'bid':'list';}

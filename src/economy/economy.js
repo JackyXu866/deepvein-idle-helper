@@ -227,7 +227,7 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false}=
       if(fixed&&!site)return action(null,'固定工作等待仓库空间','仓库空间不足；保留固定工作，等待整理或盈余成交后继续，不自动改做其他工作',{capacityLimited:true});
       if(site)return action(p.route?.jobId===job.id?null:
         {t:'setRoute',siteId:site.id,jobId:job.id,onFull:'bank',limit:0,rarity:0},
-        fixed?'继续固定金币工作':'仓库保护 · 先赚金币',fixed?`继续所选 ${job.name}；此工作不新增物品种类，不更换固定目标`:!autoSell&&!capacitySale?'自动出售已关闭，库存留给玩家处理；先做不新增物品种类的任务':deferredSale?'市场物品等待成交；继续不新增物品种类的赚钱任务':
+        fixed?'继续固定金币工作':'仓库保护 · 先赚金币',fixed?`继续所选 ${job.name}；此工作不新增物品种类，不更换固定目标`:!autoSell&&!capacitySale?'平时出售已关闭，库存留给玩家处理；先做不新增物品种类的任务':deferredSale?'市场物品等待成交；继续不新增物品种类的赚钱任务':
           '剩余库存均受保护；继续不新增物品种类的任务，保留稀有、种子及计划物资',
         {capacityLimited:true,...(p.ironman&&deferredSale?{reason:
           '铁人角色不能在玩家市场买卖普通物品；保留库存，请手动整理仓库，暂做不新增物品种类的工作'}:{})});

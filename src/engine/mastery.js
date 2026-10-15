@@ -1,5 +1,5 @@
 import {simulate} from './runtime.js';
-import {MASTERY_RANK_LIMIT, MASTERY_TRACKS, rankCost, spentPoints} from './mastery-rules.js';
+import {MASTERY_NAMES_ZH, MASTERY_RANK_LIMIT, MASTERY_TRACKS, rankCost, spentPoints} from './mastery-rules.js';
 
 // Points are earned from collections and forge logs, computed by the engine itself.
 // Ranks of one track affordable with `points` on top of `from`.
@@ -53,7 +53,7 @@ export function chooseMastery(api, p, goal, {metric = 'xp', budgetMs = 300, cloc
     bought[best.id] = (bought[best.id] ?? 0) + best.ranks;
   }
   if (!Object.keys(bought).length) return null;
-  const changes = Object.entries(bought).map(([id, n]) => `${api.masteryTracks.find(t => t.id === id)?.name ?? id} +${n}`).join('、');
+  const changes = Object.entries(bought).map(([id, n]) => `${MASTERY_NAMES_ZH[id] ?? api.masteryTracks.find(t => t.id === id)?.name ?? id} +${n}`).join('、');
   return {intent: {t: 'masteryConfirm', ranks: Object.fromEntries(Object.entries(ranks).filter(([, n]) => n > 0))},
     label: `分配精通点数 · ${changes}`,
     reason: `可用 ${Math.floor(earned - spentPoints(current))} 点；按当前工作的引擎模拟选择每点收益最高的精通，剩余 ${Math.floor(available)} 点`};

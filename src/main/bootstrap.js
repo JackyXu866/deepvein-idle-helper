@@ -1600,7 +1600,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
                 </div>
                 <div data-profit-floor-controls hidden>
                   <label>最低收益（金币/小时）<input type="number" min="0" step="100" inputmode="numeric" data-profit-floor aria-label="最低收益（金币/小时）"></label>
-                  <p class="muted setting-note">只选择收益不低于此值的工作，再比经验；出售收入按当前买单扣税估算，需开启自动出售。都达不到时改做最赚钱的工作。0 为不限制。</p>
+                  <p class="muted setting-note">只选择收益不低于此值的工作，再比经验；出售收入按“出售方式”扣税估算，需开启“平时也出售多余物品”。都达不到时改做最赚钱的工作。0 为不限制。</p>
                   <p class="label">按当前角色的建议（点击使用）</p>
                   <div data-profit-suggestions class="suggestions"><p class="muted setting-note">打开本页后计算…</p></div>
                 </div>
@@ -1675,7 +1675,8 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
                   <label>按收益采购<input type="checkbox" data-purchase-enabled aria-label="按收益采购"></label>
                   <p class="fine-print">制作先用现货，缺口优先比较市场供料；缺货、过贵或买不起再自备。按整批原料的价格、数量与省下的时间选择配方，不设固定金币底线或每小时限额，保留任务必需开销。背包、仓库同品质原料合批制作；稀有材料保留，已被完全替代的品质／强化装备仅按实际品级卖市场。</p>
                   <p class="fine-print">自主发展／经验优先练采矿、伐木时，可在原地清理不需要的普通主产物，省下的往返时间须超过产物价值；钓鱼、偷窃不自动丢。保留至少 50 件周转物资、计划材料、所有稀有物及副产物，不启用游戏的一键丢弃采集物。</p>
-                  <label>自动出售多余物品<input type="checkbox" data-auto-sell aria-label="自动出售多余物品"></label>
+                  <label>平时也出售多余物品<input type="checkbox" data-auto-sell aria-label="平时也出售多余物品"></label>
+                  <p class="fine-print">开启：每次回仓时，把超出保留量的普通物品按下方“出售方式”挂单或卖出，并把这部分出售收入算进主业经营和最低收益的比较。关闭：平时一件不卖，只在仓库满时按“满仓时出售普通盈余”清理。保留量：当前计划和供料链需要的材料、每种 50 件周转材料、3 趟战斗食物、种子与作物储备；药水、稀有／特殊掉落、坐骑宠物、传说物品、强化材料和装备方案一律不卖。关闭时会撤回助手自己尚未成交的挂单，不动你的手动挂单。</p>
                   <label>满仓时出售普通盈余<input type="checkbox" data-capacity-sales aria-label="满仓时出售普通盈余"></label>
                   <label>出售方式<select data-sale-pricing aria-label="出售方式"><option value="list">挂单：按卖盘价等待成交</option><option value="bid">直接卖给买单：立即成交</option></select></label>
                   <p class="fine-print">挂单：比最低卖价低一档挂出，税后须比最高买单多 5% 以上，且近 2 小时成交量足以消化同价排队卖量，否则直接卖给买单；同一批挂两轮仍未卖完时改为卖给买单。收益规划也按同样方式估值。</p>
@@ -2468,7 +2469,9 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     box.dataset.signature=signature;box.replaceChildren(...build());
   }
   function renderPlan(view) {
-    const set=(selector,text)=>{const node=panel.querySelector(selector);if(node&&node.textContent!==(text??''))node.textContent=text??'';};
+    // Game names (jobs, monsters, items) arrive in English; show them in Chinese.
+    const set=(selector,text)=>{const node=panel.querySelector(selector),value=translateGameText(text??'');
+      if(node&&node.textContent!==value)node.textContent=value;};
     if(!view) {
       set('[data-plan-layer]',trainer.player?'正在计算计划…':'等待游戏状态');
       return;
@@ -2481,14 +2484,14 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
       if(!view.candidates.length)return [el('p',{className:'muted',textContent:'暂无可比较的工作（等级、装备或供料条件不足）'})];
       const head=el('tr',{},['任务','经验/时','金币/时','来源'].map(text=>el('th',{textContent:text})));
       const rows=view.candidates.map(c=>{
-        const row=el('tr',{},[el('td',{textContent:`${c.chosen?'★ ':''}${c.label}`}),el('td',{textContent:fmt(c.xpH)}),
+        const row=el('tr',{},[el('td',{textContent:`${c.chosen?'★ ':''}${translateGameText(c.label)}`}),el('td',{textContent:fmt(c.xpH)}),
           el('td',{textContent:fmt(c.coinsH)}),el('td',{},[el('span',{className:'plan-source',textContent:SOURCE_LABELS[c.source]??c.source})])]);
         row.dataset.chosen=String(c.chosen);row.lastChild.firstChild.dataset.source=c.source;return row;
       });
       return [el('table',{className:'plan-table'},[el('thead',{},[head]),el('tbody',{},rows)])];
     });
     fill('[data-plan-quests]',JSON.stringify(view.quests),()=>view.quests.length?view.quests.map(q=>el('p',{className:'muted',
-      textContent:`${q.period==='daily'?'每日（必做）':'每周'} · ${q.title} ${q.done}/${q.goal} · ${q.status}`+
+      textContent:`${q.period==='daily'?'每日（必做）':'每周'} · ${translateGameText(q.title)} ${q.done}/${q.goal} · ${q.status}`+
         (q.seconds?` 约 ${Math.ceil(q.seconds/60)} 分钟`:'')+(q.buys?' · 含市场补料':'')})):
       [el('p',{className:'muted',textContent:'今天的任务已全部领取'})]);
     const perks=view.perks,mastery=view.mastery;
@@ -2506,7 +2509,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
       if(!view.frontier.length)return [el('p',{className:'muted setting-note',textContent:'暂无可比较的工作'})];
       return view.frontier.map(point=>{
         const button=el('button',{type:'button',textContent:`≥ ${fmt(point.floor)} 金币/时 → ${fmt(point.xpH)} 经验/时`+
-          (point.loss>.0005?`（经验 −${(point.loss*100).toFixed(1)}%）`:'（经验最高）')+` · ${point.label}`});
+          (point.loss>.0005?`（经验 −${(point.loss*100).toFixed(1)}%）`:'（经验最高）')+` · ${translateGameText(point.label)}`});
         button.setAttribute('aria-pressed',String(point.floor===profitFloor));
         button.onclick=()=>setProfitFloor(point.floor);
         return button;
@@ -2764,7 +2767,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     panel.querySelector('[data-potion-restock]').checked=potionRestock;
     panel.querySelector('[data-capacity-sales]').checked=capacitySales;
     panel.querySelector('[data-sale-pricing]').value=salePricing;
-    panel.querySelector('[data-mode-info]').textContent=modeInfo[trainer.mode]+(trainer.mode==='business'&&!autoSell?' 自动出售关闭；收入比较只计直接获得的金币。':'');
+    panel.querySelector('[data-mode-info]').textContent=modeInfo[trainer.mode]+(trainer.mode==='business'&&!autoSell?' 平时出售已关闭；收入比较只计直接获得的金币。':'');
     panel.querySelector('[data-training-policy]').textContent=trainer.mode==='assist'?
       '不安排练级、装备、交易或采购任务；不采种、不解锁新作物。玩家可继续编辑自己的队列，手动操作优先。':
       `自动打造换装 · ${autoSell?'比价出售与必要采购':capacitySales?'仅满仓清理普通盈余和淘汰装备 · 必要采购':'不自动出售 · 必要采购'}。常规切换遵守背包／批次边界；世界 Boss 临时参与结束后继续原任务。`;

@@ -65,7 +65,8 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
   return {layer, mode: trainer.mode, profitFloor: planner.profitFloor ?? 0,
     action: trainer.plan ? {label: trainer.plan.label ?? null, reason: trainer.plan.reason ?? null} : null,
     message: trainer.message ?? null,
-    goal: goal ? {label: goal.itemTarget ? '物品目标' : goal.quest ? `任务 · ${goal.quest.id}` :
+    goal: goal ? {label: goal.itemTarget ? '物品目标' :
+      goal.quest ? `${goal.quest.period === 'daily' ? '每日任务' : '每周任务'} · ${label(goal.quest.monsterId != null ? {monsterId: goal.quest.monsterId} : {recipeId: goal.quest.jobId})}` :
       goal.monsterId != null ? label(goal) : goal.recipeId != null ? jobName(goal.recipeId) : goal.skill ?? null,
       skill: goal.skill ?? null, target: goal.target ?? null, reason: goal.reason ?? null} : null,
     candidates, frontier, quests, perks, mastery};
