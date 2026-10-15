@@ -1,6 +1,7 @@
 import {autoUsableMaterial, professionSkill} from './professions.js';
 import {inventoryBudget, reviewInventory, saleProtectionReason} from './inventory.js';
 import {COAL_ID, baseId, merchantPrice, plusOf, rarityOf} from './items.js';
+import {payback} from './investment.js';
 
 export const HOUSE_NAMES={mine:'矿井',sawmill:'锯木厂',pond:'鱼塘',garden:'花园',forge:'锻造炉',yard:'训练场',
   lockbox:'锁箱工作台',range:'炉灶',fletchrack:'制箭架',herbrack:'药草架',loom:'织布机',lectern:'符文讲台',
@@ -167,11 +168,18 @@ export function createHousing(data,planner) {
       const gain=rules.bonusPerLevel*room.rate/(1+rules.bonusPerLevel*room.rate*level);
       // Facilities are permanent. A one-day window divided across all skills
       // rejected even cheap first levels. Use a bounded week of active play.
-      const timeSaved=Math.max(0,7*86400-delay)*share*gain;
       // Storage is valued against the reviewed cost of the next bank shelf;
       // two levels are needed for a slot, so halve the value on the odd step.
-      const worth=room.id==='storeroom'?1000*1.5**(p.bankSlotsBought??0)/(level%2?1:2):timeSaved*coinRate;
-      if(!Number.isFinite(worth)||cost>worth){review.push(`${roomName(room.id)}：材料约 ${Math.ceil(cost)} 金币，超过预计收益 ${Math.floor(worth)}，暂缓投料`);continue;}
+      if(room.id==='storeroom') {
+        const worth=1000*1.5**(p.bankSlotsBought??0)/(level%2?1:2);
+        if(!(cost<=worth)){review.push(`${roomName(room.id)}：材料约 ${Math.ceil(cost)} 金币，超过一格仓位的价值 ${Math.floor(worth)}，暂缓投料`);continue;}
+      } else {
+        // Shared payback rule (investment.js): materials' sale value, as time at
+        // the gold rate, against the time the faster facility saves in that week.
+        const result=payback({gold:cost,coinRate,before:1,after:1+share*gain,useSeconds:Math.max(0,7*86400-delay)});
+        if(!result.worth){review.push(`${roomName(room.id)}：材料售价约 ${Math.ceil(cost)} 金币（约 ${(result.paid/3600).toFixed(1)} 小时），`+
+          `一周只省约 ${(result.saved/3600).toFixed(1)} 小时，暂缓投料`);continue;}
+      }
       const first=donors.find(d=>d.itemId===conversions[0].itemId);
       return action({t:'convertHouse',...conversions[0]},`准备${roomName(room.id)}升级 · 转换最省钱的材料`,
         `还需 ${missing} 点，本批材料售价合计约 ${Math.ceil(cost)} 金币；先用每点最便宜的（本项约 ${(first.unit/first.each).toFixed(1)} 金币/点）；`+

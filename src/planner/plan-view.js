@@ -69,6 +69,18 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
     }
   } catch { mastery = null; }
 
+  // Gold as time: each way to improve worn gear, its cost in hours of gold
+  // work and the hours it saves while used (planner/investment.js).
+  let investments = [];
+  try {
+    investments = (planner.investmentOptions?.(p, style, goal) ?? []).slice(0, 8).map(r => ({label: r.label, kind: r.kind,
+      gold: r.gold, paidHours: r.paid / 3600, savedHours: r.saved / 3600, useHours: r.useSeconds / 3600, gain: r.gain,
+      worth: r.worth, cheapest: r.cheapest, affordable: r.affordable, source: r.source,
+      funding: goal?.funding?.key === `${r.kind}:${r.id}`}));
+  } catch { investments = []; }
+  const funding = goal?.funding ? {label: goal.funding.label, gold: goal.funding.gold,
+    minutesLeft: Math.max(0, Math.ceil((goal.funding.until - p.lastTick) * data.tickMs / 60000))} : null;
+
   let quests = [], perks = null;
   try { quests = planner.questOverview?.(p, style) ?? []; } catch { quests = []; }
   try { perks = planner.perkOverview?.(p, goal, style) ?? null; } catch { perks = null; }
@@ -83,5 +95,5 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
         target: null, via: null, reason: goal.reason ?? null} :
       {label: goal.skill ? NAMES[goal.skill] ?? goal.skill : null, target: goal.target ?? null,
         via: goal.monsterId != null ? label(goal) : goal.recipeId != null ? jobName(goal.recipeId) : null, reason: goal.reason ?? null}) : null,
-    xpSkill, xpSkillName: xpSkill ? NAMES[xpSkill] ?? xpSkill : null, xpAcross, xpCandidates, goldCandidates, frontier, quests, perks, mastery};
+    xpSkill, xpSkillName: xpSkill ? NAMES[xpSkill] ?? xpSkill : null, xpAcross, xpCandidates, goldCandidates, frontier, investments, funding, quests, perks, mastery};
 }

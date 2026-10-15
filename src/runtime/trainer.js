@@ -947,13 +947,16 @@ export class Trainer {
     const hotSelected=this.hotOverride(p);
     const hotStatus=this.hotFollowStatus(p);
     const hotActive=hotPreview.active||hotSelected||hotStatus.active||!!this.goal?.hot;
-    const goalTimeout=this.goal?.development?Infinity:this.goal?.quest?(this.goal.horizon??600)*1000:600000;
+    const goalTimeout=this.goal?.development||this.goal?.funding?Infinity:this.goal?.quest?(this.goal.horizon??600)*1000:600000;
     if (this.goal && !this.goal.hot && !equipmentProject(this.goal) && (this.bankedLoad||!this.planner.taskBoundary||this.planner.taskBoundary(p)) &&
       ((this.goal.quest?this.planner.questCompleted(p,this.goal):
+        this.goal.funding?p.coins>=this.goal.funding.gold||p.lastTick>=this.goal.funding.until:
         this.planner.level(p.skills[this.goal.skill])>=this.goal.target) || now-this.goalSince>goalTimeout&&!this.goal.craftPreparation ||
         this.goal.specialization&&!p.route&&p.skills[this.goal.skill]>this.goal.startedXp ||
         this.goal.temporary&&!this.deferred[this.goal.mainSkill])) {
       this.served[this.goal.skill]=++this.sequence;
+      // A funding stretch that ended short sets that improvement aside for a while.
+      if(this.goal.funding)this.planner.fundingEnded?.(p,this.goal);
       if(this.goal.quest&&now-this.goalSince>goalTimeout)this.questDeferred[this.goal.quest.key]=now+120000;
       // Allow other skills a turn after a long ingredient-gathering slice.
       if (now-this.goalSince>600000&&!this.goal.rate&&this.goal.fixedRecipeId==null&&this.goal.fixedMonsterId==null)

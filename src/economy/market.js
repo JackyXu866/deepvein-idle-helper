@@ -2,6 +2,7 @@ import {autoUsableMaterial} from '../planner/professions.js';
 import {workEstimate} from '../planner/estimates.js';
 import {POTIONS, foodEffects, foodHealing} from '../planner/supplies.js';
 import {inventoryBudget, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
+import {payback} from '../planner/investment.js';
 import {baseId, dayTicks as dayTicksOf, distance, itemLabel, merchantPrice, minListPrice, netProceeds, plusOf, qualityIds, rarityOf, stockQty, tradableBase} from '../planner/items.js';
 
 // Price grid (client Nb/Vn/ih/Zm; refusal 'market-price-step'): a price must be
@@ -278,6 +279,14 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     }
     return bidValue&&bidValue.net>merchant.net?bidValue:merchant;
   }
+  // The lowest ask for one unit: a fresh live top of book, else the price feed.
+  function askPrice(p,id) {
+    select(p);
+    const top=tops.get(id);
+    if(top&&now()-top.at<60000)return top.ask>0&&top.askQty>0?top.ask:null;
+    const row=feedRow(id);
+    return row?.ask&&row.askQty>0?row.ask:null;
+  }
   // What one unit would sell for through the three selling layers: the market
   // (bid, or listing in listing mode), the town buyback and the merchant.
   // Quality items are not sold automatically, so their market value is the
@@ -444,7 +453,11 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const choices=books.filter(top=>top.ask<=purchaseAllowance(p,goal)).map(top=>{
       const improvement=evaluate(top.itemId),seconds=top.ask/rate+improvement.seconds;
       return {...top,improvement,value:improvement.after*Math.max(0,horizon-seconds)};
-    }).filter(c=>c.improvement.after>c.improvement.before&&c.value>benchmark)
+    }).filter(c=>c.improvement.after>c.improvement.before&&c.value>benchmark&&
+      // Shared payback rule (investment.js): the price, as time at the gold rate,
+      // must be repaid by the time saved while the piece is worn.
+      payback({gold:c.ask,seconds:c.improvement.seconds,coinRate:rate,before:c.improvement.before,
+        after:c.improvement.after,useSeconds:c.improvement.horizon??horizon}).worth)
       .sort((a,b)=>b.value-a.value||a.ask-b.ask);
     if(choices.length) {
       const best=choices[0],result=buy(p,best.itemId,1,goal,'市场升级装备',
@@ -983,7 +996,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     if(value) {({saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status}=value);if(value.pricing)pricing=value.pricing;if('buyback' in value)buyback=value.buyback;if('feed' in value)feed=value.feed;state=playerId===null?null:playerState(playerId);}
     return {saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status,pricing,buyback,feed};
   }
-  return {runtime,receive,next,sale,purchase,restockPotion,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setSalePricing,setBuyback,setPriceFeed,unitValue,priceFeedAge:()=>feed?now()-feed.at:null,
+  return {runtime,receive,next,sale,purchase,restockPotion,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setSalePricing,setBuyback,setPriceFeed,unitValue,askPrice,priceFeedAge:()=>feed?now()-feed.at:null,
     configureProcurement,equipmentPurchase,foodPurchase,buffFood,potionDose,marketUnitCost,surplusValue,watchPurchases:scan,
     purchaseAllowance:(p,goal)=>{select(p);return purchaseAllowance(p,goal);}};
 }

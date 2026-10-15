@@ -14,6 +14,7 @@ import {createHousing} from './housing.js';
 import {planGatheringSurplus} from './gathering-surplus.js';
 import {perkOverview} from './perks.js';
 import {chooseFallback} from './fallback.js';
+import {createInvestments, payback as paybackRule} from './investment.js';
 import {HOT_FOLLOW_SKILLS, hotSkillAt, hotWindows} from '../runtime/hot-follow.js';
 
 export const NAMES = {
@@ -903,7 +904,10 @@ export function createPlanner(data) {
       // Judge gear over the time it will actually be worn, not the planner's
       // 30-minute rolling window.
       const wear=Math.max(horizon,wearHorizon(id,slot,skill,after));
-      return {affordable:goal.growth||stageUpgrade?stageReady&&gain>0:Number.isFinite(payback)&&cost<=wear&&payback<=wear,
+      // Shared payback rule (investment.js): time saved over the wear period
+      // must beat the preparation time, less the XP that preparation earns.
+      const worth=paybackRule({seconds:cost,credit:after>0?(preparation.xp??0)/after:0,before,after,useSeconds:wear}).worth;
+      return {affordable:goal.growth||stageUpgrade?stageReady&&gain>0:worth&&cost<=wear,
         seconds:cost,payback,before,after,horizon:wear};
     }
     // Seconds until this piece is outgrown: XP to the next wear tier in the
@@ -1263,6 +1267,7 @@ export function createPlanner(data) {
   const specialization=createSpecialization(data,api);
   const quests=createQuests(data,api);
   const housing=createHousing(data,api);
+  const investments=createInvestments(data,api);
   return Object.assign(api,{growthChooseGoal:growth.chooseGoal,growthStatus:growth.status,
     housingPlan:housing.plan,housingStatus:housing.status,validateHousing:housing.validate,
     housingRuntime:housing.runtime,cancelHousing:housing.cancel,housingRejected:housing.rejected,
@@ -1272,11 +1277,16 @@ export function createPlanner(data) {
     specialistChooseGoal:specialization.chooseGoal,specializationStatus:specialization.status,
     resetSpecialization:specialization.reset,
     runtime(value) {
-      if(value) {({farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote}=value);specialization.runtime(value.specialization);growth.runtime(value.development);housing.runtime(value.housing);}
-      return {farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote,specialization:specialization.runtime(),development:growth.runtime(),housing:housing.runtime()};
+      if(value) {({farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote}=value);specialization.runtime(value.specialization);growth.runtime(value.development);housing.runtime(value.housing);investments.runtime(value.investments);}
+      return {farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote,specialization:specialization.runtime(),development:growth.runtime(),housing:housing.runtime(),investments:investments.runtime()};
     },
     selectGoal(p,served,deferred,style,mode='balanced',mainTrade='auto',mainJobId=null,mainMonsterId=null) {
       if(mode!=='business'&&mode!=='balanced'&&!(mode==='experience'&&this.profitFloor>0))this.watchMarket?.(p,[]);
+      // A worthwhile, unaffordable improvement is funded first (capped).
+      if(mode==='balanced'||mode==='experience') {
+        const funding=investments.fundingGoal(p,style,deferred);
+        if(funding)return funding;
+      }
       if(mode==='experience')return this.chooseGoal(p,served,deferred,style,{profitFloor:this.profitFloor??0});
       return (mode==='business'?this.specialistChooseGoal:mode==='experience'?this.chooseGoal:
         this.growthChooseGoal??this.chooseGoal)(p,served,deferred,style,mainTrade,mainJobId,mainMonsterId);
@@ -1284,5 +1294,7 @@ export function createPlanner(data) {
     questRead:quests.read,questClaim:quests.claim,questChooseGoal:quests.chooseGoal,questCompleted:quests.completed,
     questReroll:quests.reroll,questOverview:quests.overview,
     perkOverview:p=>perkOverview(p),
+    investmentOptions:(p,style,goal)=>investments.options(p,style,goal),fundingEnded:(p,goal)=>investments.fundingEnded(p,goal),
+    fundingGoal:(p,style,deferred,goal)=>investments.fundingGoal(p,style,deferred,goal),
     chooseFallback:(p,goal,style)=>chooseFallback(data,api,p,goal,style)});
 }

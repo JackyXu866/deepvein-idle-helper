@@ -1,9 +1,9 @@
-import {matchesProfessionWeapon, professionSkill} from '../planner/professions.js';
+import {professionSkill} from '../planner/professions.js';
 import {finishTaskReason} from '../planner/crafting.js';
-import {combatEstimate, workEstimate} from '../planner/estimates.js';
+import {workEstimate} from '../planner/estimates.js';
 import {enhanceQuote, inventoryBudget, reviewInventory} from '../planner/inventory.js';
 import {planEnhancement} from '../planner/enhancement.js';
-import {distance, merchantPrice, nearestBank, packCapacity, packQty, packUsed, plusOf} from '../planner/items.js';
+import {distance, merchantPrice, nearestBank, packCapacity, packQty, packUsed} from '../planner/items.js';
 
 // Items made by crafting skills (cooking, smithing, fletching, crafting).
 // Potions are protected separately and never sold.
@@ -20,74 +20,14 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
   const bankFor=p=>nearestBank(data,p);
   const atBank=(p,intent,label,reason,extra={})=>planner.nearBank(p)?action(intent,label,reason,extra):
     action({t:'walk',...bankFor(p).approach},'整理库存 · 前往仓库',reason||label,extra);
-  function investment(p,goal,style,reserve,includeUnfunded=false) {
-    if(p.enhance)return null;
-    const lv=planner.levels(p),combatSkill=professionSkill(style);
-    const relevant=gear=>(!gear.style||gear.style===combatSkill)&&
-      (gear.slot!=='weapon'||matchesProfessionWeapon(gear,style))&&
-      (gear.slot!=='shield'||style!=='melee_twohand');
-    const job=data.jobs.find(j=>j.id===(goal?.recipeId??goal?.recipes?.[goal?.skill]??p.route?.jobId));
-    const monster=data.monsters.find(m=>m.id===(goal?.monsterId??data.zones.find(z=>z.id===p.route?.zoneId)?.monsterId));
-    const stats=(equipment)=>{
-      const gear=Object.entries(equipment).filter(([slot,id])=>Number.isFinite(id)&&
-        (slot!=='shield'||style!=='melee_twohand')).map(([,id])=>planner.equipmentStats(id)).filter(Boolean);
-      const weapon=planner.equipmentStats(equipment.weapon);
-      const sum=k=>gear.reduce((n,g)=>n+(k==='defence'||!g.style||g.style===combatSkill?1:-1)*(g[k]??0),0);
-      return {style:combatSkill,level:lv[combatSkill],accuracy:sum('accuracy'),strength:sum('strength'),
-        defence:sum('defence'),defenceLevel:lv.defence,speed:weapon?.speed??5,twoHanded:weapon?.twoHanded};
-    };
-    const candidates=[];
-    for(const [slot,id]of Object.entries(p.equipment)) {
-      const gear=planner.equipmentStats(id);
-      if(!gear||plusOf(data,id)!==0||slot==='hoe'||slot==='mount')continue;
-      if(planner.enhancementTraining?.blocked(p,id,slot))continue;
-      if(!relevant(gear))continue;
-      if(goal?.upgrade?.slot===slot)continue;
-      if(p.id===lastPlayer&&style===lastStyle&&investmentGoal?.upgrade?.slot===slot)continue;
-      const quote=enhanceQuote(data,planner,p,id),next=planner.equipmentStats(id+data.plusScale);
-      const otherCoins=Math.max(0,reserve.coins-(goal?.enhancement?.itemId===id?goal.enhancement.gold:0));
-      if(quote.chance!==1||!includeUnfunded&&p.coins<quote.gold+otherCoins||
-        planner.count(p,data.shardId)<quote.shards+(reserve.items[data.shardId]??0))continue;
-      let coinGain=0,xpGain=0,xpRate=0,skill=null;
-      const toolSkill=data.toolSkills[slot];
-      if(toolSkill&&job?.skill===toolSkill&&!job.grow) {
-        const opts={quick:p.perks?.quick??0,hands:p.perks?.hands??0};
-        const before=workEstimate(data,job,lv[job.skill],{...opts,toolBonus:gear.bonus});
-        const after=workEstimate(data,job,lv[job.skill],{...opts,toolBonus:next.bonus});
-        const inputs=job.inputs.reduce((n,i)=>n+value(i.itemId)*i.qty,0);
-        const profit=e=>e.coins+e.commonOutput*(job.output.itemId===data.coinId?0:value(job.output.itemId))-inputs;
-        coinGain=profit(after)/after.seconds-profit(before)/before.seconds;
-        xpRate=before.xp/before.seconds;xpGain=after.xp/after.seconds-xpRate;skill=job.skill;
-      } else if(!toolSkill&&monster&&['magic','melee','ranged','defence','hitpoints'].includes(goal?.skill)) {
-        const before=combatEstimate(data,monster,stats(p.equipment));
-        const after=combatEstimate(data,monster,stats({...p.equipment,[slot]:id+data.plusScale}));
-        const foods=Object.values(data.items).filter(i=>i.heals&&planner.count(p,i.id)>0);
-        const healValue=foods.length?Math.min(...foods.map(i=>value(i.id)/Math.min(i.heals,lv.hitpoints*.5))):0;
-        // Count only guaranteed coins and reduced food use; rare drops stay protected.
-        coinGain=(after.coins-after.damage*healValue)/after.seconds-
-          (before.coins-before.damage*healValue)/before.seconds;
-        xpRate=before.xp/before.seconds;xpGain=after.xp/after.seconds-xpRate;skill=combatSkill;
-      }
-      if(!(coinGain>0)||xpGain<0)continue;
-      // Shards have an opportunity cost even when already owned. Pay back within
-      // the current planning window, or before the next equipment tier arrives.
-      let horizon=goal?.horizon??1800;
-      const currentRequirement=gear.levelReq??data.jobs.find(j=>j.output.itemId===planner.base(id))?.levelReq??1;
-      const nextRequirement=data.gear.filter(g=>g.slot===slot&&relevant(g))
-        .map(g=>g.levelReq??data.jobs.find(j=>j.output.itemId===g.itemId)?.levelReq??1)
-        .filter(n=>n>Math.max(lv[skill]??1,currentRequirement)).sort((a,b)=>a-b)[0];
-      if(nextRequirement&&xpRate>0)horizon=Math.min(horizon,
-        (planner.thresholds[nextRequirement]-p.skills[skill])/xpRate);
-      const cost=quote.gold+quote.shards*value(data.shardId),paybackSeconds=cost/coinGain;
-      if(!Number.isFinite(paybackSeconds)||!Number.isFinite(horizon)||paybackSeconds>horizon)continue;
-      candidates.push({id,slot,quote,cost,coinGain,xpGain,paybackSeconds,horizon,requiredCoins:quote.gold+otherCoins});
-    }
-    candidates.sort((a,b)=>a.paybackSeconds-b.paybackSeconds);
-    return candidates[0]??null;
-  }
+  // Coins to keep for the best worthwhile enhancement step (gold as time,
+  // planner/investment.js); the enhancement itself runs in planEnhancement.
   function investmentBudget(p,goal,style='magic') {
-    const next=investment(p,goal,style,budget(p,goal),true);
-    return next?{coins:next.requiredCoins,enhancement:{itemId:next.id,gold:next.quote.gold,shards:next.quote.shards}}:null;
+    if(p.enhance)return null;
+    const row=(planner.investmentOptions?.(p,style,goal)??[]).find(r=>r.kind==='enhance'&&r.cheapest);
+    if(!row)return null;
+    const quote=enhanceQuote(data,planner,p,row.current);
+    return {coins:budget(p,goal).coins+quote.gold,enhancement:{itemId:row.current,gold:quote.gold,shards:quote.shards}};
   }
   function maintenance(p,goal,style='magic',mode='balanced',mainTrade='auto',mainJobId=null,mainMonsterId=null) {
     if(mode!=='business'){mainJobId=null;mainMonsterId=null;}
@@ -253,18 +193,12 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
         specialization:mode!=='balanced'||!!goal?.development,mainSkill:goal?.mainSkill??goal?.skill});
       if(enhancement?.intent)return enhancement;
     }
-    const upgrade=investment(p,goal,style,reserve);
-    if(upgrade)return action({t:'enhance',itemId:upgrade.id,toPlus:1,once:true,worn:upgrade.slot},
-      `强化在用装备 · ${data.items[planner.base(upgrade.id)].name} +1`,
-      `首级成功率 100%；${upgrade.quote.gold} 金币、${upgrade.quote.shards} 碎片；`+
-      `计入碎片价值，预计 ${(upgrade.paybackSeconds/60).toFixed(0)} 分钟回本，保留计划开销`,
-      {investment:upgrade});
     return deferredSale;
   }
   function runtime(value) {
     if(value) ({lastGoal,lastPlayer,lastStyle,lastMode,lastMain,lastJob,lastMonster,investmentGoal,gearDeferredUntil,recovery}=value);
     return {lastGoal,lastPlayer,lastStyle,lastMode,lastMain,lastJob,lastMonster,investmentGoal,gearDeferredUntil,recovery};
   }
-  return {runtime,maintenance,budget,review,investment,investmentBudget,setAutoSell:enabled=>{autoSell=enabled===true;},
+  return {runtime,maintenance,budget,review,investmentBudget,setAutoSell:enabled=>{autoSell=enabled===true;},
     setCapacitySales:enabled=>{capacitySales=enabled===true;},setSellCrafted:enabled=>{sellCrafted=enabled===true;}};
 }

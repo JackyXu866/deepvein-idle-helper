@@ -90,11 +90,27 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
     const otherCoins=Math.max(0,(goal?.budget?.coins??0)-(prior?.itemId===itemId?prior.gold??prior.quote?.gold??0:0));
     const otherShards=Math.max(0,(goal?.budget?.items?.[data.shardId]??0)-
       (prior?.itemId===itemId?prior.shards??prior.quote?.shards??0:0));
-    // Beyond +1, use existing coins and at most 25% of free shards;
-    // never acquire materials to chase a roll.
-    if(quote.fromPlus>0&&(!planner.enhancementTraining||
-      quote.gold>p.coins-otherCoins||quote.shards>(planner.count(p,data.shardId)-otherShards)*.25)) {
-      deferredReason='后续强化只用现有盈余：核对现有金币，单次最多使用自由碎片 25%，保留换装和补给预算';continue;
+    // Gold as time (investment.js): enhance only when reaching the best stopping
+    // point pays back within the piece's use, and no other way to improve this
+    // slot (a rarer copy, another piece) pays back better.
+    const rows=planner.investmentOptions?.(p,style,goal)??null;
+    const row=rows?.find(r=>r.slot===slot&&r.kind==='enhance'&&r.current===itemId);
+    if(rows) {
+      if(!row?.worth) {
+        deferredReason=row?`${row.label} 不回本：预计 ${row.gold.toLocaleString()} 金币（含失败重来，约 ${(row.paid/3600).toFixed(1)} 小时赚取），`+
+          `使用期内只省约 ${(row.saved/3600).toFixed(1)} 小时`:deferredReason;
+        continue;
+      }
+      if(!row.cheapest) {
+        const best=rows.find(r=>r.slot===slot&&r.cheapest);
+        deferredReason=`${best?.label??'其他升级'} 比强化更省`;continue;
+      }
+      if(plusOf(data,itemId)>=row.toPlus)continue;
+    } else if(quote.fromPlus>0&&!planner.enhancementTraining)continue;
+    // Spend only coins and shards no other plan has reserved; a worthwhile step
+    // that cannot be paid yet is funded by a capped stretch on the best gold job.
+    if(quote.gold>p.coins-otherCoins||quote.shards>planner.count(p,data.shardId)-otherShards) {
+      deferredReason=`${row?.label??'强化'} 值得做，金币或碎片还不够：等待筹资，保留换装和补给预算`;continue;
     }
     // Equip an attainable tier upgrade first. Do not pay to enhance a piece
     // being replaced now or at the immediately upcoming level milestone.

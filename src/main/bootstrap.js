@@ -1582,6 +1582,11 @@ import {fallbackOwnership} from '../planner/fallback.js';
               <p class="fine-print">每小时数值已含供料与往返。来源：引擎＝游戏自身引擎按当前角色模拟；实测＝本次运行测得；公式＝估算。★ 为当前选择；优先级更高的每日任务、Boss、物品目标会先执行。</p>
             </div>
             <div class="card">
+              <div class="card-heading"><strong>投资（金币换时间）</strong><span data-plan-funding class="muted"></span></div>
+              <div data-plan-investments class="plan-scroll"></div>
+              <p class="fine-print">花费按金币最高的工作折成小时；强化含失败归零后重来的期望成本。省下＝装备使用期内（到下一档或最多一周）同样进度少花的时间。省下超过花费 1.2 倍才值得；同一位置只做最省的一项。值得但钱不够时，先做金币最高的工作最多 1 小时筹资。</p>
+            </div>
+            <div class="card">
               <div class="card-heading"><strong>任务与点数</strong></div>
               <div data-plan-quests></div>
               <p data-plan-points class="muted"></p>
@@ -2530,6 +2535,14 @@ import {fallbackOwnership} from '../planner/fallback.js';
       textContent:`${q.period==='daily'?'每日（必做）':'每周'} · ${translateGameText(q.title)} ${q.done}/${q.goal} · ${q.status}`+
         (q.seconds?` 约 ${Math.ceil(q.seconds/60)} 分钟`:'')+(q.buys?' · 含市场补料':'')})):
       [el('p',{className:'muted',textContent:'今天的任务已全部领取'})]);
+    set('[data-plan-funding]',view.funding?`筹资中：${view.funding.label}，目标 ${fmt(view.funding.gold)} 金币，剩 ${view.funding.minutesLeft} 分钟`:'');
+    const hours=h=>h>=10?`${Math.round(h)} 小时`:`${h.toFixed(1)} 小时`;
+    fill('[data-plan-investments]',JSON.stringify(view.investments),()=>view.investments.length?
+      [el('table',{className:'plan-table'},[el('thead',{},[el('tr',{},['项目','花费','赚钱','省下','结论'].map(text=>el('th',{textContent:text})))]),
+        el('tbody',{},view.investments.map(r=>el('tr',{},[el('td',{textContent:`${translateGameText(r.label)}${r.source?`（${r.source}）`:''}`}),
+          el('td',{textContent:`${fmt(r.gold)} 金币`}),el('td',{textContent:hours(r.paidHours)}),el('td',{textContent:hours(r.savedHours)}),
+          el('td',{textContent:r.funding?'筹资中':!r.worth?'不值得':!r.cheapest?'有更省的':r.affordable?'值得，可做':'值得，待筹资'})])))])]:
+      [el('p',{className:'muted',textContent:'暂无能提升在用装备的投资（或缺少金币收入估算）'})]);
     const perks=view.perks,mastery=view.mastery;
     set('[data-plan-points]',[
       perks?`任务点数 ${perks.points}：不自动兑换，由你自行分配`:null,
