@@ -1,29 +1,8 @@
 {
-  "client": "index-B2257EY9.js",
-  "sha256": "36604ce12e1e9ab34998974f7b7354238e5e8b09e4a3ae579333f1959edbef24",
-  "captured": "2026-10-13",
-  "compatibleClients": [
-    {
-      "client": "index-C6UxPVvd.js",
-      "sha256": "84543fadd7e2f007631259f63fc1b8dcce409544bd1b6d9a96e4ba33e76ea9ba"
-    },
-    {
-      "client": "index-CmaDy2eO.js",
-      "sha256": "3313256315ac50a80561f28194c4277ab0552923bf28d96d7a4ddd5915456acf"
-    },
-    {
-      "client": "index-DeoJ7Jh9.js",
-      "sha256": "70ef13fc889e4339d7c93e1ed023bf526576d777fce7a8713aaa6aadb627e289"
-    },
-    {
-      "client": "index-IFlmlYxK.js",
-      "sha256": "693f2d43a8e6878a2368507daf1f24a35d917e4d8787c65c22ba8ea9ab12583a"
-    },
-    {
-      "client": "index-BLSaPO15.js",
-      "sha256": "8990f3fc177963fdc84cd0b2ec4105470fa71a9edbced5753f5843980bf78d98"
-    }
-  ],
+  "client": "index-DAY9oe71.js",
+  "sha256": "c61c0f23060ecb43ebc22d6e2e1742b16c265383a1dc1b2860357b341047aeb5",
+  "captured": "2026-10-15",
+  "compatibleClients": [],
   "protocol": 3,
   "skills": [
     "mining",
@@ -8651,6 +8630,74 @@
       "jobIds": [
         247
       ]
+    },
+    {
+      "id": 387,
+      "x": 152,
+      "y": 32,
+      "kind": "field",
+      "jobIds": [
+        160,
+        161,
+        162,
+        163,
+        164,
+        165,
+        210,
+        211,
+        212
+      ]
+    },
+    {
+      "id": 389,
+      "x": 180,
+      "y": 118,
+      "kind": "field",
+      "jobIds": [
+        160,
+        161,
+        162,
+        163,
+        164,
+        165,
+        210,
+        211,
+        212
+      ]
+    },
+    {
+      "id": 391,
+      "x": 208,
+      "y": 30,
+      "kind": "field",
+      "jobIds": [
+        160,
+        161,
+        162,
+        163,
+        164,
+        165,
+        210,
+        211,
+        212
+      ]
+    },
+    {
+      "id": 393,
+      "x": 251,
+      "y": 51,
+      "kind": "field",
+      "jobIds": [
+        160,
+        161,
+        162,
+        163,
+        164,
+        165,
+        210,
+        211,
+        212
+      ]
     }
   ],
   "banks": [
@@ -8759,8 +8806,8 @@
       "name": "The Glass Flats",
       "monsterId": 9,
       "population": 12,
-      "x": 92,
-      "y": 51,
+      "x": 172,
+      "y": 238,
       "width": 12,
       "height": 12
     },
@@ -8769,8 +8816,8 @@
       "name": "Frostwild Hollow",
       "monsterId": 10,
       "population": 12,
-      "x": 12,
-      "y": 128,
+      "x": 243,
+      "y": 158,
       "width": 12,
       "height": 12
     },
@@ -8779,8 +8826,8 @@
       "name": "Rimeholt",
       "monsterId": 11,
       "population": 12,
-      "x": 14,
-      "y": 100,
+      "x": 239,
+      "y": 188,
       "width": 12,
       "height": 12
     },
@@ -9087,7 +9134,7 @@
       "attack": 112,
       "defence": 106,
       "speed": 5,
-      "xp": 2000,
+      "xp": 2200,
       "gold": [
         1509,
         2802
