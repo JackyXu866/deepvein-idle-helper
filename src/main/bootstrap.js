@@ -280,7 +280,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
     }).catch(error=>{
       planningError=error.message;
       if(trainer.active) {
-        if(++planningFailures>=2)trainer.pause(`后台规划连续失败：${error.message}；游戏当前任务继续，点击开始可重试`);
+        if(++planningFailures>=2)trainer.pauseError(`后台规划连续失败：${error.message}；游戏当前任务继续，点击开始可重试`);
         else trainer.log(`后台规划重试：${error.message}；游戏当前任务继续`);
       }
     }).finally(()=>{planningStarted=0;render();});
@@ -1549,6 +1549,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
           <div role="tabpanel" id="dv-panel-overview" aria-labelledby="dv-tab-overview" tabindex="0">
             <div class="current">
               <p class="label">当前任务</p>
+              <p data-pause-error class="notice" role="alert" hidden></p>
               <p data-activity>等待游戏状态</p>
               <p data-task></p>
               <p data-goal></p>
@@ -2894,6 +2895,13 @@ import {fallbackOwnership} from '../planner/fallback.js';
       panel.querySelector('[data-equipment]').textContent=(background?planningView?.equipment??[]:planner.equipmentStatus(p,trainer.style)).map(s=>
         `${slots[s.slot]??s.slot}：${s.current?.name??'未装备'}${describe(s.upgrade,'当前可穿')}${describe(s.next,'下一档')}`).join('\n\n');
     }
+    {
+      const error=!trainer.active&&!trainer.recovery?trainer.pausedError:null,box=panel.querySelector('[data-pause-error]');
+      box.hidden=!error;
+      box.textContent=error?`已因错误暂停（${new Date(error.at).toLocaleTimeString()}）：${error.reason}。`+
+        (error.backup?`角色已改做 ${error.backup} 采集，避免空闲；`:'角色未在空闲，保持当前任务；')+
+        '处理后点击“开始调度”重试，详情见诊断。':'';
+    }
     panel.querySelector('[data-task]').textContent=trainer.plan?.label??'';
     panel.querySelector('[data-reason]').textContent=trainer.plan?.reason??'';
     panel.querySelector('[data-task]').hidden=!trainer.plan?.label;
@@ -3030,7 +3038,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
       } else releaseLease();
     } catch (error) {
       if ((trainer.active||trainer.recovery)&&socket?.readyState!==NativeWebSocket.OPEN) trainer.connectionLost();
-      else {trainer.pause(`调度已暂停：${error.message}`);releaseLease();}
+      else {trainer.pauseError(`调度已暂停：${error.message}`);releaseLease();}
     } finally {pumping=false;}
     render();
   }

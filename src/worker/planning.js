@@ -12,7 +12,7 @@ import {planView} from '../planner/plan-view.js';
 // transaction journal, Boss lifecycle and every actual command submission.
 export const decisionFields=['goal','served','deferred','questDeferred','waitingGoals','blockedReasons','sequence',
   'goalSince','bankedLoad','message','plan','history','farmJobId','progress','stallCheck','failures','failureKey','itemTarget','buffRefill',
-  'hotFollow','hotParkedGoal','hotFollowValidation','fallbackCheckedAt'];
+  'hotFollow','hotParkedGoal','hotFollowValidation','fallbackCheckedAt','pausedError'];
 // fallbackOwned is read-only here: only a confirmed snapshot on the page changes it.
 export const inputFields=[...decisionFields,'player','active','style','mode','mainTrade','mainJobId','mainMonsterId','softRefused','fallbackOwned',
   'snapshotSequence','syncAfter','nextSync','lastSync'];
@@ -63,6 +63,7 @@ export function runPlanning(data,input,inspectOnly=false) {
   trainer.hotFollow=normalizeHotFollow(input.settings.hotFollow??trainer.hotFollow);
   trainer.hotParkedGoal=input.trainer.hotParkedGoal??null;
   trainer.autoFallback=input.settings.autoFallback!==false;
+  trainer.inWorker=true;
   trainer.market=market;
   trainer.boss={status:()=>input.boss,cancel:()=>{}};
   let proposal=null;
@@ -91,6 +92,8 @@ export function applyPlanning(trainer,planner,economy,market,result,storage) {
   }
   planner.runtime(result.planner);economy.runtime(result.economy);market.runtime(result.market);
   for(const key of decisionFields)trainer[key]=result.decision[key];
+  // An error pause in the Worker: the page starts the gathering backup.
+  if(!result.active&&trainer.pausedError&&!trainer.pausedError.backup)trainer.startBackup();
   // The Worker can request a fresh snapshot, never open a game connection.
   for(const intent of result.commands) {
     if(intent.t!=='resync')throw new Error('未知后台查询');

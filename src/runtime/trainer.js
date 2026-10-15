@@ -132,6 +132,8 @@ export class Trainer {
     this.softRefused={};
     // Native fallback activity: on/off, the one the helper set per player, last check.
     this.autoFallback=true; this.fallbackOwned={}; this.fallbackCheckedAt=0;
+    // The last error pause (shown on the overview) and whether this copy runs in the Worker.
+    this.pausedError=null; this.inWorker=false;
     this.nextSync=0; this.nextAction=0; this.goalSince=0; this.bankedLoad=false;
     this.snapshotSequence=0; this.syncAfter=0; this.lastSync=-Infinity;
     this.message='等待登录后的游戏状态；安装后请刷新游戏';
@@ -156,7 +158,30 @@ export class Trainer {
     this.history=this.history.slice(0,8);
     this.message=message;
   }
+  // An error pause should not leave the character standing still: if it is
+  // idle, start the gathering backup (the fallback-activity choice) and keep
+  // the error on the overview until the next start. Only the page can send;
+  // a pause inside the planning Worker is handed back through pausedError.
+  pauseError(reason) {
+    this.pause(reason);
+    this.pausedError={reason,at:this.now(),backup:null};
+    if(!this.inWorker)this.startBackup();
+  }
+  startBackup() {
+    const p=this.player;
+    if(!p||!this.pausedError||this.pausedError.backup||!this.compatible||this.awaitingWelcome||this.mode==='assist'||
+      p.route||p.path?.length||p.held||p.raidHeld||p.queue?.length||p.enhance)return null;
+    const choice=this.planner.chooseFallback?.(p,null,this.style);
+    if(!choice)return null;
+    const intent={t:'setRoute',jobId:choice.task.jobId,siteId:choice.task.siteId,onFull:'bank',limit:0,rarity:0};
+    try {this.send(intent);}
+    catch(error){this.log(`备用采集未能开始：${error.message}`);return null;}
+    this.pausedError={...this.pausedError,backup:choice.job.name};
+    this.log(`已因错误暂停；角色改做 ${choice.job.name}，避免空闲`);
+    return intent;
+  }
   pause(reason='已暂停调度，游戏继续当前任务',preserveBoss=false) {
+    this.pausedError=null;
     if(!preserveBoss){this.boss.cancel(reason);this.planner.cancelHousing?.();this.buffRefill=null;}
     if(this.player)this.planner.watchPotions?.(this.player,[]);
     this.active=false; this.pending=null; this.recentDeposit=null; this.recovery=null;this.resolution=null;this.stallCheck=null;this.bankedLoad=false; this.log(reason);
@@ -497,7 +522,7 @@ export class Trainer {
           this.market?.rejected(message.code);
           this.checkCommand(`市场状态已变化：${message.code}`,message.code);
         } else if(this.active&&this.pending&&STATE_REFUSALS.has(message.code))this.checkCommand(`服务器状态已变化：${message.code}`,message.code);
-        else this.pause(`服务器拒绝操作：${String(message.code).slice(0,100)}`);
+        else this.pauseError(`服务器拒绝操作：${String(message.code).slice(0,100)}`);
       }
       if (message.t==='batch' && message.e?.some(e=>e.kind==='died')&&!this.boss.ownsDeath(frame.tick)) this.pause('检测到角色死亡，请检查战斗配置后再继续');
       if (message.t==='batch' && frame.tick>=this.snapshotTick &&
@@ -516,7 +541,7 @@ export class Trainer {
   start(preservePreparation=false) {
     if (!this.player||!this.compatible) return this.log('尚未取得兼容的角色状态，请刷新游戏后重试');
     if ((this.mode!=='assist'||this.itemTarget&&this.itemTarget.status!=='completed')&&this.player.queue?.length&&!this.boss.ownsQueue(this.player)) return this.log('请先在游戏中清空原有任务队列，再开始自动调度');
-    this.active=true; this.recovery=null; this.pending=null;
+    this.active=true; this.recovery=null; this.pending=null; this.pausedError=null;
     if(!preservePreparation||!this.goal?.craftPreparation&&!equipmentProject(this.goal))this.goal=null;
     this.plan=null;
     this.resolution=null;this.progress=null;this.stallCheck=null;this.failures=[];this.bankedLoad=false;
@@ -533,7 +558,7 @@ export class Trainer {
     if(this.failureKey!==key)this.failures=[];
     this.failureKey=key;
     this.failures=this.failures.filter(t=>this.now()-t<600000);this.failures.push(this.now());
-    if(this.failures.length>3){this.pause(`连续恢复仍未成功：${reason}`);return false;}
+    if(this.failures.length>3){this.pauseError(`连续恢复仍未成功：${reason}`);return false;}
     return true;
   }
   noteConsumable(key,message) {
@@ -760,13 +785,13 @@ export class Trainer {
         this.log(code?'市场操作未成交，冷却后重新比价；继续常规规划':'交易结果仍待核实，暂停新交易并继续自给任务');
       } else {
         if(pending&&!code&&HOUSE_ACTIONS.has(pending.intent.t))
-          return this.pause('房屋操作结果仍未确认，已暂停以防重复花费；请核对房屋状态后继续');
+          return this.pauseError('房屋操作结果仍未确认，已暂停以防重复花费；请核对房屋状态后继续');
         if(pending&&!code&&pending.intent.t==='dropItem')
-          return this.pause('原地丢弃结果仍未确认，已暂停调度以防重复丢弃；游戏当前采集继续');
+          return this.pauseError('原地丢弃结果仍未确认，已暂停调度以防重复丢弃；游戏当前采集继续');
         if(pending&&!code&&['enhance','marketDump','vendorBuy','eat','drink'].includes(pending.intent.t)&&
           (this.player.coins!==pending.before.coins||quantity(this.player,pending.intent.itemId)!==quantity(pending.before,pending.intent.itemId)||
             pending.intent.t==='eat'&&this.player.hp!==pending.before.hp))
-          return this.pause('消耗型操作结果不明确，已暂停以防重复消耗');
+          return this.pauseError('消耗型操作结果不明确，已暂停以防重复消耗');
         if(!this.fault(reason,`${pending?.intent.t}:${code??'timeout'}`))return;
         if(this.goal&&['setRoute','fight'].includes(pending?.intent.t)&&
           ['cannot-set-route','cannot-fight','level-too-low'].includes(code)){
