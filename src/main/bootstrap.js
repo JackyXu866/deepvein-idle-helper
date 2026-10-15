@@ -43,6 +43,10 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     potionRestock=localStorage.getItem(potionRestockKey)!=='false';
     capacitySales=localStorage.getItem(capacitySalesKey)!=='false';
   }catch{potionRestock=false;capacitySales=false;}
+  // How sales are priced: 'list' at the ask (wait for buyers) or 'bid' (sell now).
+  const salePricingKey='deepvein-sale-pricing-v1';
+  let salePricing='list';
+  try {salePricing=localStorage.getItem(salePricingKey)==='bid'?'bid':'list';}catch{}
   // Experience mode: minimum gold per hour a chosen task must earn (0 = off).
   const profitFloorKey='deepvein-profit-floor-v1';
   const validProfitFloor=value=>Number.isFinite(value)&&value>0?Math.min(1e9,Math.floor(value)):0;
@@ -57,7 +61,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
   let economy=createEconomy(GAME_DATA,planner,{autoSell,capacitySales});
   planner.maintenance=(...args)=>economy.maintenance(...args);
   planner.investmentBudget=(...args)=>economy.investmentBudget(...args);
-  const market=createMarket(GAME_DATA,planner,{now:()=>Date.now(),storage:localStorage,autoSell,capacitySales});
+  const market=createMarket(GAME_DATA,planner,{now:()=>Date.now(),storage:localStorage,autoSell,capacitySales,salePricing});
   const procurementKey='deepvein-procurement-v1';
   let procurement;
   try {procurement=market.configureProcurement(JSON.parse(localStorage.getItem(procurementKey)||'{}'));}
@@ -221,7 +225,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     const url=URL.createObjectURL(new Blob([PLANNING_WORKER_SOURCE],{type:'text/javascript'}));
     try{return new Worker(url);}finally{URL.revokeObjectURL(url);}
   }):null;
-  const planningSettings=()=>({autoSell,capacitySales,potionRestock,profitFloor,hotFollow:trainer.getHotFollow()});
+  const planningSettings=()=>({autoSell,capacitySales,potionRestock,profitFloor,salePricing,hotFollow:trainer.getHotFollow()});
   function planningStorage() {
     return Object.fromEntries(['deepvein-market-v1','deepvein-enhancement-training-v1'].map(key=>[key,localStorage.getItem(key)]));
   }
@@ -1682,8 +1686,10 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
                   <p class="fine-print">自主发展／经验优先练采矿、伐木时，可在原地清理不需要的普通主产物，省下的往返时间须超过产物价值；钓鱼、偷窃不自动丢。保留至少 50 件周转物资、计划材料、所有稀有物及副产物，不启用游戏的一键丢弃采集物。</p>
                   <label>自动出售多余物品<input type="checkbox" data-auto-sell aria-label="自动出售多余物品"></label>
                   <label>满仓时出售普通盈余<input type="checkbox" data-capacity-sales aria-label="满仓时出售普通盈余"></label>
+                  <label>出售方式<select data-sale-pricing aria-label="出售方式"><option value="list">挂单：按卖盘价等待成交</option><option value="bid">直接卖给买单：立即成交</option></select></label>
+                  <p class="fine-print">挂单：比最低卖价低一档挂出，税后须比最高买单多 5% 以上，且近 2 小时成交量足以消化同价排队卖量，否则直接卖给买单；同一批挂两轮仍未卖完时改为卖给买单。收益规划也按同样方式估值。</p>
                   <p data-market class="muted"></p>
-                  <details><summary>出售范围与保护</summary><p class="fine-print">日常出售默认关闭，满仓清理默认开启。扣除计划用量后处理普通盈余和淘汰装备。品质／强化装备只有已有可穿戴且属性全面更好的替代品、没有在用或套装／目标引用时才可卖；按同品质同强化近 2 小时成交中位价参考，最多下浮 10%，没有可靠行情或需求不足则保留，绝不转系统回收。所有坐骑、宠物、低概率掉落（含白色）、稀有材料、种子、药水、食物储备和装备方案均保留。保护也覆盖旧版脚本挂单，未成交的会撤回，不动玩家手动单。优先成交税后更划算的买单；挂售量参考近 2 小时可见成交和排队卖量。满仓且最新有效记录显示滞销的普通盈余可直接系统回收；其他仍需挂售至少 2 小时并重新定价。查询失败、历史缺失或挂单槽满不会触发直接回收。不自动捐赠。</p></details>
+                  <details><summary>出售范围与保护</summary><p class="fine-print">日常出售默认关闭，满仓清理默认开启。扣除计划用量后处理普通盈余和淘汰装备。品质／强化装备只有已有可穿戴且属性全面更好的替代品、没有在用或套装／目标引用时才可卖；按同品质同强化近 2 小时成交中位价参考，最多下浮 10%，没有可靠行情或需求不足则保留，绝不转系统回收。所有坐骑、宠物、低概率掉落（含白色）、稀有材料、种子、药水、食物储备和装备方案均保留。保护也覆盖旧版脚本挂单，未成交的会撤回，不动玩家手动单。按所选出售方式挂单或成交买单；挂售量参考近 2 小时可见成交和排队卖量。满仓且最新有效记录显示滞销的普通盈余可直接系统回收；其他仍需挂售至少 2 小时并重新定价。查询失败、历史缺失或挂单槽满不会触发直接回收。不自动捐赠。</p></details>
                 </details>
                 <details data-buffs-details><summary>药水与食物</summary>
                   <p data-buffs class="muted"></p>
@@ -1808,6 +1814,12 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
       catch {potionRestock=false;trainer.log('补药设置无法保存，自动补药已关闭');}
       if(!potionRestock&&trainer.player)market.watchPotions(trainer.player,[]);
       render();
+    };
+    panel.querySelector('[data-sale-pricing]').onchange=event=>{
+      salePricing=event.currentTarget.value==='bid'?'bid':'list';market.setSalePricing(salePricing);
+      try {localStorage.setItem(salePricingKey,salePricing);}
+      catch {trainer.log('出售方式无法保存，刷新后恢复为挂单');}
+      planner.resetSpecialization();render();
     };
     panel.querySelector('[data-capacity-sales]').onchange=event=>{
       capacitySales=event.currentTarget.checked===true;
@@ -2761,6 +2773,7 @@ import {applyPlanning, createPlanningClient, planningGuard, planningState} from 
     panel.querySelector('[data-auto-sell]').checked=autoSell;
     panel.querySelector('[data-potion-restock]').checked=potionRestock;
     panel.querySelector('[data-capacity-sales]').checked=capacitySales;
+    panel.querySelector('[data-sale-pricing]').value=salePricing;
     panel.querySelector('[data-mode-info]').textContent=modeInfo[trainer.mode]+(trainer.mode==='business'&&!autoSell?' 自动出售关闭；收入比较只计直接获得的金币。':'');
     panel.querySelector('[data-training-policy]').textContent=trainer.mode==='assist'?
       '不安排练级、装备、交易或采购任务；不采种、不解锁新作物。玩家可继续编辑自己的队列，手动操作优先。':

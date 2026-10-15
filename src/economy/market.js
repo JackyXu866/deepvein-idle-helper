@@ -5,7 +5,7 @@ import {inventoryBudget, reviewInventory, saleProtectionReason} from '../planner
 
 // Limit orders can rest after a partial fill. Track only orders we submitted;
 // inventory removed into escrow is not evidence of a sale or realized income.
-export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=false,capacitySales=false}={}) {
+export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=false,capacitySales=false,salePricing='list'}={}) {
   const key='deepvein-market-v1',ttl=15000,waitMs=4000,coolMs=30000;
   const reviewMs=1800000,recycleMs=7200000;
   const ironmanReason='铁人角色不支持普通玩家市场交易；保留盈余，请手动整理仓库';
@@ -16,6 +16,10 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
   let watched=[],potionWatched=[],watchCursor=0,priorityItem=null;
   let salesEnabled=autoSell===true;
   let capacitySalesEnabled=capacitySales===true;
+  // 'list': sell by listing just under the lowest ask when that pays clearly
+  // more than the best bid and recent trades show buyers at that price;
+  // 'bid': fill the best buy order immediately (the original behaviour).
+  let pricing=salePricing==='bid'?'bid':'list';
   let need=null,recentOwned=[],reviewOrderId=null,status=salesEnabled?
     '市场优先；挂售至少 2 小时并重新定价后才回收':'自动出售已关闭，物品留给玩家处理';
   const persist=()=>{
@@ -208,15 +212,24 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     // Value only new output that the current buyers could absorb after all
     // existing stock. Asking prices and escrow never count as earned income.
     const floor=Math.max(1,Math.floor(data.items[itemId].value*.4));
-    let stock=quantity(p,itemId),remaining=qty,net=0;
+    let stock=quantity(p,itemId),remaining=qty,net=0,bidValue=null;
     for(const bid of [...book.bids].sort((a,b)=>b.price-a.price)) {
       const old=Math.min(stock,bid.qty),take=Math.min(remaining,bid.qty-old);
       const proceeds=take*bid.price-Math.floor(take*bid.price*taxBp/10000);
       if(take>0&&proceeds<=floor*take)continue;
       stock-=old;remaining-=take;net+=proceeds;
-      if(!remaining)return {net,qty};
+      if(!remaining){bidValue={net,qty};break;}
     }
-    return null;
+    // Listing mode: value at the listing price when recent buyers at that
+    // price could take this output after existing stock and the queue ahead.
+    if(pricing==='list'&&book.tradesKnown===true) {
+      const listing=listingQuote(p,book,floor);
+      const room=listing?listing.demand.volume-listing.demand.ahead-quantity(p,itemId):0;
+      const best=[...book.bids].sort((a,b)=>b.price-a.price)[0]?.price;
+      if(listing&&room>=qty&&listingWorthIt(listing,best)&&netOf(listing.price,qty)>floor*qty&&
+        netOf(listing.price,qty)>(bidValue?.net??0))return {net:netOf(listing.price,qty),qty,listed:true};
+    }
+    return bidValue;
   }
   function quote(id) {
     if((cooldowns.get(id)??0)>now())return {fallback:true};
@@ -483,6 +496,24 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const ahead=book.asks.filter(row=>row.price<=price).reduce((n,row)=>n+row.qty,0);
     return {volume,ahead,illiquid:book.tradesKnown===true&&volume<=ahead};
   }
+  // The price a new listing would use (just under the lowest ask, never above
+  // recent trades, -10% per re-list) and the demand at that price.
+  function listingQuote(p,book,floor,previous=null) {
+    const prices=[...book.asks.map(row=>row.price),...book.trades.filter(row=>
+      row.tick<=p.lastTick&&(p.lastTick-row.tick)*data.tickMs<=600000).map(row=>row.price)];
+    const minimum=Math.floor(floor/(1-taxBp/10000))+1;
+    const reference=prices.length?Math.min(...prices):floor*2;
+    const recentDemand=book.trades.some(row=>row.tick<=p.lastTick&&(p.lastTick-row.tick)*data.tickMs<=recycleMs);
+    const ask=recentDemand&&book.asks.length?Math.min(...book.asks.map(row=>row.price))-1:reference;
+    const price=Math.max(minimum,Math.min(ask,previous?Math.min(reference,Math.floor(previous.price*.9)):reference));
+    if(!valid(price)||price>1e9)return null;
+    return {price,demand:saleDemand(p,book,price,floor)};
+  }
+  const netOf=(price,qty)=>price*qty-Math.floor(price*qty*taxBp/10000);
+  // Listing is worth waiting for: >5% more after tax than the bid, and buyers
+  // traded at that price recently beyond what is already queued ahead.
+  const listingWorthIt=(listing,bidPrice)=>!!listing&&listing.demand.volume>listing.demand.ahead&&
+    (bidPrice==null||netOf(listing.price,1)>netOf(bidPrice,1)*1.05);
   function listedQuantity(p,itemId) {
     select(p);
     return ordersKnown?orders.filter(o=>o.itemId===itemId&&o.side==='sell')
@@ -522,11 +553,15 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       return scoped({...atBank(p,{t:'marketSell',itemId:id,...offer},
         `出售淘汰装备 · ${itemName(id)} × ${offer.qty}，单价 ${offer.price}`),equipmentSale:{goal,profession}});
     }
-    const net=(price,qty)=>price*qty-Math.floor(price*qty*taxBp/10000);
+    const net=netOf;
     const bid=[...book.bids].sort((a,b)=>b.price-a.price).find(row=>
       net(row.price,Math.min(safeQty,row.qty))>intent.floor*Math.min(safeQty,row.qty));
-    if(bid&&safeQty>0) {
-      status='优先成交税后高于系统回收的买单';
+    // In listing mode, wait for buyers at the ask unless this batch already
+    // failed to sell through two re-pricings.
+    const preferListing=pricing==='list'&&!(previous?.rounds>=2)&&book.tradesKnown===true&&
+      listingWorthIt(listingQuote(p,book,intent.floor,previous),bid?.price);
+    if(bid&&safeQty>0&&!preferListing) {
+      status=pricing==='list'?'卖盘价没有明显更高或近期成交不足，直接成交买单':'优先成交税后高于系统回收的买单';
       return scoped(atBank(p,{t:'marketSell',itemId:id,qty:Math.min(safeQty,bid.qty),price:bid.price},
         `市场出售 · ${data.items[id].name}，单价 ${bid.price}`));
     }
@@ -535,14 +570,9 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       return scoped({...vendorPlan,intent:{...intent,qty:safeQty},label:`长期未售出 · ${data.items[id].name} × ${safeQty}，系统回收`,
         reason:`累计挂售 ${Math.floor(previous.listedMs/60000)} 分钟、${previous.rounds} 轮；最新买单无更高税后收益，仅回收本批剩余盈余`});
     }
-    const prices=[...book.asks.map(row=>row.price),...book.trades.filter(row=>
-      row.tick<=p.lastTick&&(p.lastTick-row.tick)*data.tickMs<=600000).map(row=>row.price)];
-    const minimum=Math.floor(intent.floor/(1-taxBp/10000))+1;
-    const reference=prices.length?Math.min(...prices):intent.floor*2;
-    const recentDemand=book.trades.some(row=>row.tick<=p.lastTick&&(p.lastTick-row.tick)*data.tickMs<=recycleMs);
-    const ask=recentDemand&&book.asks.length?Math.min(...book.asks.map(row=>row.price))-1:reference;
-    const price=Math.max(minimum,Math.min(ask,previous?Math.min(reference,Math.floor(previous.price*.9)):reference));
-    const demand=saleDemand(p,book,price,intent.floor);
+    const listing=listingQuote(p,book,intent.floor,previous);
+    if(!listing)return defer('没有税后高于回收价的合法挂售价，保留物品');
+    const {price,demand}=listing;
     if(capacitySale&&inventoryBudget(data,planner,p,goal).freeSlots<=0&&demand.illiquid) {
       status='满仓普通盈余：近期可见成交不足以覆盖排队卖量，转系统回收';
       return scoped({...vendorPlan,intent:{...intent,qty:safeQty},illiquidSale:true,
@@ -779,6 +809,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     status=salesEnabled?'市场优先；挂售至少 2 小时并重新定价后才回收':'自动出售已关闭，物品留给玩家处理';
   }
   function setCapacitySales(enabled) {capacitySalesEnabled=enabled===true;}
+  function setSalePricing(value) {pricing=value==='bid'?'bid':'list';}
   function rejected(code) {
     refresh();
     const known=['not-at-bank','price-changed','not-tradable','too-many-orders','cannot-afford',
@@ -794,10 +825,10 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
   const summary=()=>`${status}；成交净收入 ${state?.income??0}，采购支出 ${state?.spent??0}，自有挂单 ${Object.keys(state?.owned??{}).length}；近一小时补药承诺 ${potionBudgetSpent()}`+
     (procurement?.enabled?`；按收益／节时采购，无固定金币底线和小时限额；近一小时承诺 ${purchaseSpent()}`:'');
   function runtime(value) {
-    if(value) {({saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status}=value);state=playerId===null?null:playerState(playerId);}
-    return {saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status};
+    if(value) {({saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status}=value);if(value.pricing)pricing=value.pricing;state=playerId===null?null:playerState(playerId);}
+    return {saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status,pricing};
   }
-  return {runtime,receive,next,sale,purchase,restockPotion,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,
+  return {runtime,receive,next,sale,purchase,restockPotion,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setSalePricing,
     configureProcurement,equipmentPurchase,foodPurchase,buffFood,potionDose,marketUnitCost,surplusValue,watchPurchases:scan,
     purchaseAllowance:(p,goal)=>{select(p);return purchaseAllowance(p,goal);}};
 }
