@@ -113,7 +113,9 @@ export function bankedGatheringLoad(data,before,p) {
 export function finishTaskReason(data,p) {
   const route=p.route,original=data.jobs.find(j=>j.id===route?.jobId);
   const job=original&&(original.inputs.length&&!original.grow?craftRecipe(data,original,p.workRarity??route?.rarity??0):original);
-  if (!job||job.grow||route.errand||!route.phase||route.phase==='toBank'||route.limit===0) return null;
+  // The game's fallback activity (route.fallback) is only an idle filler: it
+  // is replaced at once, not finished like the helper's own trips.
+  if (!job||job.grow||route.errand||route.fallback||!route.phase||route.phase==='toBank'||route.limit===0) return null;
   const base=id=>baseId(data,id);
   const free=packCapacity(p)-packUsed(data,p);
   const output=data.items[base(job.output.itemId)];
