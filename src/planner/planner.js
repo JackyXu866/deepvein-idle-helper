@@ -1242,6 +1242,14 @@ export function createPlanner(data) {
         if(need>used&&!trail.includes(input.itemId))reserve(input.itemId,need-used,[...trail,input.itemId]);
       }
     };
+    // The piece being made takes its share of the held materials first; only
+    // the rest is held for the other pieces. Otherwise each new bar it smelts
+    // would be claimed by another piece and it would smelt one more, forever.
+    if(except!=null) {
+      const own=out;
+      reserve(except,1,[except]);
+      for(const key of Object.keys(own))delete own[key];
+    }
     for(const id of plannedQualityGear(p,profession))if(id!==except)reserve(id,1,[id]);
     return out;
   }

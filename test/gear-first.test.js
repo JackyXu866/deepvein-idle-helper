@@ -28,6 +28,21 @@ test('the planned quality piece is crafted first, from its own materials', () =>
   assert.match(plan.reason, /先打造计划装备/);
 });
 
+test('the piece being made claims its own held materials first: no one-bar-at-a-time smelting', () => {
+  const planner = makePlanner(), d = planner.data, R = d.rarityScale;
+  planner.watchMarket = () => {};
+  const id = name => Object.values(d.items).find(i => i.name === name).id;
+  const bar = id('Cobalt bar'), at = d.banks[0];
+  const p = player(planner, {levels: {crafting: 72, smithing: 70, mining: 70, melee: 60, defence: 60, hitpoints: 60}, x: at.x, y: at.y,
+    bank: {[bar + R]: 1, [id('Cobalt') + R]: 30, [id('Cobalt')]: 200, 5: 2000}, coins: 0, hp: 600, activity: 'idle', path: null, held: false, route: null});
+  const mortar = d.jobs.find(j => j.skill === 'crafting' && j.name === 'Cobalt mortar');
+  const goal = {skill: 'crafting', target: 75, development: true, growth: true, recipeId: mortar.id, recipes: {crafting: mortar.id}, budget: {coins: 0, items: {}}};
+  const plan = planner.plan(p, goal, 'melee');
+  const needle = d.jobs.find(j => j.skill === 'crafting' && j.name === 'Cobalt needle');
+  assert.equal(plan.intent?.jobId, needle.id, 'the uncommon needle is made from the bar held, not another bar smelted');
+  assert.equal(plan.intent?.rarity, 1);
+});
+
 test('held materials are shared between planned pieces, never counted twice', () => {
   const {planner, p, R, bar, ore} = setup(({bar, ore, R}) => ({[bar + 2 * R]: 1, [ore + 2 * R]: 40, [ore]: 50, 5: 500}), {smithing: 50});
   const reserve = planner.plannedGearReserve(p, 'melee');
