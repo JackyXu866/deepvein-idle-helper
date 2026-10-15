@@ -79,8 +79,11 @@ export function createProgression(data,planner) {
     if(goal?.development) {
       if(goal.skill==='farming')goal.target=Math.min(goal.target,farmLevel);
       focus=goal;
-      if(focus.progressXp!==p.skills[focus.skill]||focus.progressTick==null) {
-        focus.progressXp=p.skills[focus.skill];focus.progressTick=p.lastTick;
+      // While a stage's materials are being prepared, any experience (the
+      // gathering and smelting behind it) is progress, not a stall.
+      const xp=goal.craftPreparation?Object.values(p.skills).reduce((a,b)=>a+(b??0),0):p.skills[focus.skill];
+      if(focus.progressXp!==xp||focus.progressTick==null) {
+        focus.progressXp=xp;focus.progressTick=p.lastTick;
       }
     } else if(focus&&(goal?.quest||goal?.itemTarget))focus.progressTick=p.lastTick;
   }

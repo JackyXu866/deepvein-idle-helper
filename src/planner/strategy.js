@@ -1,7 +1,7 @@
 import {autoUsableMaterial, matchesProfessionWeapon, professionSkill, starterWeapon} from './professions.js';
 import {combatEstimate, workEstimate} from './estimates.js';
 import {buffKey, combatSupplies} from './supplies.js';
-import {distance, nearestBank, packCapacity, rarityOf} from './items.js';
+import {distance, merchantPrice, nearestBank, packCapacity, rarityOf} from './items.js';
 
 // A rolling comparison of attainable routes, including their self-supply work.
 // Gold is a constraint from an actual planned expense, never an XP conversion.
@@ -76,7 +76,9 @@ export function createStrategy(data, planner) {
       for (const [id,n] of Object.entries(p.bank)) stock[id]=n;
       for (const i of p.pack) stock[i.itemId]=(stock[i.itemId]??0)+i.qty;
     }
-    let seconds=0,xp=0,coins=0,position=p,unlocks=[],marketCoins=0;
+    // Owned materials are not free: what they would sell for is charged against
+    // the route's gold (stockValue). Spending budgets use the coins alone.
+    let seconds=0,xp=0,coins=0,position=p,unlocks=[],marketCoins=0,stockValue=0;
     const purchases={};
     const travel=to=>{
       if (includeTravel) seconds+=distance(position,to)*tick;
@@ -119,7 +121,8 @@ export function createStrategy(data, planner) {
     function supply(id,quantity,trail) {
       if(!autoUsableMaterial(data,id))return false;
       budget[id]=(budget[id]??0)+Math.ceil(quantity);
-      const used=Math.min(quantity,stock[id]??0);stock[id]=(stock[id]??0)-used;
+      const used=Math.max(0,Math.min(quantity,stock[id]??0));stock[id]=(stock[id]??0)-used;
+      if(used>0&&id!==data.coinId)stockValue+=used*(planner.marketUnitValue?.(p,id,Math.ceil(used))??merchantPrice(data,id));
       const missing=quantity-used;
       if (missing<1e-7) return true;
       if (trail.includes(id)) return false;
@@ -218,7 +221,8 @@ export function createStrategy(data, planner) {
       ok=!!c&&fight(c,amount);
     } else if (root) ok=work(root,amount,[root.output.itemId]);
     if (!ok||!Number.isFinite(seconds)) return invalid();
-    return {seconds,xp,coins,rate:{xp:xp/Math.max(1,seconds),coins:coins/Math.max(1,seconds)},
+    const net=coins-stockValue;
+    return {seconds,xp,coins:net,stockValue,rate:{xp:xp/Math.max(1,seconds),coins:net/Math.max(1,seconds)},
       budget:{coins:Math.max(0,-coins-marketCoins),items:budget},recipes,supplyRecipes,unlocks,purchases};
   }
   function candidates(p,style='magic',deferred={},options={}) {

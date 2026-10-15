@@ -583,7 +583,14 @@ export function createPlanner(data) {
       const batchLimits=new Map();
       const levelBatch=job=>Math.max(1,Math.ceil((thresholds[Math.min(lv[skill]+1,thresholds.length-1)]-
         thresholds[Math.min(lv[skill],thresholds.length-2)])/jobEstimate(job).xp));
+      // A development project plans ahead: it prepares every material for the
+      // whole stage (to its target level) before crafting, rather than one
+      // level at a time. Business and fixed trades keep their time-bounded batches.
+      const stagePlan=prepareBatch&&!!goal.development&&!goal.manualTrade&&!goal.specialization;
+      const stageBatch=job=>Math.max(1,Math.ceil(Math.max(1,thresholds[Math.min(goal.target??lv[skill]+1,thresholds.length-1)]-
+        p.skills[skill])/jobEstimate(job).xp));
       const supplyBatch=job=>{
+        if(stagePlan)return Math.max(carriedBatch(p,job),stageBatch(job));
         const seconds=jobTime(job)+job.inputs.reduce((n,i)=>n+i.qty*cost(i.itemId,trail),0);
         const load=job.inputs.some(i=>!data.items[base(i.itemId)]?.stackable)?carriedBatch(p,job):Math.min(carriedBatch(p,job),levelBatch(job));
         return Math.max(load,Math.min(levelBatch(job),Math.max(1,Math.floor((goal.horizon??strategy.horizon)/seconds))));
@@ -667,6 +674,8 @@ export function createPlanner(data) {
         Math.ceil(neededXp/(job.grow?job.xp:jobEstimate(job).xp));
       if(goal.specialization&&!goal.quest&&skill===goal.mainSkill&&!trail.length)amount=prepareBatch?supplyBatch(job):goal.batch??50;
       if(prepared)amount=preparation.amount;
+      // Whole stage: gather it all first; a partial stock does not start crafting.
+      else if(stagePlan&&job.inputs.length&&!job.grow&&!job.rarity)amount=stageBatch(job);
       else if(prepareBatch&&job.inputs.length&&!job.grow) {
         const available=job.inputs.map(i=>Math.floor(count(p,i.itemId)/i.qty));
         if(available.every(n=>n>0)) amount=Math.min(amount,...available);
