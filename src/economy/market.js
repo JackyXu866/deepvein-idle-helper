@@ -202,16 +202,21 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     potionWatched=p.ironman?[]:[...new Set(itemIds.filter(id=>POTIONS.some(potion=>potion.itemId===id)&&tradable(id)))].slice(0,8);
     for(const [id,request]of requests)if(request.potionBackground&&!potionWatched.includes(id))requests.delete(id);
   }
+  // Sale value of new output: the best of filling current bids, listing at the
+  // ask (listing mode, with proven demand) and the merchant (系统回收), which
+  // always buys at 40% of base value. The merchant is also the lower bound
+  // while market quotes are missing, stale or cooling down.
   function opportunity(p,itemId,qty) {
     select(p);
     if(p.ironman)return null;
-    if(!tradable(itemId)||saleProtectionReason(data,itemId)||!valid(qty)||state.attempt||!slots(p)||hasOrder(itemId)||
-      (cooldowns.get(itemId)??0)>now())return null;
-    const book=quotes.get(itemId);
-    if(!book||now()-book.at>=ttl)return watched.includes(itemId)?{pending:true}:null;
-    // Value only new output that the current buyers could absorb after all
-    // existing stock. Asking prices and escrow never count as earned income.
+    if(!tradable(itemId)||saleProtectionReason(data,itemId)||!valid(qty))return null;
     const floor=Math.max(1,Math.floor(data.items[itemId].value*.4));
+    const merchant={net:floor*qty,qty,merchant:true};
+    if(state.attempt||!slots(p)||hasOrder(itemId)||(cooldowns.get(itemId)??0)>now())return merchant;
+    const book=quotes.get(itemId);
+    if(!book||now()-book.at>=ttl)return merchant;
+    // Market value counts only new output that current buyers could absorb
+    // after existing stock. Asking prices and escrow never count as earned income.
     let stock=quantity(p,itemId),remaining=qty,net=0,bidValue=null;
     for(const bid of [...book.bids].sort((a,b)=>b.price-a.price)) {
       const old=Math.min(stock,bid.qty),take=Math.min(remaining,bid.qty-old);
@@ -229,7 +234,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       if(listing&&room>=qty&&listingWorthIt(listing,best)&&netOf(listing.price,qty)>floor*qty&&
         netOf(listing.price,qty)>(bidValue?.net??0))return {net:netOf(listing.price,qty),qty,listed:true};
     }
-    return bidValue;
+    return bidValue&&bidValue.net>merchant.net?bidValue:merchant;
   }
   function quote(id) {
     if((cooldowns.get(id)??0)>now())return {fallback:true};
@@ -574,6 +579,16 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
         reason:`累计挂售 ${Math.floor(previous.listedMs/60000)} 分钟、${previous.rounds} 轮；最新买单无更高税后收益，仅回收本批剩余盈余`});
     }
     const listing=listingQuote(p,book,intent.floor,previous);
+    // Profit-task output was valued at no less than the merchant price. When
+    // no bid beats the merchant and no recent buyers could absorb a listing,
+    // sell to the merchant now instead of parking an unsellable listing.
+    const marketable=!!listing&&book.tradesKnown===true&&listing.demand.volume>listing.demand.ahead&&
+      net(listing.price,1)>intent.floor;
+    if(profitSale&&!marketable) {
+      status='收益工作产出：市场无更好成交，按商人价出售';
+      return scoped({...vendorPlan,intent:{...intent,qty:safeQty},label:`出售给商人 · ${data.items[id].name} × ${safeQty}`,
+        reason:`没有高于商人价（${intent.floor}/件）的买单，近 2 小时也没有足以消化挂单的成交；收益规划即按商人价估算`});
+    }
     if(!listing)return defer('没有税后高于回收价的合法挂售价，保留物品');
     const {price,demand}=listing;
     if(capacitySale&&inventoryBudget(data,planner,p,goal).freeSlots<=0&&demand.illiquid) {

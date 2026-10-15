@@ -67,6 +67,36 @@ test('everyday selling off: only profit-task output may be listed, and it is val
   assert.equal(plan.profitSale, true);
 });
 
+test('the merchant price is the floor of every sale valuation', () => {
+  const planner = makePlanner(), d = planner.data, item = pickItem(d);
+  const market = createMarket(d, planner, {autoSell: false, now: () => 1_000_000});
+  const p = player(planner, {lastTick: 100000, coins: 0});
+  market.receive({tick: 100000, m: [{t: 'welcome', you: p, orders: []}]});
+  const merchantUnit = Math.max(1, Math.floor(d.items[item].value * .4));
+  const unquoted = market.opportunity(p, item, 30);
+  assert.deepEqual(unquoted, {net: merchantUnit * 30, qty: 30, merchant: true}, 'no quote yet: merchant value');
+  // Bids below the merchant price never beat it.
+  const low = setup('list', {bids: [{price: 1, qty: 1000}], asks: [], trades: []});
+  const value = low.market.opportunity(low.p, low.item, 30);
+  assert.equal(value.merchant, true);
+  assert.equal(value.net, Math.max(1, Math.floor(low.d.items[low.item].value * .4)) * 30);
+});
+
+test('profit output goes to the merchant when the market cannot beat it', () => {
+  const {market, p, item, d} = setup('list', {bids: [], asks: [{price: 999, qty: 5}], trades: []}, {autoSell: false});
+  const atBank = {...p, x: d.banks[0].x, y: d.banks[0].y, bank: {[item]: 60}, route: null, path: null};
+  const floor = Math.max(1, Math.floor(d.items[item].value * .4));
+  const plan = market.sale(atBank, {intent: {t: 'marketDump', itemId: item, qty: 60, floor}, label: 'x', reason: 'y', profitSale: true});
+  assert.equal(plan.intent.t, 'marketDump', 'sold to the merchant, not parked as a listing');
+  assert.equal(plan.intent.qty, 60);
+  assert.equal(plan.profitSale, true);
+  // Everyday selling keeps the old rule: list first, merchant only after 2 hours.
+  const everyday = setup('list', {bids: [], asks: [{price: 999, qty: 5}], trades: []});
+  const atBank2 = {...everyday.p, x: d.banks[0].x, y: d.banks[0].y, bank: {[everyday.item]: 60}, route: null, path: null};
+  const listed = everyday.market.sale(atBank2, {intent: {t: 'marketDump', itemId: everyday.item, qty: 60, floor}, label: 'x', reason: 'y'});
+  assert.equal(listed.intent.t, 'marketSell');
+});
+
 test('a new listing undercuts the queue; stock already held uses up the demand', () => {
   const {market, p, item} = setup('list', {bids: [{price: 100, qty: 1000}], asks: [{price: 150, qty: 180}], trades: [recent(149, 200)]});
   // Listed at 149, ahead of the 180 queued at 150: 200 recent buyers have room.
