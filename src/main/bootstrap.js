@@ -2896,10 +2896,17 @@ import {fallbackOwnership} from '../planner/fallback.js';
       const describe=(g,label)=>{
         if(!g)return '';
         const needs=g.requirements.filter(r=>(lv[r.skill]??0)<r.target).map(r=>`${NAMES[r.skill]??r.skill} ${r.target}`);
-        const list=items=>Object.entries(items??{}).map(([id,qty])=>`${GAME_DATA.items[planner.base(+id)]?.name??id} ×${fmt(qty)}`).join('、');
+        // Materials keep their quality: "罕见 钴锭" is not an ordinary cobalt bar.
+        const quality=id=>['','罕见 ','稀有 ','史诗 ','传说 '][Math.floor(id%GAME_DATA.plusScale/GAME_DATA.rarityScale)]??'';
+        const list=items=>Object.entries(items??{}).map(([id,qty])=>`${quality(+id)}${GAME_DATA.items[planner.base(+id)]?.name??id} ×${fmt(qty)}`).join('、');
         const own=list(g.materials),chain=list(g.chainMaterials);
-        return `\n${label}：${g.name}（${g.wear.skill==='none'?'无等级门槛':`${NAMES[g.wear.skill]??g.wear.skill} ${g.wear.level}`}）`+
-          (g.owned?' · 已持有':needs.length?`\n先解锁：${needs.join('、')}`:`\n${Number.isFinite(g.seconds)?'前置技能已满足':'需掉落或市场来源'}`)+
+        const head=`\n${label}：${g.name}（${g.wear.skill==='none'?'无等级门槛':`${NAMES[g.wear.skill]??g.wear.skill} ${g.wear.level}`}）`;
+        if(g.owned)return `${head} · 已持有`;
+        if(g.quality)return head+(needs.length?`\n先解锁：${needs.join('、')}`:'')+
+          (own?`\n制作缺料：${own}`:'')+
+          (chain?`\n尚缺品质原料：${chain}（只来自采集时的随机掉落或市场）`:
+            Number.isFinite(g.seconds)?`\n品质原料已有，可按链制作${g.money>0?'（部分普通材料需购买）':''}`:'');
+        return head+(needs.length?`\n先解锁：${needs.join('、')}`:`\n${Number.isFinite(g.seconds)?'前置技能已满足':'需掉落或市场来源'}`)+
           (own?`\n制作缺料：${own}`:'')+
           (chain?`\n${needs.length?'练级至解锁及供料链约需':'供料链约需'}：${chain}`:'');
       };

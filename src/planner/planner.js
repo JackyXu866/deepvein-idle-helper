@@ -1142,12 +1142,19 @@ export function createPlanner(data) {
         // A rarer piece is made from the same rarity of materials.
         const recipe=job&&craftRecipe(data,job,rarity(id));
         const stock=count(p,id)>0;
+        const own=recipe&&!stock?Object.fromEntries(recipe.inputs.map(i=>[i.itemId,Math.max(0,i.qty-count(p,i.itemId))]).filter(([,qty])=>qty>0)):{};
+        // Quality pieces follow their quality chain from stock (e.g. uncommon
+        // cobalt ore -> bar -> helm); random rare drops are never ground for.
+        if(rarity(id)>0&&!stock&&recipe) {
+          const short=api.crafting.shortfall(p,id,1),made=api.crafting.estimate(p,id,1,{buy:true});
+          return {id,name:fullName(id),wear:gearRequirement(id),owned:false,requirements:short.requirements,
+            materials:own,chainMaterials:short.missing,seconds:made.seconds,money:made.money,quality:true};
+        }
         const supply=stock?{seconds:0,unlocks:[],budget:{items:{}}}:recipe?
           strategy.routeEstimate(p,recipe,1,{style:profession}):{seconds:Infinity,unlocks:[],budget:{items:{}}};
         const all=Object.fromEntries(Object.entries(supply.budget.items).map(([item,qty])=>[item,Math.max(0,qty-count(p,+item))]).filter(([,qty])=>qty>0));
         // The item's own recipe, apart from what training to its unlock level
         // and the supply chain consume (often far larger).
-        const own=recipe&&!stock?Object.fromEntries(recipe.inputs.map(i=>[i.itemId,Math.max(0,i.qty-count(p,i.itemId))]).filter(([,qty])=>qty>0)):{};
         const rest=Object.fromEntries(Object.entries(all).map(([item,qty])=>[item,qty-(own[item]??0)]).filter(([,qty])=>qty>0));
         return {id,name:fullName(id),wear:gearRequirement(id),owned:stock,requirements:supply.unlocks??[],
           materials:own,chainMaterials:rest,seconds:supply.seconds};

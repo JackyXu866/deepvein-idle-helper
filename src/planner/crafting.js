@@ -47,6 +47,25 @@ export function createCrafting(data,planner) {
     const seconds=supply(id,qty);
     return {seconds:money>(planner.marketAllowance?.(p,{budget:{coins}})??0)?Infinity:seconds,money,xp:0};
   }
+  // For display: walk the same quality chain against current stock and report
+  // the materials still missing at its ends (e.g. uncommon cobalt ore), and the
+  // crafting levels it needs. Ordinary fuel is left to `estimate`'s gathering.
+  function shortfall(p,id,qty) {
+    const stock={...p.bank},levels=planner.levels(p),missing={},requirements=[];
+    for(const item of p.pack)stock[item.itemId]=(stock[item.itemId]??0)+item.qty;
+    (function walk(itemId,amount,trail) {
+      const used=Math.min(amount,stock[itemId]??0);stock[itemId]=(stock[itemId]??0)-used;
+      const left=amount-used;if(left<=0)return;
+      const tier=Math.floor(itemId%data.plusScale/data.rarityScale),job=data.jobs.find(j=>j.output.itemId===planner.base(itemId)&&j.inputs.length&&!j.grow);
+      const recipe=job&&!trail.includes(itemId)&&craftRecipe(data,job,tier);
+      if(!recipe||itemId>=data.plusScale){if(tier>0)missing[itemId]=(missing[itemId]??0)+left;return;}
+      if(levels[job.skill]<job.levelReq&&!requirements.some(r=>r.skill===job.skill&&r.target>=job.levelReq))
+        requirements.push({skill:job.skill,target:job.levelReq});
+      const n=Math.ceil(left/recipe.output.qty);
+      for(const input of recipe.inputs)walk(input.itemId,n*input.qty,[...trail,itemId]);
+    })(id,qty,[]);
+    return {missing,requirements};
+  }
   function available(p,job,tier,reserve={}) {
     const recipe=craftRecipe(data,job,tier);if(!recipe)return 0;
     // Output already owned must not count as raw material for another batch.
@@ -64,7 +83,7 @@ export function createCrafting(data,planner) {
     const job=original&&craftRecipe(data,original,Math.floor(id/data.rarityScale));
     return job?[...new Set(job.inputs.flatMap(i=>[i.itemId,...ingredients(i.itemId,seen)]))]:[];
   }
-  return {estimate,available,ingredients};
+  return {estimate,shortfall,available,ingredients};
 }
 
 export function bankedGatheringLoad(data,before,p) {
