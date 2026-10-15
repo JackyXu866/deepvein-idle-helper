@@ -50,6 +50,25 @@ test('crops already in the fields are listed with their reason', () => {
   assert.match(row.why, /库存 \d+\/500/);
 });
 
+test('with every stock met, ripe fields are still harvested and replanted at a task boundary', () => {
+  const planner = makePlanner(), d = planner.data;
+  const top = Math.max(...d.farmUnlocks);
+  const herb = d.jobs.find(j => j.grow && j.levelReq <= top && d.jobs.some(h => h.skill === 'herblore' && h.inputs.some(i => i.itemId === j.output.itemId)));
+  const fields = d.sites.filter(s => s.kind === 'field').sort((a, b) => a.id - b.id).slice(0, d.farmUnlocks.length);
+  const plots = Object.fromEntries(fields.map(s => [s.id, {seedItemId: herb.inputs[0].itemId, plantedAt: 1000 - herb.grow - 10}]));
+  const full = Object.fromEntries(d.jobs.filter(j => j.grow).map(j => [j.output.itemId, 100000]));
+  const p = {...farmer(planner, top, plots), bank: full};
+  const plan = planner.harvest(p, null, null, 'melee', true);
+  assert.equal(plan?.intent?.t, 'setRoute', planner.farmStatus(p).reason);
+  assert.equal(plan.intent.errand, true);
+  const status = planner.farmStatus(p);
+  assert.match(status.crops[0].why, /不让农田空闲|改种/);
+  // Mid-task, the harvest waits for the boundary instead of interrupting.
+  const busy = {...p, route: {jobId: d.jobs.find(j => j.skill === 'mining').id, siteId: 1, phase: 'working', limit: 0}};
+  assert.equal(planner.harvest(busy, null, null, 'melee', false), null);
+  assert.match(planner.farmStatus(busy).reason, /等当前任务结束或返仓/);
+});
+
 test('manual mode explains the choice', () => {
   const planner = makePlanner(), d = planner.data;
   const job = d.jobs.find(j => j.grow && j.levelReq <= 10);

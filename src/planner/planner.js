@@ -204,9 +204,9 @@ export function createPlanner(data) {
     const eligible=jobs.filter(j=>j.grow&&allowedCrop(j)&&level(p.skills.farming)>=j.levelReq&&
       (hasSeed(p,j)||plots.some(f=>f.job.id===j.id)||farmingChoice.mode==='manual'&&plots.length)).sort((a,b)=>b.xp/b.grow-a.xp/a.grow);
     const stocks=farmStockMode(p)?farmingStocks(data,p,level(p.skills.farming)):null;
-    const job=stocks?stocks.find(row=>eligible.some(j=>j.id===row.job.id))?.job:eligible[0];
+    const job=stocks?stocks.find(row=>eligible.some(j=>j.id===row.job.id))?.job??busyCrop(p,eligible):eligible[0];
     farmTarget=job;farmTargetReason=null;
-    if(stocks&&!stocks.length){farmDelayReason='农田已全解锁，作物库存充足；先继续主任务';return null;}
+    if(stocks&&!job){farmDelayReason='农田已全解锁，作物库存充足且没有可续种的种子；先继续主任务';return null;}
     if(!job) {
       if(farmingChoice.mode==='manual')farmDelayReason=`缺少所选 ${manualFarmJob().name} 种子；辅助模式不采购或采种，继续原任务`;
       return null;
@@ -216,6 +216,16 @@ export function createPlanner(data) {
     // The native unlimited errand banks the harvest and restores route.after;
     // a finite harvest limit would stop before restoring the saved route.
     return {...farmErrand(p,job,site),reason:'整批收获并用已有种子补种；由游戏保留原任务剩余数量，完成后继续玩家队列'};
+  }
+  // Fields never stand idle: with every stock target met, harvest and replant a
+  // crop that needs no new seeds (a ripe plot returns its own seed), choosing
+  // the best farming experience; the crop already in the field wins a tie.
+  function busyCrop(p,candidates) {
+    const plots=farmPlots(p),ready=plots.filter(f=>f.readyAt<=p.lastTick),empty=farmFields(p).filter(s=>!p.plots?.[s.id]);
+    if(!ready.length&&!empty.length)return null;
+    const free=j=>(empty.length+ready.filter(f=>f.job.id!==j.id).length)*j.inputs[0].qty<=seedCount(p,j);
+    return candidates.filter(free).sort((a,b)=>b.xp/b.grow-a.xp/a.grow||
+      Number(ready.some(f=>f.job.id===b.id))-Number(ready.some(f=>f.job.id===a.id)))[0]??null;
   }
   let farmSearch=null,farmPlayerId=null,farmRetryAt=0,farmDelayReason=null,farmTarget=null,farmTargetReason=null,farmQuote=null;
   function farmState(p) {
@@ -236,17 +246,19 @@ export function createPlanner(data) {
       (goal?.budget?.items?.[j.output.itemId]??0)>count(p,j.output.itemId);
     const rank=(a,b)=>Number(demanded(b))-Number(demanded(a))||b.xp/b.grow-a.xp/a.grow||
       Number(b.id===preferredJobId)-Number(a.id===preferredJobId);
-    const crops=stocks?stocks.map(row=>row.job):eligible.sort(rank);
+    let crops=stocks?stocks.map(row=>row.job):eligible.sort(rank);
+    const busy=stocks&&!crops.length?busyCrop(p,eligible):null;
+    if(busy)crops=[busy];
     // Native errands harvest every ripe plot, then sow only the route's crop.
     // A selected crop without seeds can therefore collect the old batch safely.
     const selected=crops[0]??manualFarmJob();
     farmTarget=selected;
     if(!selected) {
-      if(stocks){farmSearch=null;farmQuote=null;farmTargetReason=null;farmDelayReason='农田已全解锁，作物库存充足；成熟作物留待需要时合批收取，先继续主任务';}
+      if(stocks){farmSearch=null;farmQuote=null;farmTargetReason=null;farmDelayReason='农田已全解锁，作物库存充足且没有可续种的种子；先继续主任务';}
       return null;
     }
     const stock=stocks?.find(row=>row.job.id===selected.id);
-    farmTargetReason=stock?`${demanded(selected)?'补充当前计划原料':'维持作物库存'} ${name(selected.output.itemId)}：库存 ${stock.total}/${stock.target}，在田作物计入后续供应`:
+    farmTargetReason=busy?`作物库存均已充足；为不让农田空闲，用现有种子续种 ${name(selected.output.itemId)}（农业经验最高）`:stock?`${demanded(selected)?'补充当前计划原料':'维持作物库存'} ${name(selected.output.itemId)}：库存 ${stock.total}/${stock.target}，在田作物计入后续供应`:
       demanded(selected)?`补充当前计划所需原料 ${name(selected.output.itemId)}`:'按已解锁作物的农业经验收益选择';
     const seedSlots=empty.length+ready.filter(f=>f.job.id!==selected.id).length;
     const seedNeed=Math.max(0,(seedSlots||(!empty.length&&!ready.length?plots.filter(f=>f.job.id!==selected.id).length:0))*
@@ -1152,7 +1164,11 @@ export function createPlanner(data) {
       const row=stocks.find(r=>r.job.id===job.id);
       const herb=jobs.some(j=>j.skill==='herblore'&&j.inputs.some(i=>i.itemId===job.output.itemId));
       const kind=herb?'炼药素材':data.items[job.output.itemId]?.heals?'食物储备':'原料';
-      if(!row)return `${kind}${itemName}库存已足，收获后不再补种`;
+      if(!row) {
+        const busy=!stocks.length?busyCrop(p,jobs.filter(j=>j.grow&&allowedCrop(j)&&level(p.skills.farming)>=j.levelReq)):null;
+        if(busy?.id===job.id)return `${kind}${itemName}库存已足；为不让农田空闲，用现有种子续种（农业经验最高）`;
+        return `${kind}${itemName}库存已足；收获后改种${busy?name(busy.output.itemId):'需要的作物'}`;
+      }
       if(row.plannedMissing>0)return `当前计划需要${itemName}，还缺 ${row.plannedMissing}`;
       return `${kind}${itemName}：库存 ${row.total}/${row.target}（在田作物计入后续供应）`;
     }
