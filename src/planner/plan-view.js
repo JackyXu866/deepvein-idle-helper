@@ -65,7 +65,8 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
   try {
     if (typeof engineApi?.masteryEarnedPoints === 'function') {
       const ranks = Object.fromEntries(MASTERY_TRACKS.map(id => [id, Number.isInteger(p.masteries?.[id]) ? p.masteries[id] : 0]));
-      mastery = {earned: engineApi.masteryEarnedPoints(p), spent: spentPoints(ranks)};
+      const choice = planner.masteryPurchase?.(p, trainer.goal);
+      mastery = {earned: engineApi.masteryEarnedPoints(p), spent: spentPoints(ranks), plan: choice?.label ?? null, reason: choice?.reason ?? null};
     }
   } catch { mastery = null; }
 

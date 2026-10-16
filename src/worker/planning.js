@@ -63,7 +63,7 @@ export function runPlanning(data,input,inspectOnly=false) {
   // Mastery points can only be counted and valued by the engine.
   if(engineApi())planner.masteryPurchase=(p,goal)=>chooseMastery(engineApi(),p,
     goal&&{...goal,inputs:data.jobs.find(j=>j.id===goal.recipeId)?.inputs??[]},
-    {metric:goal?.specialization&&goal.rate?.coins>0?'coins':'xp'});
+    {metric:goal?.specialization&&goal.rate?.coins>0?'coins':'xp',data,usage:input.rates});
   planner.enhancementTraining=createEnhancementTraining(data,planner,enhancementStorage(storage));
   const economy=createEconomy(data,planner,input.settings),market=createMarket(data,planner,{...input.settings,storage,now:()=>input.now});
   economy.runtime(input.economy);market.runtime(input.market);

@@ -2603,7 +2603,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
     const perks=view.perks,mastery=view.mastery;
     set('[data-plan-points]',[
       perks?`任务点数 ${perks.points}：不自动兑换，由你自行分配`:null,
-      mastery?`精通点数可用 ${fmt(mastery.earned-mastery.spent)}（共获得 ${fmt(mastery.earned)}），按当前工作模拟收益分配`:'精通点数：引擎模拟启用后计算',
+      mastery?`精通点数可用 ${fmt(mastery.earned-mastery.spent)}（共获得 ${fmt(mastery.earned)}）：${mastery.reason??'暂无可分配'}`:'精通点数：引擎模拟启用后计算',
     ].filter(Boolean).join('；'));
   }
   function renderSuggestions(view) {
