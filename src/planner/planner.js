@@ -1422,7 +1422,7 @@ export function createPlanner(data) {
   const strategy=createStrategy(data,api);
   api.crafting=createCrafting(data,api);
   Object.assign(api,{chooseGoal:strategy.chooseGoal,routeEstimate:strategy.routeEstimate,combatOptions:strategy.combatOptions,
-    candidates:strategy.candidates,estimateWork:strategy.estimateWork,setMeasurements:strategy.setMeasurements,rateSource:strategy.rateSource,
+    candidates:strategy.candidates,estimateWork:strategy.estimateWork,setMeasurements:strategy.setMeasurements,rateSource:strategy.rateSource,routeMeasurement:strategy.routeMeasurement,
     acquireEstimate:(p,id,qty,style='magic')=>rarity(id)>0?api.crafting.estimate(
       {...p,bank:{...p.bank,[id]:0},pack:p.pack.filter(i=>i.itemId!==id)},id,qty,{buy:true}):
       strategy.routeEstimate(p,{itemId:id},qty,{style}),

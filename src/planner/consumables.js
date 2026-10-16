@@ -10,7 +10,7 @@ export function swiftPotion(data,planner,p,plan,window,drinkQty) {
   if(!route||next&&!['walk','setRoute','fight'].includes(next.t))return null;
   const job=data.jobs.find(j=>j.id===route.jobId);
   const target=next?.t==='walk'?next:data.sites.find(s=>s.id===route.siteId)??data.zones.find(z=>z.id===route.zoneId);
-  if(!target||!next&&(!job||job.grow||route.limit===0))return null;
+  if(!target||!next&&(!job||job.grow||route.errand))return null;
   const tick=data.tickMs/1000;
   const bank=point=>nearestBank(data,point).approach;
   const stride=baseStride(data,p);
@@ -42,7 +42,7 @@ export function swiftPotion(data,planner,p,plan,window,drinkQty) {
       },0);
       const used=packUsed(data,p)-freed;
       let free=route.phase==='toBank'||route.phase==='banking'?capacity:Math.max(0,capacity-used);
-      let count=route.limit==null||next&&route.limit===0?Infinity:Math.max(0,route.limit);
+      let count=route.limit==null||route.limit===0?Infinity:Math.max(0,route.limit);
       while(remaining>0&&count>0) {
         const batch=Math.min(count,Math.floor(free/job.output.qty));
         remaining=Math.max(0,remaining-batch*seconds);count-=batch;
@@ -192,9 +192,32 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
   const add=(potion,effect,worth=null)=>candidates.push({...potion,canDrink:true,worth,
     action:{intent:{t:'drink',itemId:potion.itemId,qty:1},
     label:`使用${potion.label}`,reason:`普通品质效果：${effect}；按当前实际任务使用药水，保留计划用量`}});
+  // Swift is kept up for ~20 hours at a time, so its worth is the share of the
+  // task spent walking (measured, else a bank round trip per carried load),
+  // not only the walking in the next ten minutes.
+  function walkingShare() {
+    if(!route||route.errand||job?.grow)return 0;
+    const key=route.zoneId!=null?`combat:${data.zones.find(z=>z.id===route.zoneId)?.monsterId}`:route.jobId!=null?`job:${route.jobId}`:null;
+    const m=key&&planner.routeMeasurement?.(p,key);
+    if(m?.seconds>0&&Number.isFinite(m.travelSeconds))return Math.max(0,Math.min(1,m.travelSeconds/m.seconds));
+    const site=job&&data.sites.find(s=>s.id===route.siteId);
+    if(!site)return 0;
+    const slot=Object.keys(data.toolSkills).find(k=>data.toolSkills[k]===job.skill);
+    const e=workEstimate(data,job,planner.levels(p)[job.skill],{toolBonus:planner.equipmentStats(p.equipment[slot])?.bonus??0,
+      quick:p.perks?.quick??0,hands:p.perks?.hands??0});
+    const load=job.inputs.length?planner.carriedBatch?.(p,job)??1:Math.floor(packCapacity(p)/job.output.qty);
+    const trip=2*distance(site,nearestBank(data,site).approach)*data.tickMs/Math.round(baseStride(data,p));
+    const work=Math.max(1,load)*e.seconds/Math.max(.01,e.success);
+    return trip/(trip+work);
+  }
   const swift=swiftPotion(data,planner,p,plan,window,useQty(225,potionRefillQty(p,'swift')));
-  if(swift)candidates.push({...POTIONS.find(potion=>potion.kind==='swift'),action:swift,
-    worth:worthOf(swift.gain/Math.max(1,Math.min(600,window)))});
+  const walking=walkingShare(),swiftPotionRow=POTIONS.find(potion=>potion.kind==='swift');
+  const walkingWorth=worthOf(walking*(1-1/1.2));
+  if(swift)candidates.push({...swiftPotionRow,action:swift,
+    worth:Math.max(worthOf(swift.gain/Math.max(1,Math.min(600,window)))??0,walkingWorth??0)||null});
+  else if(walking>=.02)candidates.push({...swiftPotionRow,worth:walkingWorth,
+    action:{intent:{t:'drink',itemId:225,qty:1},label:'使用疾行药剂',
+      reason:`移动速度 +20%；本任务约 ${Math.round(walking*100)}% 时间在走路（存仓往返），药效按约 20 小时连续保持`}});
   if(next&&!['setRoute','fight'].includes(next.t)||!route)return choose();
   if(route.errand||job?.grow) {
     if(job?.grow&&route.errand&&(next||p.activity==='working')&&

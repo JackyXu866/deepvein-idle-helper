@@ -48,6 +48,21 @@ test('with Sage and Husk chitin held, missing swift draughts are brewed before b
   assert.deepEqual(result.potionBrew, {jobId: recipe.id});
 });
 
+test('swift is kept up on a crafting run too: its worth is the run\'s walking share, not the next ten minutes', () => {
+  const planner = makePlanner(), d = planner.data;
+  planner.coinRate = () => 100;
+  const bar = d.jobs.find(j => j.skill === 'smithing' && j.name === 'Bronze bar');
+  const site = d.sites.find(s => s.jobIds.includes(bar.id));
+  const p = player(planner, {levels: {smithing: 30}, x: site.x, y: site.y, bank: {[SWIFT]: 20}, activity: 'working', path: null,
+    pack: bar.inputs.map(i => ({itemId: i.itemId, qty: 10})),
+    route: {jobId: bar.id, siteId: site.id, phase: 'working', limit: 0, onFull: 'bank'}});
+  assert.equal(planner.consumable(p, null, 'melee', null), null, 'away from the bank its stock is out of reach');
+  const atBank = {...p, x: d.banks[0].x, y: d.banks[0].y};
+  const result = planner.consumable(atBank, null, 'melee', null);
+  assert.equal(result?.intent?.t, 'drink', JSON.stringify(result));
+  assert.equal(result.intent.itemId, SWIFT);
+});
+
 function priced({potion, values, asks}) {
   const s = brewing();
   s.planner.marketAsk = (_p, id) => id === SWIFT ? potion : asks?.[id] ?? null;

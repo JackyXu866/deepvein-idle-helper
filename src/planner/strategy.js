@@ -319,5 +319,6 @@ export function createStrategy(data, planner) {
     }
     return goal;
   }
-  return {chooseGoal,candidates,routeEstimate,estimateWork,combatOptions,setMeasurements,supplyCost,horizon,rateSource};
+  return {chooseGoal,candidates,routeEstimate,estimateWork,combatOptions,setMeasurements,supplyCost,horizon,rateSource,
+    routeMeasurement:(p,key)=>usableMeasurement(p,key)};
 }
