@@ -72,9 +72,13 @@ const workerSourcePlugin = {
   },
 };
 
+// Local build time, shown next to the version so an installed build can be told apart.
+const now = new Date(), two = n => String(n).padStart(2, '0');
+const built = `${two(now.getMonth() + 1)}-${two(now.getDate())} ${two(now.getHours())}:${two(now.getMinutes())}`;
 for (const [name, d] of Object.entries(DISTRIBUTIONS)) {
   const code = await bundle('src/main/entry.js', {
-    define: {__SCRIPT_VERSION__: JSON.stringify(version), __SCRIPT_DISTRIBUTION__: JSON.stringify(name)},
+    define: {__SCRIPT_VERSION__: JSON.stringify(version), __SCRIPT_DISTRIBUTION__: JSON.stringify(name),
+      __SCRIPT_BUILT__: JSON.stringify(built)},
     plugins: [workerSourcePlugin],
   });
   const script = `${header(d)}\n(function () {\n'use strict';\n${code}\n})();\n`;

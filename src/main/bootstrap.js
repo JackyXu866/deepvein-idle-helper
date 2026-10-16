@@ -1,4 +1,4 @@
-import {SCRIPT_DISTRIBUTION, SCRIPT_VERSION} from '../version.js';
+import {SCRIPT_BUILT, SCRIPT_DISTRIBUTION, SCRIPT_VERSION} from '../version.js';
 import {GAME_DATA} from '../data/game-data.js';
 import {parsePublicClient} from '../vendor/acorn.js';
 import {PLANNING_WORKER_SOURCE} from '../worker/source.js';
@@ -493,7 +493,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
     const waiting=!trainer.active?'未运行':!dataReady?'等待游戏数据':trainer.awaitInitial?'等待首个状态':
       trainer.pending?`待确认：${trainer.pending.label}`:!ready?'等待新快照':now<trainer.nextAction?'操作间隔':
       p?.enhance?'强化中':p?.held||p?.raidHeld||p?.queue?.length?'玩家队列或搁置任务':null;
-    return {version:SCRIPT_VERSION,active:trainer.active,compatible:trainer.compatible,waiting,
+    return {version:SCRIPT_VERSION,built:SCRIPT_BUILT,active:trainer.active,compatible:trainer.compatible,waiting,
       message:trainer.message,pausedError:trainer.pausedError??null,
       pending:trainer.pending&&{label:trainer.pending.label,intent:trainer.pending.intent.t,agoMs:ago(trainer.pending.sentAt)},
       resolution:trainer.resolution??null,recovery:trainer.recovery??null,
@@ -1782,7 +1782,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
               </div>
             </details>
             <details data-update-details open>
-              <summary>脚本更新<span class="muted">v${SCRIPT_VERSION}</span></summary>
+              <summary>脚本更新<span class="muted">v${SCRIPT_VERSION} · 构建 ${SCRIPT_BUILT}</span></summary>
               <div class="detail-content">
                 <p data-update-status role="status" class="muted"></p>
                 <div class="update-actions">
@@ -2204,7 +2204,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
         panelEl.innerHTML = `
           <h2>
             <span id="dvh-title">脚本助手</span>
-            <span data-dvh-meta>v${SCRIPT_VERSION} · 待机</span>
+            <span data-dvh-meta>v${SCRIPT_VERSION} · ${SCRIPT_BUILT} · 待机</span>
             <button type="button" class="dvh-close" aria-label="关闭">×</button>
           </h2>
           <div class="dvh-body"></div>
@@ -3077,7 +3077,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
     }
     const metaEl=document.querySelector('#dvh-panel [data-dvh-meta]');
     if (metaEl) {
-      const expectedMeta = `v${SCRIPT_VERSION} · ${stateText}`;
+      const expectedMeta = `v${SCRIPT_VERSION} · ${SCRIPT_BUILT} · ${stateText}`;
       if (metaEl.textContent !== expectedMeta) metaEl.textContent = expectedMeta;
     }
     const navBadge=document.querySelector('[data-dvh-nav] [data-dvh-badge]');

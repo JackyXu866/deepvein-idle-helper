@@ -1316,7 +1316,13 @@ export function createPlanner(data) {
     // Keep the project's progress in view while the current load finishes:
     // material counts are read live; anything else is the last boundary's note.
     if (reason) {
-      const note=preparationNote(p,goal)??goal?.boundaryNote;
+      // A goal picked mid-load has no note yet: preview its next step once, on
+      // a copy, so the real goal and its preparation are left untouched.
+      if(goal&&!goal.craftPreparation&&goal.boundaryNote==null) {
+        const preview=plan(p,JSON.parse(JSON.stringify(goal)),style);
+        goal.boundaryNote=preview&&!preview.blocked&&!preview.deferUntilTick?preview.reason||preview.label||'':'';
+      }
+      const note=preparationNote(p,goal)||goal?.boundaryNote;
       return wait(note?`${reason}；之后：${note}`:reason);
     }
     const result=plan(p,goal,style);

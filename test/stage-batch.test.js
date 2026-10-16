@@ -45,6 +45,17 @@ test('while the current gathering load finishes, the stage progress stays in the
   assert.ok(plan.reason.includes(`${d.items[copper].name} 35/${amount}`), plan.reason);
 });
 
+test('a goal picked mid-load previews its next step without changing the goal', () => {
+  const {planner, d, p, goal, bar} = smith(20);
+  const copper = bar.inputs[0].itemId, ore = d.jobs.find(j => j.output.itemId === copper && !j.inputs.length);
+  const site = d.sites.find(s => s.jobIds.includes(ore.id));
+  const gathering = {...p, x: site.x, y: site.y, activity: 'working',
+    route: {jobId: ore.id, siteId: site.id, phase: 'working', limit: 100, onFull: 'bank'}};
+  const plan = planner.plan(gathering, goal, 'melee');
+  assert.match(plan.reason, /继续当前采集.*；之后：.*备料/, plan.reason);
+  assert.equal(goal.craftPreparation, undefined, 'the preview ran on a copy');
+});
+
 test('with the stage in stock, crafting starts at once', () => {
   const {planner, p, goal, bar} = smith(5000);
   const plan = planner.plan(p, goal, 'melee');
