@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         Deep Vein Idle 世界 Boss 与种菜助手
 // @namespace    local.deepvein.field-boss
-// @version      0.1.0
+// @version      0.2.0
 // @description  独立世界 Boss 与原生整批收菜；本机参战时段、每轮跳过概率、分组成熟、随机延迟；默认暂停
 // @homepageURL  https://github.com/ljyoukong-cpu/deepvein-idle-helper
 // @updateURL    https://gcore.jsdelivr.net/gh/ljyoukong-cpu/deepvein-idle-helper@main/deepvein-field-boss-cdn.meta.js
-// @downloadURL  https://gcore.jsdelivr.net/gh/ljyoukong-cpu/deepvein-idle-helper@field-boss-v0.1.0/deepvein-field-boss-cdn.user.js
+// @downloadURL  https://gcore.jsdelivr.net/gh/ljyoukong-cpu/deepvein-idle-helper@field-boss-v0.2.0/deepvein-field-boss-cdn.user.js
 // @match        https://deepveinidle.com/*
 // @match        https://cn.deepveinidle.com/*
 // @run-at       document-start
@@ -16,9 +16,30 @@
 
 (function(){
 'use strict';
-const SCRIPT_VERSION="0.1.0";
-const GAME_DATA={"protocol":3,"tickMs":600,"xp":{"journeyLevel":99,"baseXp":100,"growth":1.12,"beyondStep":0.1,"beyondGrowth":1.145,"speedPerLevelAboveRequirement":0.005},"farmUnlocks":[1,1,15,30,45,60],"farmWaterTrim":20,"plusScale":10000,"rarityScale":1000,"jobs":[{"id":160,"name":"Potato","skill":"farming","group":"Crops","levelReq":1,"baseTicks":2,"xp":110,"inputs":[{"itemId":160,"qty":1}],"output":{"itemId":170,"qty":1},"grow":800},{"id":161,"name":"Glowcap","skill":"farming","group":"Crops","levelReq":15,"baseTicks":2,"xp":380,"inputs":[{"itemId":161,"qty":1}],"output":{"itemId":171,"qty":1},"grow":1500},{"id":162,"name":"Cave turnip","skill":"farming","group":"Crops","levelReq":30,"baseTicks":2,"xp":900,"inputs":[{"itemId":162,"qty":1}],"output":{"itemId":172,"qty":1},"grow":2500},{"id":163,"name":"Bitterroot","skill":"farming","group":"Crops","levelReq":45,"baseTicks":2,"xp":1900,"inputs":[{"itemId":163,"qty":1}],"output":{"itemId":173,"qty":1},"grow":4000},{"id":164,"name":"Voidmelon","skill":"farming","group":"Crops","levelReq":60,"baseTicks":2,"xp":3800,"inputs":[{"itemId":164,"qty":1}],"output":{"itemId":174,"qty":1},"grow":6000},{"id":165,"name":"Ember pepper","skill":"farming","group":"Crops","levelReq":75,"baseTicks":2,"xp":6500,"inputs":[{"itemId":165,"qty":1}],"output":{"itemId":175,"qty":1},"grow":9000},{"id":210,"name":"Sage","skill":"farming","group":"Herbs","levelReq":10,"baseTicks":2,"xp":260,"inputs":[{"itemId":190,"qty":1}],"output":{"itemId":193,"qty":1},"grow":1200},{"id":211,"name":"Nightshade","skill":"farming","group":"Herbs","levelReq":35,"baseTicks":2,"xp":1200,"inputs":[{"itemId":191,"qty":1}],"output":{"itemId":194,"qty":1},"grow":3000},{"id":212,"name":"Dragonleaf","skill":"farming","group":"Herbs","levelReq":65,"baseTicks":2,"xp":4600,"inputs":[{"itemId":192,"qty":1}],"output":{"itemId":195,"qty":1},"grow":7000}],"sites":[{"id":74,"x":207,"y":93,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":75,"x":209,"y":93,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":76,"x":211,"y":93,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":77,"x":207,"y":97,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":78,"x":209,"y":97,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":79,"x":211,"y":97,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]}]};
-// Policy for the independent helper. No route ownership or combat prediction.
+const SCRIPT_VERSION="0.2.0";
+const GAME_DATA={"protocol":3,"tickMs":600,"xp":{"journeyLevel":99,"baseXp":100,"growth":1.12,"beyondStep":0.1,"beyondGrowth":1.145,"speedPerLevelAboveRequirement":0.005},"farmUnlocks":[1,1,15,30,45,60],"farmWaterTrim":20,"farmGates":{"387":{"name":"林间田","skill":"woodcutting","level":75,"x":152,"y":32},"389":{"name":"沼泽花园","skill":"fishing","level":75,"x":180,"y":118},"391":{"name":"弓手台地","skill":"fletching","level":70,"x":208,"y":30},"393":{"name":"深处花园","skill":"mining","level":85,"x":251,"y":51}},"plusScale":10000,"rarityScale":1000,"jobs":[{"id":160,"name":"Potato","skill":"farming","group":"Crops","levelReq":1,"baseTicks":2,"xp":110,"inputs":[{"itemId":160,"qty":1}],"output":{"itemId":170,"qty":1},"grow":800},{"id":161,"name":"Glowcap","skill":"farming","group":"Crops","levelReq":15,"baseTicks":2,"xp":380,"inputs":[{"itemId":161,"qty":1}],"output":{"itemId":171,"qty":1},"grow":1500},{"id":162,"name":"Cave turnip","skill":"farming","group":"Crops","levelReq":30,"baseTicks":2,"xp":900,"inputs":[{"itemId":162,"qty":1}],"output":{"itemId":172,"qty":1},"grow":2500},{"id":163,"name":"Bitterroot","skill":"farming","group":"Crops","levelReq":45,"baseTicks":2,"xp":1900,"inputs":[{"itemId":163,"qty":1}],"output":{"itemId":173,"qty":1},"grow":4000},{"id":164,"name":"Voidmelon","skill":"farming","group":"Crops","levelReq":60,"baseTicks":2,"xp":3800,"inputs":[{"itemId":164,"qty":1}],"output":{"itemId":174,"qty":1},"grow":6000},{"id":165,"name":"Ember pepper","skill":"farming","group":"Crops","levelReq":75,"baseTicks":2,"xp":6500,"inputs":[{"itemId":165,"qty":1}],"output":{"itemId":175,"qty":1},"grow":9000},{"id":210,"name":"Sage","skill":"farming","group":"Herbs","levelReq":10,"baseTicks":2,"xp":260,"inputs":[{"itemId":190,"qty":1}],"output":{"itemId":193,"qty":1},"grow":1200},{"id":211,"name":"Nightshade","skill":"farming","group":"Herbs","levelReq":35,"baseTicks":2,"xp":1200,"inputs":[{"itemId":191,"qty":1}],"output":{"itemId":194,"qty":1},"grow":3000},{"id":212,"name":"Dragonleaf","skill":"farming","group":"Herbs","levelReq":65,"baseTicks":2,"xp":4600,"inputs":[{"itemId":192,"qty":1}],"output":{"itemId":195,"qty":1},"grow":7000}],"sites":[{"id":74,"x":207,"y":93,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":75,"x":209,"y":93,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":76,"x":211,"y":93,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":77,"x":207,"y":97,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":78,"x":209,"y":97,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":79,"x":211,"y":97,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":387,"x":152,"y":32,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":389,"x":180,"y":118,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":391,"x":208,"y":30,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":393,"x":251,"y":51,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]}]};
+function farmFields(data,p) {
+  const unlocked=(skill,level)=>p.skills?.[skill]>=Math.round(data.xp.baseXp*(data.xp.growth**(level-1)-1)/(data.xp.growth-1));
+  let index=0;
+  return data.sites.filter(s=>s.kind==='field').sort((a,b)=>a.id-b.id).filter(site=>{
+    const gate=data.farmGates?.[site.id];
+    return gate?unlocked(gate.skill,gate.level):unlocked('farming',data.farmUnlocks[index++]??Infinity);
+  });
+}
+
+function createFarmMemory(data,storage) {
+  const key='deepvein-last-plantings-v1';
+  return p=>{
+    let all={};try{const value=JSON.parse(storage.getItem(key)||'{}');if(value&&typeof value==='object'&&!Array.isArray(value))all=value;}catch{}
+    const last=all[p.id]??{},before=JSON.stringify(last);
+    for(const [id,plot]of Object.entries(p.plots??{}))if(Number.isSafeInteger(plot.seedItemId))
+      last[id]=plot.seedItemId%data.plusScale%data.rarityScale;
+    if(JSON.stringify(last)!==before){all[p.id]=last;try{storage.setItem(key,JSON.stringify(all));}catch{}}
+    return last;
+  };
+}
+
+// Shared policies for both helpers. No combat prediction.
 function normalizeFieldBossSettings(value={}) {
   value??={};
   const number=(key,fallback,min,max)=>Number.isFinite(Number(value[key]))?Math.max(min,Math.min(max,Number(value[key]))):fallback;
@@ -32,7 +53,8 @@ function normalizeFieldBossSettings(value={}) {
   return {bossEnabled:value.bossEnabled!==false,farmEnabled:value.farmEnabled!==false,
     bossStart:time('bossStart','08:00'),bossEnd:time('bossEnd','24:00',true),
     skipPercent:number('skipPercent',0,0,100),harvestMode:value.harvestMode==='seed'?'seed':'all',
-    delayMin:Math.min(a,b),delayMax:Math.max(a,b),cropJobId:Number.isSafeInteger(value.cropJobId)?value.cropJobId:null};
+    delayMin:Math.min(a,b),delayMax:Math.max(a,b),plantMode:value.plantMode==='last'?'last':'game',
+    cropJobId:Number.isSafeInteger(value.cropJobId)?value.cropJobId:null};
 }
 
 function inBossWindow(settings,time=Date.now()) {
@@ -61,12 +83,11 @@ function createFieldBossPolicy({now=()=>Date.now(),random=Math.random,saved=null
   };
 }
 
-function farmBatch(data,p,settings) {
+function farmBatch(data,p,settings,previous={}) {
   const empty={key:null,intent:null,ripe:0,planted:0,reason:'等待作物成熟'};
   if(!p?.skills||!Number.isFinite(p.lastTick))return {...empty,reason:'等待角色状态'};
   const base=id=>id%data.plusScale%data.rarityScale;
-  const level=data.farmUnlocks.filter(n=>p.skills.farming>=Math.round(data.xp.baseXp*(data.xp.growth**(n-1)-1)/(data.xp.growth-1))).length;
-  const fields=data.sites.filter(s=>s.kind==='field').sort((a,b)=>a.id-b.id).slice(0,level);
+  const fields=farmFields(data,p);
   const jobs=data.jobs.filter(j=>j.grow),plots=[];
   for(const site of fields){
     const plot=p.plots?.[site.id];if(!plot)continue;
@@ -80,20 +101,254 @@ function farmBatch(data,p,settings) {
   const groups=new Map();for(const row of plots){const group=groups.get(row.plot.seedItemId)??[];group.push(row);groups.set(row.plot.seedItemId,group);}
   const qualifies=plots.length>0&&(settings.harvestMode==='seed'?[...groups.values()].some(rows=>rows.every(row=>row.ready)):plots.every(row=>row.ready));
   if(plots.length&&!qualifies)return state;
-  const seedCount=job=>Object.entries(p.bank??{}).concat(Object.entries(p.overflow??{}),
-    (p.pack??[]).map(row=>[row.itemId,row.qty])).filter(([id])=>base(+id)===job.inputs[0].itemId).reduce((n,[,qty])=>n+qty,0);
-  const eligible=jobs.filter(job=>(settings.cropJobId==null||job.id===settings.cropJobId)&&
-    p.skills.farming>=Math.round(data.xp.baseXp*(data.xp.growth**(job.levelReq-1)-1)/(data.xp.growth-1))&&
-    (seedCount(job)>=job.inputs[0].qty||ripe.some(row=>row.job.id===job.id)));
-  // Prefer the crop already in the fields; empty fields use available seeds only.
-  const job=eligible.find(job=>ripe.some(row=>row.job.id===job.id))??eligible.sort((a,b)=>b.levelReq-a.levelReq)[0];
-  if(!job)return {...state,reason:'缺少可用种子；不自动购买或采种'};
+  const requested=Object.fromEntries(fields.map(site=>[site.id,settings.plantMode==='last'?
+    (p.plots?.[site.id]?base(p.plots[site.id].seedItemId):previous[site.id]??p.plotChoice?.[site.id]):
+    p.plotChoice?.[site.id]??(p.plots?.[site.id]?base(p.plots[site.id].seedItemId):null)]));
+  const legacyJob=jobs.find(j=>j.id===settings.cropJobId);
+  if(legacyJob)for(const site of fields)requested[site.id]=legacyJob.inputs[0].itemId;
+  const eligible=jobs.filter(job=>p.skills.farming>=Math.round(data.xp.baseXp*(data.xp.growth**(job.levelReq-1)-1)/(data.xp.growth-1)));
+  const configured=Object.values(requested).map(seed=>eligible.find(j=>j.inputs[0].itemId===seed)).filter(Boolean);
+  const stock=Object.entries(p.bank??{}).concat(Object.entries(p.overflow??{}),(p.pack??[]).map(row=>[row.itemId,row.qty]));
+  const job=configured.find(j=>ripe.length||stock.some(([id,qty])=>base(+id)===j.inputs[0].itemId&&qty>0));
+  if(configured.length&&!job)return {...state,reason:'缺少所选作物种子；不改种、不购买或采种'};
+  if(!job)return {...state,reason:'请在每块田中选择作物；不自动挑选、购买或采集种子'};
   const site=ripe[0]?.site??fields.find(site=>!p.plots?.[site.id]);if(!site)return state;
   // Use the entire planting generation, not the growing subset; maturation of
   // another group during the delay must not restart the clock.
-  const key=plots.length?plots.map(row=>`${row.site.id}:${row.plot.seedItemId}:${row.plot.plantedAt}`).join('|'):`empty:${job.id}`;
+  const key=plots.length?plots.map(row=>`${row.site.id}:${row.plot.seedItemId}:${row.plot.plantedAt}`).join('|'):`empty:${JSON.stringify(requested)}`;
+  const choice=fields.find(site=>requested[site.id]!=null&&p.plotChoice?.[site.id]!==requested[site.id]&&
+    eligible.some(j=>j.inputs[0].itemId===requested[site.id]&&site.jobIds.includes(j.id)));
   return {...state,key,job,reason:plots.length?'整批已满足收菜条件':'用已有种子补空田',
-    intent:{t:'setRoute',siteId:site.id,jobId:job.id,onFull:'bank',limit:0,errand:true}};
+    intent:choice?{t:'plotChoice',siteId:choice.id,seed:requested[choice.id]}:
+      {t:'setRoute',siteId:site.id,jobId:job.id,onFull:'bank',limit:0,errand:true}};
+}
+
+
+// Both distributions use the game's Join handler, including its supply, walk,
+// attack and restore flow. Never intercept or replace part of that sequence.
+function createNativeBoss(data,{document,settings,active,send,prepare,now=()=>Date.now(),defer=fn=>setTimeout(fn,0),label=s=>s}={}) {
+  let round=null,run=null,lastClick=-Infinity,goneAt=-Infinity,deathTick=null,participation='full',force=false;
+  let dispatching=false,lastResult=null,owner=null;
+  let policy=createFieldBossPolicy({now}),message='等待世界 Boss',phase='idle',busy=false,inside=false,restoringUntil=0,completedKey=null;
+  const visible=el=>!!el?.isConnected&&!el.hidden&&!el.disabled&&!el.closest('[hidden]')&&el.getClientRects().length>0;
+  function controls(){
+    const pill=document.querySelector('[data-boss-pill]'),runButton=document.querySelector('[data-boss-run]');
+    const text=pill?.querySelector('.boss-pill-join')?.textContent?.trim()??'';
+    const joined=visible(pill)&&/^(Show|显示|查看)$/i.test(text)||visible(document.querySelector('[data-boss-leave]'));
+    const button=visible(pill)&&/^(Join|加入|加入战斗)$/i.test(text)?pill:
+      visible(runButton)&&/^(Run to it|Attack|跑过去|攻击|前往|赶过去)$/i.test(runButton.textContent.trim())?runButton:null;
+    const name=(visible(pill)?document.querySelector('[data-boss-pill-name]'):document.querySelector('[data-boss-name]'))?.textContent?.trim()||'世界 Boss';
+    return {button,busy:joined,name};
+  }
+  function leave(){
+    if(!run)return;
+    restoringUntil=now()+5000;
+    const button=document.querySelector('[data-boss-leave]');
+    dispatching=true;
+    try{if(button)button.click();else send({t:'leaveWorldBoss'});}finally{dispatching=false;}
+    run=null;busy=false;
+  }
+  function observe(frame){
+    if(!Array.isArray(frame?.m))return;
+    const welcome=frame.m.find(m=>m.t==='welcome');
+    if(welcome&&owner!==null&&owner!==welcome.you?.id){round=null;run=null;lastResult=null;completedKey=null;policy=createFieldBossPolicy({now});}
+    if(welcome)owner=welcome.you?.id??null;
+    if(welcome&&run&&welcome.you?.id!==run.playerId){round=null;run=null;completedKey=null;}
+    if(!active()||!settings().bossEnabled||!inBossWindow(settings(),now()))return;
+    if(run&&frame.m.some(m=>m.t==='raidDied'||m.t==='batch'&&m.e?.some(e=>e.kind==='died')))deathTick=frame.tick;
+    for(const m of frame.m){
+      if(m.t==='bossRose'&&typeof m.name==='string'&&Number.isFinite(m.until)){
+        const same=round?.until===m.until&&round?.name===m.name;
+        const promote=round&&!round.until&&(round.name==='世界 Boss'||label(round.name)===label(m.name));
+        if(!same&&!promote){round={key:`${m.name}:${m.until}`,name:m.name};run=null;lastClick=-Infinity;force=false;}
+        round.name=m.name;round.until=m.until;round.expiresAt=now()+(m.until-frame.tick)*data.tickMs;round.seenAt=now();
+      }
+      if(m.t==='raidHit'&&m.damage>0&&run)run.hit=true;
+      if(run&&(m.t==='raidDied'||m.t==='batch'&&m.e?.some(e=>e.kind==='died')))deathTick=frame.tick;
+      if(m.t==='bossGone'||m.t==='bossHp'&&m.hpRemaining===0){
+        if(run&&round)lastResult={name:round.name,hit:run.hit,attackSent:true,endedAt:now(),reason:'本轮结束，由游戏恢复任务'};
+        if(run)restoringUntil=now()+5000;
+        run=null;round=null;goneAt=now();force=false;phase='ended';
+      }
+    }
+  }
+  function next(p){
+    const config=settings(),allowed=config.bossEnabled&&inBossWindow(config,now());
+    if(!active())return null;
+    if(!allowed){leave();inside=false;phase='outside';message=config.bossEnabled?'当前不在参战时段':'世界 Boss 已关闭';return null;}
+    if(!inside&&round&&!round.expiresAt&&now()-round.seenAt>10000){round=null;run=null;}
+    inside=true;
+    const ui=controls();busy=ui.busy;
+    if(round?.expiresAt&&now()>=round.expiresAt){round=null;run=null;}
+    if(ui.button||ui.busy){if(!round&&now()-goneAt>2000)round={key:`dom:${ui.name}:${now()}`,name:ui.name,seenAt:now()};if(round)round.seenAt=now();}
+    else if(round&&!round.expiresAt&&now()-round.seenAt>10000){round=null;run=null;}
+    if(run?.hit&&participation==='tag'){completedKey=round?.key;leave();phase='tagged';message='已确认有效伤害，由游戏恢复原任务';}
+    else if(busy){phase=run?'fighting':'manual';message=run?.hit?'服务器已确认有效伤害，继续参战':'游戏正在赶路或参战';}
+    else if(round){
+      const decision=force?'join':policy.boss(round.key,config);
+      if(decision==='skip'){phase='skipped';message='本轮按设置的概率跳过';}
+      else if(completedKey===round.key){phase='tagged';message='本轮已确认有效伤害，等待下轮';}
+      else if(ui.button&&now()-lastClick>=15000){
+        const protection=prepare?.(p);
+        if(protection?.blocked){phase='skipped';message=protection.reason;return null;}
+        if(protection?.intent)return protection;
+        lastClick=now();run={key:round.key,hit:false,playerId:p?.id};phase='attacking';message='已请求游戏加入，等待原生赶路／攻击';
+        const key=round.key;
+        defer(()=>{if(active()&&run?.key===key&&settings().bossEnabled&&inBossWindow(settings(),now())){
+          dispatching=true;try{controls().button?.click();}finally{dispatching=false;}
+        }});
+      }else{phase=run?'attacking':'ready';message=run?'等待游戏响应；加入按钮恢复后会重试':'发现 Boss，等待游戏加入按钮';}
+    }else{phase='idle';message='正在等待世界 Boss';}
+    return busy||run||now()<restoringUntil?{label:'世界 Boss',reason:message}:null;
+  }
+  const status=()=>({name:round?.name??null,until:round?.until??null,phase,owned:!!run,visible:!!round,active:inside,
+    hit:!!run?.hit,recentActivity:busy,skipped:phase==='skipped',skipReason:message,message,participation,lastResult});
+  return {native:true,observe,next,status,ownsRun:()=>!!run,ownsQueue:()=>!!run||busy||now()<restoringUntil,
+    ownsDeath:tick=>tick===deathTick,
+    handles:intent=>dispatching||!!run&&['joinWorldBoss','attackWorldBoss','raidSupply','walk'].includes(intent.t)||
+      now()<restoringUntil&&['startQueued','leaveWorldBoss'].includes(intent.t),
+    manualAction:intent=>{if(round&&(run||busy)){
+      completedKey=round.key;
+      if(intent?.t==='leaveWorldBoss'){run=null;busy=false;restoringUntil=now()+5000;}else leave();
+      phase='tagged';message='玩家已接管本轮，继续原任务';
+    }},
+    issued:()=>{},cancel:()=>{leave();phase='idle';},setParticipation:value=>participation=value==='tag'?'tag':'full',
+    retrySkipped:()=>{if(!round)return false;force=true;phase='ready';lastClick=-Infinity;return true;},
+    save:()=>({native:1,owner,round,run,lastClick,policy:policy.save(),phase,completedKey,lastResult}),
+    restore:saved=>{round=null;run=null;completedKey=null;lastResult=null;policy=createFieldBossPolicy({now});owner=saved?.owner??saved?.run?.playerId??null;phase='idle';lastClick=-Infinity;
+      if(saved?.native===1){round=saved.round;run=saved.run;lastClick=saved.lastClick;phase=saved.phase??'idle';completedKey=saved.completedKey??null;lastResult=saved.lastResult??null;policy=createFieldBossPolicy({now,saved:saved.policy});}},
+    leave};
+}
+
+// The game's plotChoice is authoritative. Editing here is the same explicit
+// per-field selection as the native field menu; it never starts an errand.
+function createFarmControls(document,container,data,send,label=name=>name) {
+  let signature='';
+  return p=>{
+    if(!p){container.textContent='进入角色后逐田设置作物';return;}
+    const unlocked=farmFields(data,p),fields=data.sites.filter(s=>s.kind==='field').sort((a,b)=>a.id-b.id);
+    const crops=data.jobs.filter(j=>j.grow),locked=job=>p.skills.farming<Math.round(data.xp.baseXp*(data.xp.growth**(job.levelReq-1)-1)/(data.xp.growth-1));
+    const next=JSON.stringify([p.id,unlocked.map(s=>s.id),crops.map(j=>[j.id,j.name,locked(j)]),p.plotChoice]);if(next===signature)return;signature=next;
+    container.replaceChildren();
+    for(const [index,site]of fields.entries()){
+      const row=document.createElement('label'),text=document.createElement('span'),select=document.createElement('select');
+      const gate=data.farmGates?.[site.id],name=gate?.name??`农田 ${index+1}`;
+      text.textContent=name;select.setAttribute('aria-label',`${name}作物`);select.setAttribute('data-plot-setting',String(site.id));
+      select.style.maxWidth='200px';select.style.minWidth='0';
+      const option=document.createElement('option');option.value='';option.textContent='游戏默认（任意作物）';select.append(option);
+      for(const job of data.jobs.filter(j=>j.grow&&site.jobIds.includes(j.id))){
+        const option=document.createElement('option');option.value=String(job.inputs[0].itemId);
+        option.textContent=`${label(job.name)} · ${job.levelReq} 级`;
+        option.disabled=locked(job);select.append(option);
+      }
+      select.value=String(p.plotChoice?.[site.id]??'');select.disabled=!unlocked.some(s=>s.id===site.id);
+      if(select.disabled)text.textContent+=`（${gate?`${({woodcutting:'伐木',fishing:'钓鱼',fletching:'箭术',mining:'采矿'})[gate.skill]} ${gate.level}`:'农业等级'}未解锁）`;
+      select.onchange=()=>send({t:'plotChoice',siteId:site.id,seed:select.value===''?null:Number(select.value)});
+      row.append(text,select);container.append(row);
+    }
+  };
+}
+
+// Same desktop integration points as the comprehensive helper: native toolbar
+// and task panel. Keep scheduling independent from opening/closing the UI.
+function createFieldBossUi(document,host,root,toggle) {
+  let open=false,integrated=false,nav=null,bar=null,state={},scheduled=false,observedRoutes=null;
+  const shown=el=>!!el?.isConnected&&!el.hidden&&el.getClientRects().length>0&&
+    getComputedStyle(el).display!=='none'&&getComputedStyle(el).visibility!=='hidden';
+  const text=(el,value)=>{if(el&&el.textContent!==value)el.textContent=value;};
+  const style=document.createElement('style');style.id='dv-field-boss-ui-styles';style.setAttribute('data-no-i18n','');
+  style.textContent=`
+    .nav-icon.fb-nav{position:relative;display:flex;align-items:center;justify-content:center;width:44px;height:40px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--ink,#f5e6c8);cursor:pointer}
+    .fb-nav svg{width:24px;height:24px;image-rendering:pixelated;filter:drop-shadow(0 2px 0 #0007)}
+    .fb-nav:hover{background:#ffdcaa12}.fb-nav[aria-pressed=true]{background:#e8b25a29;box-shadow:inset 0 0 0 1px #e8b25a8c}
+    .fb-nav .nav-badge-dot{position:absolute;top:3px;right:3px;width:9px;height:9px;min-width:9px;border-radius:50%;background:var(--moss,#9ed36b);box-shadow:0 0 0 2px var(--panel,#26180e)}
+    .fb-nav[aria-label]::after{content:attr(aria-label);position:absolute;right:calc(100% + 10px);top:50%;transform:translateY(-50%);padding:5px 9px;border-radius:5px;white-space:nowrap;background:var(--lg-dark,#26180e);box-shadow:inset 0 0 0 1px #c79352b3,0 4px 10px -4px #0009;font:800 12px/1 var(--font-sans,"Mulish",sans-serif);color:var(--ink,#f5e6c8);opacity:0;pointer-events:none}
+    .fb-nav:is(:hover,:focus-visible)::after{opacity:1}
+    .fb-bar{position:fixed;z-index:9;display:flex;align-items:center;gap:8px;min-height:34px;box-sizing:border-box;padding:4px 6px 4px 10px;border:1px solid transparent;border-radius:6px;background:var(--lg-dark,#26180e) padding-box,var(--lg-wood,#9a6632) border-box;box-shadow:inset 0 0 0 1px #c79352b3,0 4px 10px -4px #0009;color:var(--ink,#f5e6c8);font:700 12px/1.3 var(--font-sans,"Mulish",sans-serif)}
+    .fb-bar [data-fb-bar-open]{display:flex;align-items:center;gap:8px;flex:1;min-width:0;background:none;border:0;padding:0;color:inherit;font:inherit;text-align:left;cursor:pointer}
+    .fb-bar-state{flex:none;padding:1px 7px;border-radius:4px;box-shadow:inset 0 0 0 1px var(--edge,#4d3219);color:var(--ink-faint,#ab9270)}
+    .fb-bar-state[data-running=true]{color:var(--moss,#9ed36b);box-shadow:inset 0 0 0 1px #9ed36b80}
+    .fb-bar-what{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px}
+    .fb-bar [data-fb-bar-toggle]{flex:none;padding:4px 12px;min-height:26px;border:0;border-radius:6px;background:linear-gradient(180deg,#f5c572,#c98a2c);color:#2a1706;font:800 12px/1.2 var(--font-sans,"Mulish",sans-serif);box-shadow:inset 0 0 0 2px #ffe0a0,0 0 0 2px #4a2a0c,0 3px #4a2a0c;cursor:pointer}
+    .fb-bar [data-fb-bar-toggle]:active{transform:translateY(2px)}
+    .fb-nav:focus-visible,.fb-bar button:focus-visible{outline:2px solid var(--brass,#e8b25a);outline-offset:3px}
+    .fb-bar[hidden],.fb-nav [hidden]{display:none!important}
+  `;
+  (document.head||document.documentElement).append(style);
+  function setOpen(value){
+    open=value;sync();
+    if(open)root.querySelector('#collapse').focus();else nav?.focus();
+  }
+  function mountNav(strip){
+    if(nav?.parentElement===strip)return;
+    nav?.remove();nav=document.createElement('button');nav.type='button';nav.className='nav-icon fb-nav';
+    nav.setAttribute('data-fb-nav','');nav.setAttribute('data-no-i18n','');nav.setAttribute('aria-label','世界 Boss 与种菜助手');
+    nav.setAttribute('aria-haspopup','dialog');nav.setAttribute('aria-controls',host.id);
+    // Reuse the comprehensive helper's pixel-art icon.
+    nav.innerHTML=`<svg viewBox="0 0 16 16" width="24" height="24" shape-rendering="crispEdges" aria-hidden="true">
+      <path d="M6 1h4v2H6zM6 13h4v2H6zM1 6h2v4H1zM13 6h2v4h-2z" fill="#e8b25a"/>
+      <rect x="3" y="3" width="10" height="10" rx="1" fill="#9a6632"/><rect x="4" y="4" width="8" height="8" fill="#3b2717"/>
+      <rect x="6" y="6" width="4" height="4" fill="#f5c572"/><rect x="7" y="7" width="2" height="2" fill="#231509"/>
+      <path d="M7 3h2v2H7zM7 11h2v2H7zM3 7h2v2H3zM11 7h2v2h-2z" fill="#ffd06a"/>
+    </svg><b class="nav-badge-dot" hidden></b>`;
+    nav.onclick=()=>setOpen(!open);
+    const more=strip.querySelector('[data-nav-more]')||strip.querySelector('.nav-more-menu');
+    if(more)strip.insertBefore(nav,more);else strip.append(nav);
+  }
+  function mountBar(){
+    if(bar)return;
+    bar=document.createElement('div');bar.className='fb-bar';bar.setAttribute('data-fb-bar','');bar.setAttribute('data-no-i18n','');
+    bar.innerHTML='<button type="button" data-fb-bar-open aria-label="打开世界 Boss 与种菜助手"><b class="fb-bar-state">已暂停</b><span class="fb-bar-what">世界 Boss＋种菜</span></button><button type="button" data-fb-bar-toggle>开始</button>';
+    bar.querySelector('[data-fb-bar-open]').onclick=()=>setOpen(!open);
+    bar.querySelector('[data-fb-bar-toggle]').onclick=toggle;document.body.append(bar);
+  }
+  const resizeObserver=typeof ResizeObserver==='function'?new ResizeObserver(()=>schedule()):null;
+  function sync(){
+    const html=document.documentElement,strip=document.querySelector('#app .shell > nav.nav-strip');
+    integrated=html.classList.contains('v4')&&!html.classList.contains('m-on')&&shown(strip);
+    host.setAttribute('data-theme',html.getAttribute('data-theme')||'dark');
+    host.setAttribute('data-integrated',String(integrated));
+    if(integrated){
+      mountNav(strip);mountBar();host.hidden=!open;host.setAttribute('role','dialog');
+      nav.setAttribute('aria-pressed',String(open));nav.querySelector('.nav-badge-dot').hidden=!state.active;
+      root.querySelector('#body').hidden=false;
+      text(root.querySelector('#collapse'),'×');root.querySelector('#collapse').setAttribute('aria-label','关闭面板');
+      const rect=strip.getBoundingClientRect();
+      const right=strip.classList.contains('vertical')?Math.max(8,innerWidth-rect.left+12):12;
+      const top=!strip.classList.contains('vertical')&&rect.top<innerHeight/2?Math.max(8,rect.bottom+12):null;
+      const bottom=strip.classList.contains('vertical')?Math.max(8,innerHeight-rect.bottom):Math.max(8,innerHeight-rect.top+12);
+      host.style.right=`${right}px`;host.style.top=top==null?'auto':`${top}px`;host.style.bottom=top==null?`${bottom}px`:'auto';
+      host.style.setProperty('--fb-max-height',`${Math.max(80,innerHeight-(top??bottom)-8)}px`);
+      host.style.setProperty('--fb-max-width',`${Math.max(180,innerWidth-right-8)}px`);
+      const routes=document.querySelector('#app .shell .panels > section.routes')||document.querySelector('#app .shell .routes');
+      bar.hidden=!shown(routes)||!!document.querySelector('#app .shell')?.classList.contains('ui-editing');
+      if(!bar.hidden){
+        const r=routes.getBoundingClientRect();bar.style.left=`${r.left}px`;bar.style.width=`${r.width}px`;
+        if(innerHeight-r.bottom<r.top){bar.style.bottom=`${innerHeight-r.top+6}px`;bar.style.top='auto';}
+        else{bar.style.top=`${r.bottom+6}px`;bar.style.bottom='auto';}
+      }
+      if(routes!==observedRoutes){resizeObserver?.disconnect();if(routes)resizeObserver?.observe(routes);observedRoutes=routes;}
+      const status=state.active?'运行中':'已暂停';text(bar.querySelector('.fb-bar-state'),status);
+      bar.querySelector('.fb-bar-state').setAttribute('data-running',String(!!state.active));
+      text(bar.querySelector('.fb-bar-what'),state.active?(state.bossStatus||state.farmStatus||'世界 Boss＋种菜'):(state.status||'世界 Boss＋种菜'));
+      text(bar.querySelector('[data-fb-bar-toggle]'),state.active?'暂停':'开始');
+    }else{
+      nav?.remove();nav=null;if(bar)bar.hidden=true;host.hidden=false;host.removeAttribute('role');
+      host.style.right='';host.style.top='';host.style.bottom='';host.style.setProperty('--fb-max-height','calc(100dvh - 75px)');host.style.setProperty('--fb-max-width','calc(100vw - 20px)');
+      text(root.querySelector('#collapse'),root.querySelector('#body').hidden?'+':'−');root.querySelector('#collapse').setAttribute('aria-label','展开或收起面板');
+    }
+  }
+  function schedule(){if(scheduled)return;scheduled=true;requestAnimationFrame(()=>{scheduled=false;sync();});}
+  root.querySelector('#collapse').onclick=()=>{
+    if(integrated)setOpen(false);else{const body=root.querySelector('#body');body.hidden=!body.hidden;sync();}
+  };
+  const observer=new MutationObserver(schedule);
+  observer.observe(document.getElementById('app')||document.body,{childList:true,subtree:true});
+  observer.observe(document.documentElement,{attributes:true,attributeFilter:['class','data-theme']});
+  window.addEventListener('resize',schedule);
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&integrated&&open)setOpen(false);});
+  sync();
+  return {update(value){state=value;sync();}};
 }
 
 // Display-only names from the public client's static Chinese dictionary.
@@ -646,14 +901,16 @@ function createBossLootChat(document,history,translateGameText=text=>text) {
   const owner=crypto.randomUUID(),NativeSocket=window.WebSocket;
   const read=(store,name)=>{try{return JSON.parse(store.getItem(name)||'null');}catch{return null;}};
   let settings=normalizeFieldBossSettings(read(localStorage,key)),active=false,socket=null,player=null,compatible=false;
-  let received=0,frameTick=0,lastSync=-Infinity,round=null,owned=null,lastClick=-Infinity,goneAt=-Infinity;
-  let policy=createFieldBossPolicy(),pendingFarm=null,root=null,status='已暂停',bossStatus='等待开始',farmStatus='等待开始';
-  let leaveButton=null,wasInside=false,savedText='';
+  let received=0,frameTick=0,lastSync=-Infinity;
+  let policy=createFieldBossPolicy(),pendingFarm=null,root=null,ui=null,status='已暂停',bossStatus='等待开始',farmStatus='等待开始';
+  let savedText='';
+  let fieldControls=null;
+  const rememberPlots=createFarmMemory(GAME_DATA,localStorage);
   const history=createBossLootHistory(GAME_DATA,localStorage),chat=createBossLootChat(document,history,translateGameText);
   const runtimeKey=()=>`${key}:${player?.id}`;
   function save(){
     if(!player)return;
-    const value=JSON.stringify({active,round,owned,lastClick,policy:policy.save()});
+    const value=JSON.stringify({active,boss:boss.save(),policy:policy.save()});
     if(value!==savedText){sessionStorage.setItem(runtimeKey(),value);savedText=value;}
   }
   function lease(){
@@ -665,77 +922,34 @@ function createBossLootChat(document,history,translateGameText=text=>text) {
   function release(){if(read(localStorage,leaseKey)?.owner===owner)localStorage.removeItem(leaseKey);}
   const connected=()=>socket?.readyState===NativeSocket.OPEN&&player&&compatible;
   const send=intent=>{if(connected())NativeSocket.prototype.send.call(socket,JSON.stringify(intent));};
-  const visible=el=>!!el?.isConnected&&!el.hidden&&!el.disabled&&!el.closest('[hidden]')&&el.getClientRects().length>0;
-  function bossControls(){
-    const pill=document.querySelector('[data-boss-pill]'),run=document.querySelector('[data-boss-run]');
-    const shownPill=visible(pill),text=pill?.querySelector('.boss-pill-join')?.textContent?.trim()??'';
-    const busy=shownPill&&/^(Show|显示|查看)$/i.test(text)||visible(document.querySelector('[data-boss-leave]'));
-    const button=shownPill&&/^(Join|加入|加入战斗)$/i.test(text)?pill:visible(run)&&/^(Run to it|Attack|跑过去|攻击|前往|赶过去)$/i.test(run.textContent.trim())?run:null;
-    const name=(shownPill?document.querySelector('[data-boss-pill-name]'):document.querySelector('[data-boss-name]'))?.textContent?.trim()||'世界 Boss';
-    return {button,busy,name};
-  }
-  function stopOwnBoss(){
-    if(!owned)return;
-    // The native handler clears its approach loop as well as sending Leave.
-    // Reacquire this known exit control after a page reload, only for our run.
-    const exitButton=leaveButton?.isConnected?leaveButton:document.querySelector('[data-boss-leave]');
-    if(exitButton)exitButton.click();
-    else send({t:'leaveWorldBoss'});
-    owned=null;leaveButton=null;
-  }
+  const boss=createNativeBoss(GAME_DATA,{document,settings:()=>settings,active:()=>active,send,label:translateGameText,defer:fn=>fn()});
+  const stopOwnBoss=()=>boss.leave();
   function pump(){
     if(!root)mount();
     chat.refresh();
     if(!active){render();return;}
     if(!connected()){status='等待游戏连接';render();return;}
     if(!lease()){active=false;status='另一份助手正在运行，请先暂停它';save();render();return;}
-    const now=Date.now(),inside=settings.bossEnabled&&inBossWindow(settings,now);
-    if(!inside){
-      stopOwnBoss();bossStatus=settings.bossEnabled?'当前不在参战时段':'世界 Boss 已关闭';
-    }else{
-      if(!wasInside){
-        lastSync=-Infinity;
-        if(round&&!round.expiresAt&&now-round.seenAt>10000){round=null;owned=null;}
-      }
-      const ui=bossControls();
-      if(round?.expiresAt&&now>=round.expiresAt){round=null;owned=null;}
-      if(ui.button||ui.busy){
-        if(!round&&now-goneAt>2000)round={key:`dom:${ui.name}:${now}`,name:ui.name,seenAt:now};
-        if(round)round.seenAt=now;
-      }else if(round&&!round.expiresAt&&now-round.seenAt>10000){round=null;owned=null;}
-      if(ui.busy){
-        if(owned&&!leaveButton)leaveButton=document.querySelector('[data-boss-leave]');
-        bossStatus=owned?.hit?'服务器已确认有效伤害，继续参战':'游戏正在赶路或参战';
-      }else if(round){
-        const choice=policy.boss(round.key,settings);
-        if(choice==='skip')bossStatus='本轮按设置的概率跳过';
-        else if(ui.button&&now-lastClick>=15000){
-          lastClick=now;owned={key:round.key,hit:false};
-          leaveButton=document.querySelector('[data-boss-leave]');
-          // Let every native command through, including setAside, supply and walk.
-          ui.button.click();bossStatus='已点击游戏“加入”，等待游戏赶路／攻击';
-        }else bossStatus=owned?'已请求加入，等待游戏响应':'发现 Boss，等待游戏加入按钮';
-      }else bossStatus='正在等待世界 Boss';
-      // Farm errands must not replace the native approach or attack route.
-      if(ui.busy||owned){wasInside=inside;status='运行中';save();render();sync(now);return;}
-    }
-    wasInside=inside;
+    const now=Date.now();
+    const waiting=boss.next(player);bossStatus=boss.status().message;
+    if(waiting){status='运行中';save();render();sync(now);return;}
     if(!settings.farmEnabled){farmStatus='种菜已关闭';policy.farm(null,settings);}
     else if(now-received>45000)farmStatus='等待最新农田状态';
     else{
       const p={...player,lastTick:Math.max(player.lastTick??0,frameTick)};
-      const batch=farmBatch(GAME_DATA,p,settings);
+      const batch=farmBatch(GAME_DATA,p,settings,rememberPlots(p));
       const scheduled=policy.farm(batch.key,settings);
       farmStatus=`${batch.ripe}/${batch.planted} 块成熟 · ${batch.reason}`;
       const busy=p.held||p.raidHeld||p.route?.errand||p.enhance||!p.route&&(p.path?.length||p.activity==='walking');
       if(pendingFarm&&received>pendingFarm.sentAt){
-        if(p.route?.errand||batch.key!==pendingFarm.key)pendingFarm=null;
+        if(p.route?.errand||batch.key!==pendingFarm.key||JSON.stringify(batch.intent)!==pendingFarm.intent)pendingFarm=null;
         else if(now-pendingFarm.sentAt>30000)pendingFarm=null;
       }
       if(p.route?.errand)farmStatus='游戏正在整批收获补种，完成后恢复原任务';
       else if(scheduled&&!scheduled.ready&&batch.planted)farmStatus+=` · 约 ${Math.ceil((scheduled.dueAt-now)/60000)} 分钟后出发`;
       else if(scheduled&&(!batch.planted||scheduled.ready)&&!busy&&!pendingFarm){
-        send(batch.intent);pendingFarm={key:batch.key,sentAt:now};farmStatus='已发起原生整批收获补种';
+        send(batch.intent);pendingFarm={key:batch.key,sentAt:now,intent:JSON.stringify(batch.intent)};
+        farmStatus=batch.intent.t==='plotChoice'?'正在应用逐田补种选择':'已发起原生整批收获补种';
       }
     }
     status='运行中';save();render();sync(now);
@@ -756,25 +970,17 @@ function createBossLootChat(document,history,translateGameText=text=>text) {
             const changed=player?.id!==welcome.you?.id;player=welcome.you;compatible=welcome.protocol===GAME_DATA.protocol;
             if(changed){
               const saved=read(sessionStorage,runtimeKey());active=saved?.active===true;
-              policy=createFieldBossPolicy({saved:saved?.policy});round=saved?.round??null;owned=saved?.owned??null;
-              lastClick=saved?.lastClick??-Infinity;pendingFarm=null;savedText='';
+              policy=createFieldBossPolicy({saved:saved?.policy});boss.restore(saved?.boss);pendingFarm=null;savedText='';
             }
             if(!compatible){active=false;status='游戏协议已变化，已暂停';}
             frameTick=frame.tick;received=Date.now();
           }
           for(const m of frame.m){
             if(m.t==='snapshot'&&player&&m.you?.id===player.id&&frame.tick>=frameTick){player=m.you;frameTick=frame.tick;received=Date.now();changed=true;}
-            if(!active||!settings.bossEnabled||!inBossWindow(settings,Date.now()))continue;
-            if(m.t==='bossRose'&&typeof m.name==='string'&&Number.isFinite(m.until)){
-              const same=round?.until===m.until&&round?.name===m.name;
-              const promote=round&&!round.until&&(round.name==='世界 Boss'||translateGameText(round.name)===translateGameText(m.name));
-              if(!same&&!promote){round={key:`${m.name}:${m.until}`,name:m.name};owned=null;lastClick=-Infinity;}
-              round.name=m.name;round.until=m.until;round.expiresAt=Date.now()+(m.until-frame.tick)*GAME_DATA.tickMs;round.seenAt=Date.now();
-              changed=true;
-            }
-            if(m.t==='bossGone'||m.t==='bossHp'&&m.hpRemaining===0){round=null;owned=null;goneAt=Date.now();changed=true;}
-            if(m.t==='raidHit'&&m.damage>0&&owned){owned.hit=true;changed=true;}
           }
+          if(player)rememberPlots(player);
+          boss.observe(frame);
+          if(frame.m.some(m=>['bossRose','bossGone','bossHp','raidHit'].includes(m.t)))changed=true;
           // Native listeners must update their state and button labels first.
           if(changed)setTimeout(pump,0);
         }catch(error){active=false;status=`已暂停：${error.message}`;release();render();}
@@ -784,14 +990,15 @@ function createBossLootChat(document,history,translateGameText=text=>text) {
   };
   function mount(){
     if(root||!document.body)return;
-    const host=document.createElement('div');host.id='dv-field-boss';document.body.append(host);root=host.attachShadow({mode:'open'});
+    const host=document.createElement('div');host.id='dv-field-boss';host.setAttribute('aria-label','世界 Boss 与种菜助手');host.setAttribute('data-no-i18n','');document.body.append(host);root=host.attachShadow({mode:'open'});
     root.innerHTML=`<style>
-      :host{position:fixed;right:14px;top:75px;z-index:2147483000;color:#eddbb7;font:13px/1.6 system-ui,sans-serif;width:min(330px,calc(100vw - 20px))}
-      *{box-sizing:border-box}section{background:#2b1c0e;border:1px solid #bc8b44;border-radius:9px;box-shadow:0 6px 22px #0006;padding:14px;max-height:calc(100dvh - 95px);overflow:auto}
-      header{display:flex;align-items:center;gap:8px}strong{font-size:17px;flex:1}small,.note{color:#c4ab80}button,input,select{font:inherit;color:inherit;background:#1e140b;border:1px solid #78582d;border-radius:4px;padding:5px 8px}
-      button{cursor:pointer}button:hover{border-color:#edbf70}#toggle{background:#e2ac55;color:#291a0d;font-weight:700;width:100%;margin:10px 0}h3{font-size:14px;margin:14px 0 8px;border-top:1px solid #604622;padding-top:12px}
-      label{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0}input[type=number]{width:75px}input[type=text]{width:76px}input[type=checkbox]{accent-color:#d9a552}select{width:100%;min-width:0}.row{display:flex;align-items:center;gap:7px}.note{font-size:12px;margin:7px 0;overflow-wrap:anywhere}a{color:#e6b665}#body[hidden]{display:none}
-      @media(max-width:480px){:host{right:10px;top:55px}section{max-height:calc(100dvh - 75px)}}
+      :host{position:fixed;right:12px;top:60px;z-index:10;color:var(--ink,#f5e6c8);font:13px/1.5 var(--font-sans,"Mulish",ui-sans-serif,system-ui,sans-serif);width:min(340px,var(--fb-max-width,calc(100vw - 24px)));color-scheme:dark}
+      :host([hidden]){display:none!important}:host([data-theme=light]){color-scheme:light;--panel:#f3e6c8;--panel-sunken:#e2cfa4;--edge:#b89763;--ink:#3d2612;--ink-faint:#876640;--brass:#9a6212;--brass-bright:#b87a1e;--lg-dark:radial-gradient(ellipse 120% 90% at 50% 35%,#f8ecd2 0%,#ecdab3 60%,#dcc394 100%)}
+      *{box-sizing:border-box}section{display:flex;flex-direction:column;background:var(--lg-dark,radial-gradient(ellipse 120% 80% at 50% 0%,#3b2717 0%,#25170d 65%,#1d1209 100%)) padding-box,var(--lg-wood,linear-gradient(135deg,#9a6632,#6e411d 28%,#a26d37 52%,#5f3616 78%,#83502a)) border-box;border:1px solid transparent;border-radius:8px;box-shadow:inset 0 0 0 1px #c79352b3,0 0 0 1px #1f1108,0 9px 22px -6px #0009;max-height:var(--fb-max-height,calc(100dvh - 76px));overflow:hidden}
+      header{display:flex;align-items:center;gap:8px;flex-shrink:0;padding:12px 16px 10px;border-bottom:2px solid #0005;box-shadow:0 1px #ffdcaa14}strong{font-size:20px;line-height:1.1;flex:1}small,.note{color:var(--ink-faint,#ab9270)}button,input,select{font:inherit;color:inherit;background:var(--panel-sunken,#170e07);border:1px solid var(--edge,#4d3219);border-radius:4px;padding:5px 8px}
+      #body{padding:0 14px 14px;overflow:auto;min-height:0}#status{padding:10px 14px 0;flex-shrink:0}button{cursor:pointer}button:hover{border-color:var(--brass-bright,#f5c572)}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--brass,#e8b25a);outline-offset:2px}#toggle{background:linear-gradient(180deg,#f5c572,#c98a2c);color:#2a1706;font-weight:800;width:100%;margin:10px 0;border:0;box-shadow:inset 0 0 0 2px #ffe0a0,0 0 0 2px #4a2a0c,0 3px #4a2a0c}#collapse{width:28px;height:28px;flex-shrink:0;border:0;border-radius:50%;background:linear-gradient(180deg,#a86d34,#6e3f18);color:#fff3dc;box-shadow:inset 0 0 0 2px #d9a560,0 0 0 2px #3b2210;font-size:18px;line-height:1;padding:0}h3{font-size:14px;margin:14px 0 8px;border-top:1px solid var(--edge,#4d3219);padding-top:12px}
+      label{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0;flex-wrap:wrap}input[type=number]{width:75px}input[type=text]{width:76px}input[type=checkbox]{accent-color:#d9a552}select{width:100%;min-width:0}.row{display:flex;align-items:center;gap:7px}.note{font-size:12px;margin:7px 0;overflow-wrap:anywhere}a{color:var(--brass,#e8b25a)}#body[hidden]{display:none}
+      @media(max-width:480px){:host{right:10px;top:55px}button{min-height:32px}} 
     </style><section><header><strong>世界 Boss＋种菜</strong><small>v${SCRIPT_VERSION}</small><button id="collapse" aria-label="折叠面板">−</button></header>
     <div id="status" role="status">已暂停</div><div id="body"><button id="toggle">开始</button>
     <h3>世界 Boss</h3><label>自动参战<input id="bossEnabled" type="checkbox"></label>
@@ -801,9 +1008,15 @@ function createBossLootChat(document,history,translateGameText=text=>text) {
     <h3>种菜收菜</h3><label>自动收获补种<input id="farmEnabled" type="checkbox"></label>
     <label for="harvestMode">收菜条件</label><select id="harvestMode"><option value="all">所有作物成熟后收菜</option><option value="seed">任一相同种子的田全熟后收菜</option></select>
     <label>随机延迟（分钟）<span class="row"><input id="delayMin" type="number" min="0" max="1440" step="0.1" aria-label="最短延迟">—<input id="delayMax" type="number" min="0" max="1440" step="0.1" aria-label="最长延迟"></span></label>
-    <label for="cropJobId">补种作物</label><select id="cropJobId"><option value="">优先现有作物，空田用已有种子</option>${GAME_DATA.jobs.map(job=>`<option value="${job.id}">${gameLabel(job.name)} · ${job.levelReq} 级</option>`).join('')}</select>
+    <label for="plantMode">补种方式</label><select id="plantMode"><option value="game">依照游戏逐田选择</option><option value="last">沿用每块田上次种植</option></select>
+    <div id="fields"></div>
+    <p class="note">逐田选择会保存到游戏。未指定的空田按游戏默认作物补种；没有任何选择或历史种植时等待你设置。修改任一田会切回逐田选择。</p>
     <p class="note">按精确种子品质分组。触发后原生整批收种，会顺带收其他成熟田；仅用已有或收回的种子，包含传说种子。完成后由游戏恢复原任务和队列。</p><div id="farmStatus" class="note"></div>
     <p class="note">设置自动保存。请停用综合助手后使用本脚本。掉落记录在聊天栏「Boss 掉落」，仅记录服务器发来的本人结算。</p><a href="https://github.com/ljyoukong-cpu/deepvein-idle-helper" target="_blank" rel="noopener noreferrer">GitHub 项目主页 ↗</a></div></section>`;
+    fieldControls=createFarmControls(document,root.querySelector('#fields'),GAME_DATA,intent=>{
+      if(!connected())return;
+      settings={...settings,plantMode:'game',cropJobId:null};localStorage.setItem(key,JSON.stringify(settings));fill();send(intent);
+    },gameLabel);
     fill();
     root.querySelector('#toggle').onclick=()=>{
       if(active){stopOwnBoss();active=false;status='已暂停';release();}
@@ -812,14 +1025,14 @@ function createBossLootChat(document,history,translateGameText=text=>text) {
       else{active=true;status='运行中';lastSync=-Infinity;}
       save();pump();
     };
-    root.querySelector('#collapse').onclick=()=>{const body=root.querySelector('#body');body.hidden=!body.hidden;root.querySelector('#collapse').textContent=body.hidden?'+':'−';};
-    for(const field of Object.keys(settings))root.querySelector(`#${field}`).onchange=()=>{
-      const value={};for(const name of Object.keys(settings)){const el=root.querySelector(`#${name}`);value[name]=name.endsWith('Enabled')?el.checked:name==='cropJobId'?(el.value===''?null:Number(el.value)):el.value;}
+    ui=createFieldBossUi(document,host,root,()=>root.querySelector('#toggle').click());
+    for(const field of Object.keys(settings)){const control=root.querySelector(`#${field}`);if(!control)continue;control.onchange=()=>{
+      const value={...settings,cropJobId:null};for(const name of Object.keys(settings)){const el=root.querySelector(`#${name}`);if(el)value[name]=name.endsWith('Enabled')?el.checked:el.value;}
       settings=normalizeFieldBossSettings(value);localStorage.setItem(key,JSON.stringify(settings));fill();pump();
-    };
+    };}
   }
-  function fill(){for(const [name,value]of Object.entries(settings)){const el=root.querySelector(`#${name}`);if(name.endsWith('Enabled'))el.checked=value;else el.value=value??'';}}
-  function render(){if(!root)return;root.querySelector('#status').textContent=status;root.querySelector('#toggle').textContent=active?'暂停':'开始';root.querySelector('#bossStatus').textContent=bossStatus;root.querySelector('#farmStatus').textContent=farmStatus;}
+  function fill(){for(const [name,value]of Object.entries(settings)){const el=root.querySelector(`#${name}`);if(!el)continue;if(name.endsWith('Enabled'))el.checked=value;else el.value=value??'';}}
+  function render(){if(!root)return;fieldControls?.(player);root.querySelector('#status').textContent=status;root.querySelector('#toggle').textContent=active?'暂停':'开始';root.querySelector('#bossStatus').textContent=bossStatus;root.querySelector('#farmStatus').textContent=farmStatus;ui?.update({active,status,bossStatus,farmStatus});}
   mount();setInterval(pump,1000);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden){lastSync=-Infinity;pump();}});
   window.addEventListener('pagehide',()=>{save();release();});
