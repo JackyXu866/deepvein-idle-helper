@@ -31,6 +31,20 @@ test('a development project gathers the whole stage before crafting', () => {
   assert.ok(goal.craftPreparation.amount >= needed * .9, `${goal.craftPreparation.amount} bars for smithing 20 -> 25 (${needed})`);
 });
 
+test('while the current gathering load finishes, the stage progress stays in the message', () => {
+  const {planner, d, p, goal, bar} = smith(20);
+  planner.plan(p, goal, 'melee');
+  const amount = goal.craftPreparation.amount, copper = bar.inputs[0].itemId;
+  const ore = d.jobs.find(j => j.output.itemId === copper && !j.inputs.length);
+  const site = d.sites.find(s => s.jobIds.includes(ore.id));
+  const gathering = {...p, bank: {...p.bank, [copper]: 35}, x: site.x, y: site.y, activity: 'working',
+    route: {jobId: ore.id, siteId: site.id, phase: 'working', limit: 100, onFull: 'bank'}};
+  const plan = planner.plan(gathering, goal, 'melee');
+  assert.equal(plan.intent, null);
+  assert.match(plan.reason, /继续当前采集/);
+  assert.ok(plan.reason.includes(`${d.items[copper].name} 35/${amount}`), plan.reason);
+});
+
 test('with the stage in stock, crafting starts at once', () => {
   const {planner, p, goal, bar} = smith(5000);
   const plan = planner.plan(p, goal, 'melee');

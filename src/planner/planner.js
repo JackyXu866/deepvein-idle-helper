@@ -1313,8 +1313,21 @@ export function createPlanner(data) {
       api.watchPurchases?.(p,inputs);
     }
     const reason=!completedLoad&&finishTaskReason(data,p);
-    if (reason) return wait(reason);
-    return plan(p,goal,style);
+    // Keep the project's progress in view while the current load finishes:
+    // material counts are read live; anything else is the last boundary's note.
+    if (reason) {
+      const note=preparationNote(p,goal)??goal?.boundaryNote;
+      return wait(note?`${reason}；之后：${note}`:reason);
+    }
+    const result=plan(p,goal,style);
+    if(goal&&result?.reason&&!result.blocked&&!result.deferUntilTick)goal.boundaryNote=result.reason;
+    return result;
+  }
+  function preparationNote(p,goal) {
+    const prep=goal?.craftPreparation,job=prep&&jobs.find(j=>j.id===prep.jobId);
+    const recipe=job&&craftRecipe(data,job,prep.rarity??0);
+    if(!recipe)return null;
+    return `备料 ${job.name} ×${prep.amount}：${recipe.inputs.map(i=>`${name(i.itemId)} ${count(p,i.itemId)}/${i.qty*prep.amount}`).join('、')}`;
   }
   // Why a crop is (or would be) grown, by the same rules harvest() uses.
   function cropWhy(p,job,goal,stocks) {
