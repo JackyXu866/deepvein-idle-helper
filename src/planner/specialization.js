@@ -16,8 +16,11 @@ export function createSpecialization(data,planner) {
   }
   function incomeChoices(p,candidates,style) {
     const choices=[];
+    // Market value of an expected (possibly fractional) quantity: the best fresh
+    // bid for that quality, else the merchant; net of tax.
+    const value=(id,qty)=>qty>0?(planner.marketUnitValue?.(p,id,Math.max(1,Math.round(qty)))??0)*qty:0;
     for(let c of candidates) {
-      let proceeds=0;const saleItems=[];
+      let proceeds=0,actions=c.actions;const saleItems=[];
       if(c.output&&c.output.itemId!==data.coinId) {
         const {itemId,qty}=c.output;
         const minSale=['mining','fishing','woodcutting'].includes(c.skill)&&!data.items[itemId]?.stackable?
@@ -34,17 +37,29 @@ export function createSpecialization(data,planner) {
         if(saleQty&&multiplier>1) {
           const estimate=planner.routeEstimate(p,c.recipeId,50*multiplier,{style,ignoreStock:true,completeTrips:true,buyInputs:true});
           if(!Number.isFinite(estimate.seconds)||estimate.seconds>1800||estimate.unlocks?.length)continue;
-          c={...c,estimate,rate:estimate.rate};
+          c={...c,estimate,rate:estimate.rate};actions=50*multiplier;
         }
         // Protected potions, seeds, food reserves and gear are not sale income.
         if(saleQty>0) {
           const quote=planner.marketOpportunity?.(p,itemId,saleQty);
           if(quote?.qty===saleQty&&Number.isFinite(quote.net)&&quote.net>0){proceeds=quote.net;saleItems.push(itemId);}
         }
+        // Gathered quality output and the bonus drop count at market value.
+        // Legendary gathered material is also sold (market only, see sale()).
+        if(c.qualityPerAction&&actions>0) {
+          c.qualityPerAction.forEach((perAction,i)=>{
+            const id=itemId+(i+1)*data.rarityScale,qty=perAction*actions;
+            proceeds+=value(id,qty);
+            if(i===3&&qty>0)saleItems.push(id);
+          });
+          if(c.bonusPerAction)proceeds+=value(c.bonusPerAction.itemId,c.bonusPerAction.qty*actions);
+        }
       }
       // Monster drops: only what current bids absorb after existing stock, net
       // of tax, and never protected items (rare bonus drops, pets, shards kept).
+      // Quality drops are not sold, but count at market value like gathered ones.
       if(c.monsterId!=null&&c.drops&&c.kills>0)for(const [id,perKill]of Object.entries(c.drops)) {
+        if(Number(id)!==planner.base(Number(id))){proceeds+=value(Number(id),perKill*c.kills);continue;}
         const qty=Math.floor(perKill*c.kills);
         if(qty<1)continue;
         const quote=planner.marketOpportunity?.(p,Number(id),qty);

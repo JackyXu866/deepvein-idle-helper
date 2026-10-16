@@ -40,11 +40,16 @@ export function createStrategy(data, planner) {
   }
   function estimateWork(p,j,lv=planner.levels(p)) {
     const slot=Object.keys(data.toolSkills).find(s=>data.toolSkills[s]===j.skill);
-    return calibrated(p,`job:${j.id}${j.rarity?`:rarity:${j.rarity}`:''}`,workEstimate(data,j,lv[j.skill],{
+    const key=`job:${j.id}${j.rarity?`:rarity:${j.rarity}`:''}`;
+    const luck=(data.toolLuck[rarityOf(data,p.equipment[slot]??0)]??0)+(planner.equipmentStats(p.equipment.amulet)?.luck??0);
+    // The engine's measured quality factor also covers brews, house and
+    // masteries; it is a sample, so it replaces the exact tool+amulet factor
+    // only when clearly higher.
+    const measured=usableMeasurement(p,key,lv)?.rarityFactor;
+    return calibrated(p,key,workEstimate(data,j,lv[j.skill],{
       toolBonus:planner.equipmentStats(p.equipment[slot])?.bonus??0,
-      quick:p.perks?.quick??0,hands:p.perks?.hands??0,
-      luck:(data.toolLuck[rarityOf(data,p.equipment[slot]??0)]??0)+
-        (planner.equipmentStats(p.equipment.amulet)?.luck??0)}),lv);
+      quick:p.perks?.quick??0,hands:p.perks?.hands??0,luck,
+      rarityFactor:measured>(1+luck)*1.15?measured:undefined}),lv);
   }
   function combatOptions(p,profession='magic') {
     const style=professionSkill(profession);
@@ -245,7 +250,11 @@ export function createStrategy(data, planner) {
       }
       if (estimate.seconds>horizon) continue;
       if (!Number.isFinite(estimate.seconds)||!estimate.xp) continue;
-      candidates.push({skill:job.skill,recipeId:job.id,mainXpRate:e.xp*amount/estimate.seconds,output:{itemId:job.output.itemId,qty:Math.floor(e.commonOutput*amount)},recipes:{...estimate.recipes,[job.skill]:job.id},
+      // Gathered output of every quality and the bonus drop, as expected counts.
+      const extras=!job.inputs.length&&job.output.itemId!==data.coinId?{actions:amount,
+        qualityPerAction:e.tierOutput.slice(1),
+        ...(job.bonus?{bonusPerAction:{itemId:job.bonus.itemId,qty:e.bonusOutput}}:{})}:{};
+      candidates.push({skill:job.skill,recipeId:job.id,mainXpRate:e.xp*amount/estimate.seconds,output:{itemId:job.output.itemId,qty:Math.floor(e.commonOutput*amount)},...extras,recipes:{...estimate.recipes,[job.skill]:job.id},
         supplyRecipes:estimate.supplyRecipes,batch,estimate,rate:estimate.rate,horizon,
         budget:routeEstimate(p,job,batch,{style,buyInputs:true}).budget,target:lv[job.skill]+1,stage:lv[job.skill]+1});
     }

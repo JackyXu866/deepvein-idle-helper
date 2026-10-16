@@ -19,11 +19,19 @@ export function reserveWaitingGoals(goal,waitingGoals={}) {
     farmingTarget:Math.max(goal?.farmingTarget??0,...reservedGoals.map(g=>g.farmingTarget??0))};
 }
 
+// Legendary gathered material (ore, logs, fish) never feeds crafting or house
+// fuel; it is sold on the market only, at its recent same-quality trade price.
+export function legendaryHarvest(data,id) {
+  return Number.isSafeInteger(id)&&rarityOf(data,id)===4&&plusOf(data,id)===0&&data.jobs.some(j=>
+    !j.inputs.length&&!j.grow&&['mining','fishing','woodcutting'].includes(j.skill)&&j.output.itemId===baseId(data,id));
+}
+
 // Colour alone does not identify renewable surplus: mounts and rare bonus
 // drops also have ordinary IDs. Reuse this gate at the final sale boundary.
 export function saleProtectionReason(data,id,marketEquipment=false) {
   const base=baseId(data,id);
   if(!Number.isSafeInteger(id)||!data.items[base])return '未知物品，保留';
+  if(legendaryHarvest(data,id))return null;
   if(!autoUsableMaterial(data,id))return '传说物品由玩家支配，保留';
   if(id===COAL_ID)return '普通煤炭用于所有品质的冶炼，从不出售';
   if(id!==base&&!(marketEquipment&&data.gear.some(g=>g.itemId===base)))return '稀有或已强化物品，保留';
@@ -140,10 +148,11 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
     const id=row.itemId,base=planner.base(id),g=planner.equipmentStats(id);
     const total=row.bank+row.pack+row.worn+row.overflow;
     let keep=total,reason='用途未完全覆盖，先保留',category='保留';
-    const marketOnly=!!g&&id!==base;
+    const legendary=legendaryHarvest(data,id),marketOnly=!!g&&id!==base||legendary;
     const protectedReason=saleProtectionReason(data,id,marketOnly);
     if(protectedReason)reason=protectedReason;
     else if(locked.has(id)||lockedVariants.has(id%data.plusScale))reason='装备方案／当前打造或强化目标';
+    else if(legendary){keep=0;reason='传说采集材料不用于制作或房屋；按同品质近期成交价仅售市场，不转系统回收';}
     else if(marketOnly) {
       keep=row.worn;
       if(superseded(id))reason='已持有同款更高品质／强化的一件；按原品质和强化等级仅售市场';

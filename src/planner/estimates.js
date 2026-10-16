@@ -9,12 +9,18 @@ export function workEstimate(data, job, skillLevel, options={}) {
   // A stun ending at tick t+s suppresses s-1 subsequent trials.
   const ticks=Math.max(1,job.baseTicks/speed)+caught*Math.max(0,(job.caught?.stunTicks??0)-1);
   const randomRarity=!job.inputs.length&&job.output.itemId!==data.coinId;
-  const luck=1+(options.luck??0), c=data.rarityChance;
+  // One roll against every threshold, scaled by (1+luck)×bonuses (client Lu).
+  // rarityFactor, measured by the engine, is that whole product: tool and
+  // amulet luck plus brews, house, masteries. Without it: tool and amulet only.
+  const luck=options.rarityFactor??1+(options.luck??0), c=data.rarityChance;
   const cumulative=[1,...['uncommon','rare','epic','legendary'].map(k=>Math.min(1,c[k]*luck)),0];
   const probabilities=randomRarity?cumulative.slice(0,5).map((n,i)=>n-cumulative[i+1]):[1,0,0,0,0];
   const xp=success*probabilities.reduce((sum,p,i)=>sum+p*Math.round(job.xp*data.rarityXp[i]),0);
   return {seconds:ticks*data.tickMs/1000,success,burn,caught,xp,
     commonOutput:success*probabilities[0]*job.output.qty,
+    // Expected output of each quality per action, and of the bonus drop.
+    tierOutput:probabilities.map(n=>success*n*job.output.qty),
+    bonusOutput:job.bonus?success*job.bonus.chance:0,
     output:success*job.output.qty,
     coins:job.output.itemId===data.coinId?success*job.output.qty:0};
 }
