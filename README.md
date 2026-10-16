@@ -1,8 +1,8 @@
 # Deep Vein Idle 自给成长与职业助手
 
-## 独立版：世界 Boss 与种菜助手 v0.2.0
+## 独立版：世界 Boss 与种菜助手 v0.2.1
 
-[安装独立版](https://raw.githubusercontent.com/ljyoukong-cpu/deepvein-idle-helper/main/deepvein-field-boss.user.js) · [CDN 备用安装](https://gcore.jsdelivr.net/gh/ljyoukong-cpu/deepvein-idle-helper@field-boss-v0.2.0/deepvein-field-boss-cdn.user.js)
+[安装独立版](https://raw.githubusercontent.com/ljyoukong-cpu/deepvein-idle-helper/main/deepvein-field-boss.user.js) · [CDN 备用安装](https://gcore.jsdelivr.net/gh/ljyoukong-cpu/deepvein-idle-helper@field-boss-v0.2.1/deepvein-field-boss-cdn.user.js)
 
 独立安装，不覆盖综合助手。先停用综合助手，再刷新游戏，在“世界 Boss＋种菜”面板点开始。默认暂停，设置自动保存，同一标签页刷新后恢复之前的运行状态。
 
@@ -14,15 +14,15 @@
 - Boss 赶路／参战期间暂缓收菜。原生农事结束后恢复原任务与队列。
 - 聊天栏保留「Boss 掉落」：最近 100 条本人服务器结算，兼容当前句式、登录历史和旧版缓存；旧记录保留真实日期。
 
-已通过隔离浏览器中普通／召唤、远处／近处加入和桌面／窄屏测试；这不代表对在线账号的实际命中或掉落作出保证。Boss 补给和战斗继续采用游戏自身配置。综合版更新为 v0.8.5，下面为其说明。
+已通过隔离浏览器中普通／召唤、远处／近处加入和桌面／窄屏测试；这不代表对在线账号的实际命中或掉落作出保证。Boss 补给和战斗继续采用游戏自身配置。综合版更新为 v0.8.6，下面为其说明。
 
 ## 综合助手
 
-[安装或更新脚本](https://raw.githubusercontent.com/ljyoukong-cpu/deepvein-idle-helper/main/deepvein-balanced.user.js) · [Gcore CDN 备用入口](https://gcore.jsdelivr.net/gh/ljyoukong-cpu/deepvein-idle-helper@v0.8.5/deepvein-balanced-cdn.user.js) · [更新日志](#更新日志)
+[安装或更新脚本](https://raw.githubusercontent.com/ljyoukong-cpu/deepvein-idle-helper/main/deepvein-balanced.user.js) · [Gcore CDN 备用入口](https://gcore.jsdelivr.net/gh/ljyoukong-cpu/deepvein-idle-helper@v0.8.6/deepvein-balanced-cdn.user.js) · [更新日志](#更新日志)
 
 备用入口的安装和后续更新使用 Gcore jsDelivr 线路；与原入口保持相同名称、namespace 和游戏功能。安装后刷新游戏并确认只启用一份助手。备用线路的连通性取决于当前网络，无法保证所有地区可用；CDN 缓存也可能延迟新版本。
 
-**当前版本 v0.8.5**：修复粗糙宝石精通固定选铁矿的问题，副产物目标和精通补料统一按对应品质的预计产出耗时选来源。比较掉率、等级、工具速度与幸运、偷窃失手／眩晕和存仓往返；宝石摊已解锁且更合算时选偷窃。仍跳过种植与传说，每项只补下一档，稀有、史诗材料边采集边等。
+**当前版本 v0.8.6**：修复补精通期间原生 Boss 加入被赶路、规划冷却和周期同步等待挡住的问题。收到 Boss 消息后直接唤起参战检查，等游戏更新按钮再点原生“加入”，不等待人物更新或定时器。未确认交易、传说食物保护、本机时段和跳过概率继续生效。独立版 v0.2.1 同步消息调度修复。
 
 用于 [Deep Vein Idle](https://deepveinidle.com/) 及其 [中国入口](https://cn.deepveinidle.com/) 的 Tampermonkey 用户脚本。提供自主发展、经验优先、主业经营、补精通和只收菜＋蹭世界 Boss 五种策略；默认自主发展且暂停，首次安装后刷新游戏，选择策略，再点击“开始”。v0.5.21 完成全模块自检，修复批量备料、掉率成本、外来奖励收益归因、铁人市场限制和旧缓存更新检查；v0.5.20 在聊天频道栏增加「Boss 掉落」记录，按角色在本浏览器保存最近 100 条本人结算；v0.5.19 提高日常优先级、缩小折叠面板并汉化名称，完整更新记录见下方「更新日志」。v0.5.18 增加自动／手动选种、生活主业指定项目与战斗指定怪物，并重新整理助手面板。手动指定的作物用于后续播种，原来在长的菜照常成熟；当前版本已改为玩家逐田选种。保留 v0.5.17 的炼药整批备料、无限采集存仓识别和缺种补空田修复。保留原生 Boss“加入”、无限工作、防御与生命自然成长、强化基线 +5、更新提示及约 20 小时批量药效。普通自动出售默认关闭，单独的满仓普通盈余出售和比价补药默认开启，必要材料采购继续。
 
@@ -130,6 +130,10 @@
 两个游戏域名的浏览器存储彼此独立。首次切换到新域名时，助手默认暂停，请核对模式并点击开始；不会读取另一站点的登录信息或自动搬运设置。熟食目标仍受保护：参战前换用非目标食物，只有没有替代食物时才跳过本场 Boss，并在日志和当前原因中说明。
 
 ## 更新日志
+
+### v0.8.6／独立版 v0.2.1 · 2026-10-17
+
+修复原生 Boss 检查排在普通任务等待后面，导致补精通等模式赶路、规划冷却或周期同步期间不点“加入”。普通赶路可由原生参战接管，当前精通目标保留；未确认交易仍先等结果。Boss 出现、结束及有效伤害消息直接唤起检查，采用一次性 MessageChannel 等待游戏更新 UI 后执行，释放端口；缺少该 API 时回退到定时器。独立版同步使用相同的消息调度。农田收获与逐田种植规则保持原样。
 
 ### v0.8.5 · 2026-10-16
 
