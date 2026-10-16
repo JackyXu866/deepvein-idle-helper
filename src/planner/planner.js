@@ -1457,7 +1457,7 @@ export function createPlanner(data) {
   const investments=createInvestments(data,api);
   return Object.assign(api,{growthChooseGoal:growth.chooseGoal,growthStatus:growth.status,
     housingPlan:housing.plan,housingStatus:housing.status,validateHousing:housing.validate,
-    housingRuntime:housing.runtime,cancelHousing:housing.cancel,housingRejected:housing.rejected,
+    housingRuntime:housing.runtime,cancelHousing:housing.cancel,housingRejected:housing.rejected,refuseHouseFuel:housing.refuseFuel,
     observeDevelopment:growth.observe,resetDevelopment:growth.reset,developmentRuntime:growth.runtime,developmentStalled:growth.stalled,
     resumeDevelopment:growth.resumeReady,
     incomeChoices:specialization.incomeChoices,

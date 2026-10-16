@@ -1,6 +1,6 @@
 import {autoUsableMaterial, professionSkill} from './professions.js';
 import {inventoryBudget, reviewInventory, saleProtectionReason} from './inventory.js';
-import {COAL_ID, baseId, merchantPrice, plusOf, rarityOf} from './items.js';
+import {COAL_ID, baseId, itemLabel, merchantPrice, plusOf, rarityOf} from './items.js';
 import {payback} from './investment.js';
 
 export const HOUSE_NAMES={mine:'矿井',sawmill:'锯木厂',pond:'鱼塘',garden:'花园',forge:'锻造炉',yard:'训练场',
@@ -76,11 +76,11 @@ function buildPointTable(data) {
 // candidate is valued at its best sale (market, town buyback or merchant) per
 // point it yields. Any quality except legendary; never planned materials, food
 // reserve, worn or locked gear, enhanced or bank-locked items, or common coal.
-export function chooseHouseFuel(data,{p,families,missing,inventory,budget,unitValue}) {
+export function chooseHouseFuel(data,{p,families,missing,inventory,budget,unitValue,refused={}}) {
   const donors=Object.entries(p.bank).map(([key,qty])=>{
     const id=Number(key),points=housePointsOf(data,id);
     if(!(qty>0)||!points||!families.includes(points.family)||id===COAL_ID||!autoUsableMaterial(data,id)||
-      p.bankLocked?.includes(id))return null;
+      p.bankLocked?.includes(id)||(refused[id]??0)>p.lastTick)return null;
     const row=inventory.items.find(r=>r.itemId===id),base=baseId(data,id);
     // Ordinary surplus as the inventory review sees it; a quality material
     // (not gear, not otherwise protected) beyond what the plans reserve.
@@ -103,7 +103,8 @@ export function chooseHouseFuel(data,{p,families,missing,inventory,budget,unitVa
 // Native portal geometry: index-CoaXHkN-.js. The server additionally requires
 // Home for housing commands (house-away); client-side affordability is insufficient.
 export function createHousing(data,planner) {
-  let owner=null,visit=null,retryAt=0,review=[];
+  // Fuel the game ignored (no error, nothing changed) is skipped for a while.
+  let owner=null,visit=null,retryAt=0,review=[],refusedFuel={};
   const rules=data.houseRules,rooms=data.houseRooms??[];
   const housePoints=id=>housePointsOf(data,id);
   const known=p=>rules&&rooms.length&&Array.isArray(p.houseCells)&&p.houseCells.length>0&&
@@ -161,7 +162,7 @@ export function createHousing(data,planner) {
         `使用 ${needed} 点已有房屋点数；升级在后台计时，原任务继续`);
       if(!(coinRate>0)){review.push(`${roomName(room.id)}：缺 ${missing} 点，收益暂无法估算，暂缓投料`);continue;}
       const {donors,conversions,cost,remaining}=chooseHouseFuel(data,{p,families:feeds(room),missing,inventory,budget,
-        unitValue:(id,qty)=>planner.marketUnitValue?.(p,id,qty)??merchantPrice(data,id)});
+        unitValue:(id,qty)=>planner.marketUnitValue?.(p,id,qty)??merchantPrice(data,id),refused:refusedFuel});
       if(remaining>0){review.push(`${roomName(room.id)}：缺 ${missing} 点，可用材料可补 ${missing-remaining} 点，不足整次升级`);continue;}
       const level=p.house[room.id]??0,delay=rules.upgradeTicks*rules.upgradeGrowth**level*data.tickMs/1000;
       const share=mode==='business'&&current(room)?1:1/Math.max(1,trained.length);
@@ -181,7 +182,7 @@ export function createHousing(data,planner) {
           `一周只省约 ${(result.saved/3600).toFixed(1)} 小时，暂缓投料`);continue;}
       }
       const first=donors.find(d=>d.itemId===conversions[0].itemId);
-      return action({t:'convertHouse',...conversions[0]},`准备${roomName(room.id)}升级 · 转换最省钱的材料`,
+      return action({t:'convertHouse',...conversions[0]},`准备${roomName(room.id)}升级 · 转换 ${itemLabel(data,conversions[0].itemId)} × ${conversions[0].qty}`,
         `还需 ${missing} 点，本批材料售价合计约 ${Math.ceil(cost)} 金币；先用每点最便宜的（本项约 ${(first.unit/first.each).toFixed(1)} 金币/点）；`+
         (room.id==='storeroom'?'仓库紧张，优先增加仓位':'按七天有效挂机、分摊各职业使用时间估算收益')+'；保留原计划材料、口粮和稀有物品');
     }
@@ -228,6 +229,12 @@ export function createHousing(data,planner) {
     retryAt=p.lastTick+Math.ceil(300000/data.tickMs);
     if(visit)visit.phase='leave';
   }
+  // The game ignored converting this item: skip it as fuel for six hours.
+  function refuseFuel(p,itemId) {
+    refusedFuel={...Object.fromEntries(Object.entries(refusedFuel).filter(([,until])=>until>p.lastTick)),
+      [itemId]:p.lastTick+Math.ceil(6*3600000/data.tickMs)};
+    rejected(p);
+  }
   function status(p) {
     if(!known(p))return '等待服务器房屋数据；不猜测房间或花费';
     const building=p.houseBuild?`扩建中，约 ${Math.max(0,Math.ceil((p.houseBuild.doneTick-p.lastTick)*data.tickMs/60000))} 分钟`:
@@ -241,6 +248,7 @@ export function createHousing(data,planner) {
   }
   const validate=(p,intent,goal,style,mode)=>HOUSE_ACTIONS.has(intent.t)&&atHome(data,p)&&!p.route&&!p.path?.length&&
     p.lastTick>=retryAt&&JSON.stringify(work(p,goal,style,mode)?.intent)===JSON.stringify(intent);
-  return {plan,status,validate,rejected,cancel:()=>{visit=null;},
-    runtime(value){if(value){({owner,visit,retryAt}=value);review=value.review??[];}return {owner,visit,retryAt,review};}};
+  return {plan,status,validate,rejected,refuseFuel,cancel:()=>{visit=null;},
+    runtime(value){if(value){({owner,visit,retryAt}=value);review=value.review??[];refusedFuel=value.refusedFuel??{};}
+      return {owner,visit,retryAt,review,refusedFuel};}};
 }

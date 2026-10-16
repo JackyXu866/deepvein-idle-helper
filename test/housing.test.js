@@ -49,3 +49,28 @@ test('common coal is never sold', () => {
   assert.match(saleProtectionReason(d, COAL_ID), /煤炭/);
   assert.equal(d.jobs.filter(j => j.inputs.some(i => i.itemId === COAL_ID)).length > 0, true);
 });
+
+test('a conversion the game ignored (nothing changed) does not pause; that fuel is skipped for a while', async () => {
+  const {Trainer} = await import('../src/runtime/trainer.js');
+  const {makePlanner, player} = await import('./helpers.js');
+  const planner = makePlanner(), d = planner.data, clock = 1e9;
+  const refused = [];
+  planner.refuseHouseFuel = (p, itemId) => refused.push(itemId);
+  const t = new Trainer(d, planner, () => {}, () => clock);
+  const p = player(planner, {bank: {3: 40}, housePoints: {stone: 10}});
+  Object.assign(t, {active: true, compatible: true, player: p, received: clock, snapshotSequence: 2, syncAfter: 1, nextSync: clock + 60000,
+    pending: {intent: {t: 'convertHouse', itemId: 3, qty: 20}, label: '准备矿井升级 · 转换 Iron × 20', before: p, sentAt: clock - 40000},
+    resolution: {sequence: 1, reason: '操作未得到确认', code: null}});
+  t.tick();
+  assert.equal(t.pausedError ?? null, null, 'no pause');
+  assert.equal(t.active, true);
+  assert.deepEqual(refused, [3]);
+  assert.match(t.history[0].message, /未生效/);
+  // Something did change: the old guard against spending twice still applies.
+  const spent = new Trainer(d, planner, () => {}, () => clock);
+  Object.assign(spent, {active: true, compatible: true, player: {...p, bank: {3: 30}}, received: clock, snapshotSequence: 2, syncAfter: 1,
+    nextSync: clock + 60000, pending: {intent: {t: 'convertHouse', itemId: 3, qty: 20}, label: 'x', before: p, sentAt: clock - 40000},
+    resolution: {sequence: 1, reason: '操作未得到确认', code: null}});
+  spent.tick();
+  assert.ok(spent.pausedError, 'a partial change still pauses');
+});

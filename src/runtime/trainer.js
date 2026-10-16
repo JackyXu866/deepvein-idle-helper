@@ -797,6 +797,14 @@ export class Trainer {
         // reloads. Resume self-supply without replaying that transaction.
         this.pending=null;this.resolution=null;this.plan=null;this.nextAction=now+1000;
         this.log(code?'市场操作未成交，冷却后重新比价；继续常规规划':'交易结果仍待核实，暂停新交易并继续自给任务');
+      } else if(pending&&!code&&pending.intent.t==='convertHouse'&&
+        quantity(this.player,pending.intent.itemId)===quantity(pending.before,pending.intent.itemId)&&
+        JSON.stringify(this.player.housePoints??{})===JSON.stringify(pending.before.housePoints??{})) {
+        // Nothing changed: the game ignored it and nothing was spent, so there
+        // is no double-spending to guard against. Skip that fuel and carry on.
+        this.planner.refuseHouseFuel?.(this.player,pending.intent.itemId);
+        this.pending=null;this.resolution=null;this.plan=null;this.nextAction=now+1000;
+        this.log(`${pending.label} 未生效（物品与房屋点数都没变，未花费）；该材料 6 小时内不再用于房屋点数，继续原任务`);
       } else {
         if(pending&&!code&&HOUSE_ACTIONS.has(pending.intent.t))
           return this.pauseError('房屋操作结果仍未确认，已暂停以防重复花费；请核对房屋状态后继续');
