@@ -1,5 +1,23 @@
 # Deep Vein Idle 自给成长与职业助手
 
+## 独立版：世界 Boss 与种菜助手 v0.1.0
+
+[安装独立版](https://raw.githubusercontent.com/ljyoukong-cpu/deepvein-idle-helper/main/deepvein-field-boss.user.js) · [CDN 备用安装](https://gcore.jsdelivr.net/gh/ljyoukong-cpu/deepvein-idle-helper@field-boss-v0.1.0/deepvein-field-boss-cdn.user.js)
+
+独立安装，不覆盖综合助手。先停用综合助手，再刷新游戏，在“世界 Boss＋种菜”面板点开始。默认暂停，设置自动保存，同一标签页刷新后恢复之前的运行状态。
+
+- Boss 本机时段默认 08:00–24:00，支持跨午夜；相同起止时间表示全天。时段外不检测、不自动加入，助手已加入的战斗退出并由游戏恢复原任务。
+- 每轮跳过概率 0–100%，默认 0%。每轮只抽一次，刷新保留；修改概率会重新决定当前轮。
+- 时段内直接点原生“加入”，普通 Boss 和玩家召唤 Boss 使用相同流程。由游戏保存任务、补给、赶路和攻击；原生仍在赶路时不会反复点击“显示”。原生重新提供“加入”后可重试，不遗留自动超时造成的永久跳过。
+- 收菜条件可选全部成熟，或任一相同品质种子的田全部成熟。后者仍是原生整批收种，会顺带收走其他成熟田。
+- 收菜随机延迟默认 5–10 分钟，可设置范围，每批抽取一次，刷新不重抽。空田用已有种子立即补种；可指定补种作物，不自动购买或采集种子，传说种子照常参与补种。
+- Boss 赶路／参战期间暂缓收菜。原生农事结束后恢复原任务与队列。
+- 聊天栏保留「Boss 掉落」：最近 100 条本人服务器结算，兼容当前句式、登录历史和旧版缓存；旧记录保留真实日期。
+
+已通过隔离浏览器中普通／召唤、远处／近处加入和桌面／窄屏测试；这不代表对在线账号的实际命中或掉落作出保证。Boss 补给和战斗继续采用游戏自身配置。综合版仍为 v0.7.19，下面为其说明。
+
+## 综合助手
+
 [安装或更新脚本](https://raw.githubusercontent.com/ljyoukong-cpu/deepvein-idle-helper/main/deepvein-balanced.user.js) · [Gcore CDN 备用入口](https://gcore.jsdelivr.net/gh/ljyoukong-cpu/deepvein-idle-helper@v0.7.19/deepvein-balanced-cdn.user.js) · [更新日志](#更新日志)
 
 备用入口的安装和后续更新使用 Gcore jsDelivr 线路；与原入口保持相同名称、namespace 和游戏功能。安装后刷新游戏并确认只启用一份助手。备用线路的连通性取决于当前网络，无法保证所有地区可用；CDN 缓存也可能延迟新版本。
