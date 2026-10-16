@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Deep Vein Idle 世界 Boss 与种菜助手
 // @namespace    local.deepvein.field-boss
-// @version      0.2.0
+// @version      0.2.1
 // @description  独立世界 Boss 与原生整批收菜；本机参战时段、每轮跳过概率、分组成熟、随机延迟；默认暂停
 // @homepageURL  https://github.com/ljyoukong-cpu/deepvein-idle-helper
 // @updateURL    https://raw.githubusercontent.com/ljyoukong-cpu/deepvein-idle-helper/main/deepvein-field-boss.meta.js
@@ -16,7 +16,7 @@
 
 (function(){
 'use strict';
-const SCRIPT_VERSION="0.2.0";
+const SCRIPT_VERSION="0.2.1";
 const GAME_DATA={"protocol":3,"tickMs":600,"xp":{"journeyLevel":99,"baseXp":100,"growth":1.12,"beyondStep":0.1,"beyondGrowth":1.145,"speedPerLevelAboveRequirement":0.005},"farmUnlocks":[1,1,15,30,45,60],"farmWaterTrim":20,"farmGates":{"387":{"name":"林间田","skill":"woodcutting","level":75,"x":152,"y":32},"389":{"name":"沼泽花园","skill":"fishing","level":75,"x":180,"y":118},"391":{"name":"弓手台地","skill":"fletching","level":70,"x":208,"y":30},"393":{"name":"深处花园","skill":"mining","level":85,"x":251,"y":51}},"plusScale":10000,"rarityScale":1000,"jobs":[{"id":160,"name":"Potato","skill":"farming","group":"Crops","levelReq":1,"baseTicks":2,"xp":110,"inputs":[{"itemId":160,"qty":1}],"output":{"itemId":170,"qty":1},"grow":800},{"id":161,"name":"Glowcap","skill":"farming","group":"Crops","levelReq":15,"baseTicks":2,"xp":380,"inputs":[{"itemId":161,"qty":1}],"output":{"itemId":171,"qty":1},"grow":1500},{"id":162,"name":"Cave turnip","skill":"farming","group":"Crops","levelReq":30,"baseTicks":2,"xp":900,"inputs":[{"itemId":162,"qty":1}],"output":{"itemId":172,"qty":1},"grow":2500},{"id":163,"name":"Bitterroot","skill":"farming","group":"Crops","levelReq":45,"baseTicks":2,"xp":1900,"inputs":[{"itemId":163,"qty":1}],"output":{"itemId":173,"qty":1},"grow":4000},{"id":164,"name":"Voidmelon","skill":"farming","group":"Crops","levelReq":60,"baseTicks":2,"xp":3800,"inputs":[{"itemId":164,"qty":1}],"output":{"itemId":174,"qty":1},"grow":6000},{"id":165,"name":"Ember pepper","skill":"farming","group":"Crops","levelReq":75,"baseTicks":2,"xp":6500,"inputs":[{"itemId":165,"qty":1}],"output":{"itemId":175,"qty":1},"grow":9000},{"id":210,"name":"Sage","skill":"farming","group":"Herbs","levelReq":10,"baseTicks":2,"xp":260,"inputs":[{"itemId":190,"qty":1}],"output":{"itemId":193,"qty":1},"grow":1200},{"id":211,"name":"Nightshade","skill":"farming","group":"Herbs","levelReq":35,"baseTicks":2,"xp":1200,"inputs":[{"itemId":191,"qty":1}],"output":{"itemId":194,"qty":1},"grow":3000},{"id":212,"name":"Dragonleaf","skill":"farming","group":"Herbs","levelReq":65,"baseTicks":2,"xp":4600,"inputs":[{"itemId":192,"qty":1}],"output":{"itemId":195,"qty":1},"grow":7000}],"sites":[{"id":74,"x":207,"y":93,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":75,"x":209,"y":93,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":76,"x":211,"y":93,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":77,"x":207,"y":97,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":78,"x":209,"y":97,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":79,"x":211,"y":97,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":387,"x":152,"y":32,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":389,"x":180,"y":118,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":391,"x":208,"y":30,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":393,"x":251,"y":51,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]}]};
 function farmFields(data,p) {
   const unlocked=(skill,level)=>p.skills?.[skill]>=Math.round(data.xp.baseXp*(data.xp.growth**(level-1)-1)/(data.xp.growth-1));
@@ -124,9 +124,18 @@ function farmBatch(data,p,settings,previous={}) {
 }
 
 
+// Run after the game's event listener updates its Join control, without relying
+// on background-tab timers. Each task releases both ports after delivery.
+function deferNativeBoss(fn){
+  if(typeof MessageChannel!=='function')return setTimeout(fn,0);
+  const channel=new MessageChannel();
+  channel.port1.onmessage=()=>{channel.port1.close();channel.port2.close();fn();};
+  channel.port2.postMessage(null);
+}
+
 // Both distributions use the game's Join handler, including its supply, walk,
 // attack and restore flow. Never intercept or replace part of that sequence.
-function createNativeBoss(data,{document,settings,active,send,prepare,now=()=>Date.now(),defer=fn=>setTimeout(fn,0),label=s=>s}={}) {
+function createNativeBoss(data,{document,settings,active,send,prepare,now=()=>Date.now(),defer=deferNativeBoss,label=s=>s}={}) {
   let round=null,run=null,lastClick=-Infinity,goneAt=-Infinity,deathTick=null,participation='full',force=false;
   let dispatching=false,lastResult=null,owner=null;
   let policy=createFieldBossPolicy({now}),message='等待世界 Boss',phase='idle',busy=false,inside=false,restoringUntil=0,completedKey=null;
@@ -982,7 +991,7 @@ function createBossLootChat(document,history,translateGameText=text=>text) {
           boss.observe(frame);
           if(frame.m.some(m=>['bossRose','bossGone','bossHp','raidHit'].includes(m.t)))changed=true;
           // Native listeners must update their state and button labels first.
-          if(changed)setTimeout(pump,0);
+          if(changed)deferNativeBoss(pump);
         }catch(error){active=false;status=`已暂停：${error.message}`;release();render();}
       });
       this.addEventListener('close',event=>{if(socket===this){compatible=false;if(event.code===4001||event.code===4002)active=false;save();release();}});
