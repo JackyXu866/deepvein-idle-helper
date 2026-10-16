@@ -2,6 +2,7 @@ import {autoUsableMaterial, professionSkill} from './professions.js';
 import {expectedAttacks, workEstimate} from './estimates.js';
 import {POTIONS, brewPower, foodEffects, potionRefillQty} from './supplies.js';
 import {inventoryBudget} from './inventory.js';
+import {MAKE_BIAS} from './crafting.js';
 import {baseId, baseStride, distance, nearestBank, packCapacity, packUsed, rarityOf} from './items.js';
 
 export function swiftPotion(data,planner,p,plan,window,drinkQty) {
@@ -174,7 +175,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
       const cost=supplyCosts(itemId,short),round=n=>Number.isFinite(n)?Math.round(n).toLocaleString('en-US'):'—';
       const why=`自制每瓶约 ${round(cost.brew)}，市场 ${round(cost.buy)}${cost.training?'；含炼药练级省下的时间':''}`;
       // With neither price known, brew what the held ingredients make, else buy.
-      const brewing=cost.brew<cost.buy||!Number.isFinite(cost.brew)&&!Number.isFinite(cost.buy);      if(brewing&&!cost.missing.length) {
+      const brewing=cost.brew<=cost.buy*MAKE_BIAS||!Number.isFinite(cost.brew)&&!Number.isFinite(cost.buy);      if(brewing&&!cost.missing.length) {
         const own=brew(itemId,name,short,why);if(own)return own;
         if(Number.isFinite(cost.brew)){report('brew',`药水未喝：${name}自制更便宜（${why}），换任务或返仓时开做`);continue;}
       }

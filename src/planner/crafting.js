@@ -2,7 +2,39 @@ import {autoUsableMaterial, craftRecipe} from './professions.js';
 import {workEstimate} from './estimates.js';
 import {baseId, distance, packCapacity, packQty, packUsed, rarityOf} from './items.js';
 
+// Making an item from bought materials may cost up to this much more than
+// buying it outright: the crafting XP is worth something too.
+export const MAKE_BIAS=1.15;
+
 export function createCrafting(data,planner) {
+  // Seconds (gold as time) to craft `qty` of `id` from bought materials, one
+  // recipe level down: held inputs at what they would sell for, missing ones
+  // at their market ask, plus the crafting time; the XP counts in full when
+  // that skill is the current goal. Infinity when no recipe or input price.
+  function fromBought(p,id,qty,goal=null) {
+    const tier=rarityOf(data,id),levels=planner.levels(p),rate=planner.coinRate?.(p)??0;
+    let best={seconds:Infinity,job:null};
+    for(const original of data.jobs.filter(j=>j.output.itemId===baseId(data,id)&&j.inputs.length&&!j.grow&&levels[j.skill]>=j.levelReq)) {
+      const job=craftRecipe(data,original,tier);if(!job)continue;
+      const n=Math.ceil(qty/job.output.qty);
+      let seconds=0;
+      for(const input of job.inputs) {
+        const need=input.qty*n,held=Math.min(need,Math.max(0,planner.count(p,input.itemId))),short=need-held;
+        if(held>0)seconds+=rate>0?held*(planner.marketUnitValue?.(p,input.itemId,held)??0)/rate:0;
+        if(short>0)seconds+=short*(planner.marketUnitCost?.(p,input.itemId,short)??Infinity);
+      }
+      const slot=Object.keys(data.toolSkills).find(s=>data.toolSkills[s]===job.skill);
+      const e=workEstimate(data,job,levels[job.skill],{toolBonus:planner.equipmentStats(p.equipment?.[slot])?.bonus??0,
+        quick:p.perks?.quick??0,hands:p.perks?.hands??0});
+      seconds+=n*e.seconds/Math.max(.01,e.success);
+      if(goal?.skill===job.skill&&goal.rate?.xp>0)seconds-=n*e.xp/goal.rate.xp;
+      if(seconds<best.seconds)best={seconds,job:original};
+    }
+    return best;
+  }
+  // Whether making `id` from bought materials beats buying it at
+  // `buySeconds` (its price as time), with the crafting XP weighed in.
+  const makeBeatsBuying=(p,id,qty,buySeconds,goal=null)=>fromBought(p,id,qty,goal).seconds<=buySeconds*MAKE_BIAS;
   function estimate(p,id,qty,{reserve={},buy=false,coins=0}={}) {
     const stock={...p.bank},levels=planner.levels(p);
     for(const item of p.pack)stock[item.itemId]=(stock[item.itemId]??0)+item.qty;
@@ -86,7 +118,7 @@ export function createCrafting(data,planner) {
     const job=original&&craftRecipe(data,original,rarityOf(data,id));
     return job?[...new Set(job.inputs.flatMap(i=>[i.itemId,...ingredients(i.itemId,seen)]))]:[];
   }
-  return {estimate,shortfall,available,ingredients};
+  return {estimate,shortfall,available,ingredients,fromBought,makeBeatsBuying};
 }
 
 export function bankedGatheringLoad(data,before,p) {

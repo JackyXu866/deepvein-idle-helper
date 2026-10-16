@@ -135,7 +135,10 @@ export function createStrategy(data, planner) {
       if(buyInputs&&id!==root?.output?.itemId&&id!==root?.itemId) {
         const qty=Math.ceil(missing),unit=planner.marketUnitCost?.(p,id,qty+(purchases[id]??0))??Infinity;
         const cost=Number.isFinite(unit)?unit*qty*(planner.coinRate?.(p)??0):Infinity,allowance=planner.marketAllowance?.(p)??0;
-        if(Number.isFinite(unit)&&cost>0&&marketCoins+cost+Math.max(0,-coins-marketCoins)<=allowance) {
+        // Crafting it from bought materials (with the XP) beats buying it: fall
+        // through to the recipe, whose inputs get this same choice.
+        const make=Number.isFinite(unit)&&planner.crafting?.makeBeatsBuying({...p,x:position.x,y:position.y,bank:stock,pack:[]},id,qty,unit*qty);
+        if(!make&&Number.isFinite(unit)&&cost>0&&marketCoins+cost+Math.max(0,-coins-marketCoins)<=allowance) {
           const bank=bankAt(position),to=bank.approach??bank;
           const purchaseSeconds=unit*qty+(includeTravel?distance(position,to)*tick:0);
           const self=routeEstimate({...p,x:position.x,y:position.y,bank:stock,pack:[]},{itemId:id},missing,

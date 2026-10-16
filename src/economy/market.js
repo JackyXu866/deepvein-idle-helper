@@ -432,6 +432,11 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const amount=Math.min(qty,ask.qty,Math.floor(purchaseAllowance(p,goal)/ask.price),1000000);
     if(amount<1)return null;
     const trip=2*Math.min(...data.banks.map(b=>distance(p,b.approach)))*data.tickMs/1000;
+    // Buying its materials and crafting it (with the XP) beats buying it: the
+    // planner crafts instead, and buys those materials through this same check.
+    if(planner.crafting?.makeBeatsBuying(p,id,amount,amount*ask.price/rate,goal)) {
+      status=`${itemName(id)}：买原料自制不比直接买贵（含制作经验），改为自制`;return null;
+    }
     const seconds=amount*ask.price/rate+trip,self=planner.acquireEstimate?.(p,id,amount,profession);
     // Keep the goal's experience. Buying its ingredients need not compensate
     // every unrelated gathering XP point that self-supply would have earned.
@@ -555,6 +560,8 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       wait('首次熟食比价最多等待 4 秒；随后继续自给备粮'):null;
     const self=planner.acquireEstimate(p,supplies.foodItemId,supplies.needFood+quantity(p,supplies.foodItemId)),rate=planner.coinRate(p);
     if(!(rate>0)||best.ask*supplies.needFood/rate>=self.seconds)return null;
+    // Cooking it from bought fish (with the cooking XP) is no dearer: cook instead.
+    if(planner.crafting?.makeBeatsBuying(p,best.itemId,supplies.needFood,best.ask*supplies.needFood/rate,goal))return null;
     const result=buy(p,best.itemId,supplies.needFood,goal,'市场补充熟食',
       `每份有效治疗 ${best.heal}；按实际缺口采购，遵守游戏自动进食品质上限`,best.ask);
     if(result?.intent?.t==='marketBuy')result.foodItemId=best.itemId;
