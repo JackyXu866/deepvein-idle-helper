@@ -1007,8 +1007,12 @@ export class Trainer {
       if (this.plan.farmJobId&&!harvest) this.farmJobId=this.plan.farmJobId;
       if (this.plan.deferUntilTick) {
         if(!this.goal){this.message=this.plan.reason;return;}
+        const until=now+Math.max(1000,(this.plan.deferUntilTick-p.lastTick)*this.data.tickMs);
         this.waitingGoals[this.goal.skill]=this.goal;
-        this.deferred[this.goal.skill]=now+Math.max(1000,(this.plan.deferUntilTick-p.lastTick)*this.data.tickMs);
+        this.deferred[this.goal.skill]=until;
+        // Quests are chosen by key, not skill: without this the same mandatory
+        // quest comes straight back on every attempt and nothing else runs.
+        if(this.goal.quest)this.questDeferred[this.goal.quest.key]=until;
         delete this.blockedReasons[this.goal.skill];
         this.log(this.plan.reason);this.goal=null;continue;
       }
