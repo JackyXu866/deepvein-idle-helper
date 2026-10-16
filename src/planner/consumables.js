@@ -95,12 +95,28 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
   const ownedDose=(id,desired)=>potionVariants(id).map(itemId=>({itemId,power:data.rarityMultipliers[rarityOf(data,itemId)],
     qty:Math.min(desired,20,usablePotion(itemId))}))
     .filter(choice=>choice.qty>0).sort((a,b)=>a.itemId-b.itemId)[0]??null;
-  const producing=id=>job?.output.itemId===id||p.activity==='working'&&
-    data.jobs.some(j=>[p.workJobId,p.route?.jobId].includes(j.id)&&j.output.itemId===id);
+  const producing=id=>job?.output.itemId===id||data.jobs.some(j=>j.id===p.route?.jobId&&j.output.itemId===id)||
+    p.activity==='working'&&data.jobs.some(j=>j.id===p.workJobId&&j.output.itemId===id);
   const surplus=id=>potionSurplus(id);
   const useQty=(id,desired)=>Math.min(desired,surplus(id));
-  const restock=(id,desired,uncovered=[])=>planner.nearBank(p)&&p.activity==='idle'&&!p.route&&!p.path?.length?
-    planner.restockPotion?.(p,id,goal,desired,uncovered):null;
+  const coinRate=planner.coinRate?.(p)??0;
+  // Coins one common bottle's hour of effect is worth: the share of time it
+  // saves, at the gold rate (gold as time). Null when not measurable.
+  const worthOf=fraction=>fraction>0&&coinRate>0?fraction*3600*coinRate:null;
+  const restock=(id,desired,uncovered=[],worth=null)=>planner.nearBank(p)&&p.activity==='idle'&&!p.route&&!p.path?.length?
+    planner.restockPotion?.(p,id,goal,desired,uncovered,worth):null;
+  // Brew from held ingredients (cheaper than the market, and herblore XP),
+  // only where switching task costs nothing: no route, or the plan replaces it.
+  const brew=(itemId,label,qty)=>{
+    const recipe=data.jobs.find(j=>j.skill==='herblore'&&!j.grow&&j.output.itemId===itemId);
+    if(!recipe||planner.levels(p).herblore<recipe.levelReq||!(next?.t==='setRoute'||!p.route&&!p.path?.length))return null;
+    const n=Math.min(qty,20,...recipe.inputs.map(i=>Math.floor(Math.max(0,planner.count(p,i.itemId)-(budget.items[i.itemId]??0))/i.qty)));
+    const site=data.sites.filter(s=>s.jobIds.includes(recipe.id)).sort((a,b)=>distance(p,a)-distance(p,b))[0];
+    if(!(n>=1)||!site)return null;
+    return {intent:{t:'setRoute',siteId:site.id,jobId:recipe.id,onFull:'bank',limit:n},label:`自制${label} × ${n}`,
+      reason:`药水不足，用库存的${recipe.inputs.map(i=>data.items[i.itemId]?.name).join('、')}自制（比市场便宜，并得炼药经验）；做完继续原任务`,
+      potionBrew:{jobId:recipe.id}};
+  };
   const choose=()=>{
     const due=candidates.filter(({itemId})=>!producing(itemId))
       .map(potion=>({...potion,desired:potionRefillQty(p,potion.kind)})).filter(potion=>potion.desired>0)
@@ -108,31 +124,33 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
     const missing=due.filter(({itemId,desired})=>surplus(itemId)<desired);
     const uncovered=missing.filter(({kind})=>!active(kind)).map(potion=>potion.itemId);
     planner.watchPotions?.(p,missing.map(potion=>potion.itemId));
-    for(const {itemId,kind,action,desired,canDrink=true}of due)if(canDrink) {
+    for(const {itemId,kind,action,desired,worth,canDrink=true}of due)if(canDrink) {
       const dose=planner.potionDose?.(p,itemId,goal,desired)??ownedDose(itemId,desired);
       const qty=useQty(itemId,desired);
       // Recover an expired effect immediately. If it is still active, a known
       // same-kind purchase can complete the 20-hour batch before drinking.
       if(active(kind)&&(dose?.qty??qty)>0&&(dose?.qty??qty)<desired) {
-        const refill=restock(itemId,desired,uncovered);if(refill)return refill;
+        const refill=restock(itemId,desired,uncovered,worth);if(refill)return refill;
       }
       if(dose)return {...action,intent:{t:'drink',itemId:dose.itemId,qty:dose.qty},
         reason:`${action.reason}；品质药效倍率 ×${dose.power}，使用 ${dose.qty} 瓶补时，保留目标及原料`};
       if(qty>0)return {...action,intent:{...action.intent,qty},
         reason:`${action.reason}；药效剩余不超过 6 小时，使用 ${qty} 瓶，目标约 20 小时（库存不足则先补现货）`};
     }
-    for(const {itemId,desired}of missing) {
-      const refill=restock(itemId,desired,uncovered);if(refill)return refill;
+    for(const {itemId,desired,worth,label}of missing) {
+      const own=brew(itemId,label??data.items[itemId]?.name,desired-surplus(itemId));if(own)return own;
+      const refill=restock(itemId,desired,uncovered,worth);if(refill)return refill;
       const status=planner.potionStatus?.(p,itemId,goal,desired);
       report(status?.key??'stock',status?.message??`药水未喝：${data.items[itemId]?.name??itemId}库存不足，当前无法安全补货`);
     }
     return null;
   };
-  const add=(potion,effect)=>candidates.push({...potion,canDrink:true,
+  const add=(potion,effect,worth=null)=>candidates.push({...potion,canDrink:true,worth,
     action:{intent:{t:'drink',itemId:potion.itemId,qty:1},
     label:`使用${potion.label}`,reason:`普通品质效果：${effect}；按当前实际任务使用药水，保留计划用量`}});
   const swift=swiftPotion(data,planner,p,plan,window,useQty(225,potionRefillQty(p,'swift')));
-  if(swift)candidates.push({itemId:225,kind:'swift',action:swift});
+  if(swift)candidates.push({...POTIONS.find(potion=>potion.kind==='swift'),action:swift,
+    worth:worthOf(swift.gain/Math.max(1,Math.min(600,window)))});
   if(next&&!['setRoute','fight'].includes(next.t)||!route)return choose();
   if(route.errand||job?.grow) {
     if(job?.grow&&route.errand&&(next||p.activity==='working')&&
@@ -159,7 +177,6 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
     return expectedAttacks(monster.hp,maxHit,hit)*(weapon?.speed??5)*tick/(1+.2*haste);
   };
   const seconds=job?work.seconds:fightSeconds(),duration=Math.min(cap,limit*seconds);
-  const coinRate=planner.coinRate(p);
   const foodId=p.foodItemId>0?p.foodItemId:p.pack.find(i=>data.items[planner.base(i.itemId)]?.heals)?.itemId??60;
   const food=data.items[planner.base(foodId)];
   const meanHit=monster?(monster.maxHit+1)/2:0;
@@ -175,16 +192,18 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
   const healFor=power=>Math.max(1,Math.min(gap,Math.floor(rawHeal*(1+.025*(p.perks?.meals??0)+.25*power))));
   const healing=healFor(brewPower(data,p,'nourish'));
   const foodValue=food?.value??0;
+  // A potion's worth is the share of time it saves (XP +10% = 1/11 of the
+  // hour; combat: fight time with versus without it), at the gold rate.
   for(const potion of POTIONS) {
     const {kind}=potion;
-    let effect='';
+    let effect='',worth=null;
     if((kind==='gatherer'&&job&&!job.inputs.length&&['mining','fishing','woodcutting','thieving'].includes(job.skill))||
       (kind==='elixir'&&(job||monster))) {
-      effect='经验 +10%';
+      effect='经验 +10%';worth=worthOf(1-1/1.1);
     } else if(kind==='warrior'&&monster) {
-      effect='命中 +10、最大伤害 +10%';
+      effect='命中 +10、最大伤害 +10%';worth=worthOf(1-fightSeconds(1,brewPower(data,p,'haste'))/fightSeconds(0,brewPower(data,p,'haste')));
     } else if(kind==='haste'&&monster) {
-      effect='攻击速度 +20%';
+      effect='攻击速度 +20%';worth=worthOf(1-fightSeconds(brewPower(data,p,'warrior'),1)/fightSeconds(brewPower(data,p,'warrior'),0));
     } else if(kind==='abyssal'&&monster) {
       effect='击杀金币 +25%';
     } else if(kind==='nourish'&&monster&&healFor(1)>healFor(0)) {
@@ -194,7 +213,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
     } else if(kind==='hunter'&&monster?.drop!=null) {
       effect='掉落物的品质稀有倍率 +25%';
     }
-    if(effect)add(potion,effect);
+    if(effect)add(potion,effect,worth);
   }
   const potion=choose();if(potion)return potion;
   if(!next&&p.activity!=='working'&&!planner.nearBank(p))return null;

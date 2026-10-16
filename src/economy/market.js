@@ -2,7 +2,7 @@ import {autoUsableMaterial} from '../planner/professions.js';
 import {workEstimate} from '../planner/estimates.js';
 import {POTIONS, foodEffects, foodHealing} from '../planner/supplies.js';
 import {inventoryBudget, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
-import {payback} from '../planner/investment.js';
+import {PAYBACK_MARGIN, payback} from '../planner/investment.js';
 import {baseId, dayTicks as dayTicksOf, distance, itemLabel, merchantPrice, minListPrice, netProceeds, plusOf, qualityIds, rarityOf, stockQty, tradableBase} from '../planner/items.js';
 
 // Price grid (client Nb/Vn/ih/Zm; refusal 'market-price-step'): a price must be
@@ -508,13 +508,18 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     if(!waiting&&desiredQty>0)return {key:'budget',message:`药水未喝：${name}暂无符合当前预算的卖盘`};
     return {key:'quote',message:`药水未喝：${name}暂无可用报价`};
   }
-  function balancedPotion(p,id,goal,desired,uncovered=[]) {
+  // The most one bottle of this quality may cost. With a known worth (the
+  // coins its hour of effect saves at the gold rate) the gold-as-time payback
+  // rule applies; otherwise 3x base value per effect multiplier.
+  const potionCap=(id,itemId,worth)=>(Number.isFinite(worth)&&worth>0?worth/PAYBACK_MARGIN:data.items[id].value*3)*
+    data.rarityMultipliers[tier(itemId)];
+  function balancedPotion(p,id,goal,desired,uncovered=[],worth=null) {
     if(!POTIONS.some(potion=>potion.itemId===id)||!valid(desired)||!planner.nearBank(p)||p.route||p.path?.length||
       p.enhance||p.held||p.raidHeld||p.queue?.length||goal?.itemTarget&&goal.targetItemId===id)return null;
     const reserve=inventoryBudget(data,planner,p,goal).items;
     const stocked=variants(id).reduce((n,itemId)=>n+Math.max(0,quantity(p,itemId)-(reserve[itemId]??0)),0);
     const missing=Math.max(0,Math.min(20,desired)-stocked);if(!missing)return null;
-    const choices=scan(p,variants(id)).filter(top=>top.ask<=purchaseAllowance(p,goal)&&top.ask<=data.items[id].value*3*data.rarityMultipliers[tier(top.itemId)])
+    const choices=scan(p,variants(id)).filter(top=>top.ask<=purchaseAllowance(p,goal)&&top.ask<=potionCap(id,top.itemId,worth))
       .sort((a,b)=>a.ask/data.rarityMultipliers[tier(a.itemId)]-b.ask/data.rarityMultipliers[tier(b.itemId)]||a.ask-b.ask);
     if(!choices.length)return null;
     const top=choices[0];
@@ -531,7 +536,8 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const coveredGoal=coverage+top.ask<=purchaseAllowance(p,goal)?
       {...goal,budget:{...goal?.budget,coins:(goal?.budget?.coins??0)+coverage}}:goal;
     const result=buy(p,top.itemId,coverage&&coveredGoal===goal?Math.min(1,missing):missing,coveredGoal,'按品质性价比补药',
-      `各品质每瓶同为 1 小时，当前药效倍率 ×${data.rarityMultipliers[tier(top.itemId)]}`,top.ask);
+      `各品质每瓶同为 1 小时，当前药效倍率 ×${data.rarityMultipliers[tier(top.itemId)]}`+
+      (worth>0?`；药效每小时约省下价值 ${Math.round(worth*data.rarityMultipliers[tier(top.itemId)])} 金币的时间`:''),top.ask);
     return result?.intent?.t==='marketBuy'?{...result,consumablePurchase:true}:null;
   }
   function foodPurchase(p,goal,supplies) {
@@ -797,9 +803,9 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     state.potionPurchases=state.potionPurchases.filter(entry=>now()-entry.at<3600000);
     return state.potionPurchases.reduce((sum,entry)=>sum+entry.cost,0);
   }
-  function restockPotion(p,itemId,goal=null,desiredQty=1,uncovered=[]) {
+  function restockPotion(p,itemId,goal=null,desiredQty=1,uncovered=[],worth=null) {
     select(p);
-    if(procurement)return procurement.enabled?balancedPotion(p,itemId,goal,desiredQty,uncovered):null;
+    if(procurement)return procurement.enabled?balancedPotion(p,itemId,goal,desiredQty,uncovered,worth):null;
     if(p.ironman||goal?.itemTarget&&goal.targetItemId===itemId||!valid(desiredQty)||!POTIONS.some(potion=>potion.itemId===itemId)||!tradable(itemId)||state.attempt||
       !planner.nearBank(p)||p.route||p.path?.length||p.enhance||p.held||p.raidHeld||p.queue?.length||
       !slots(p)||hasOrder(itemId)||
@@ -813,12 +819,12 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const book=quote(itemId);
     if(book.waiting||book.fallback)return null;
     const ask=[...book.asks].sort((a,b)=>a.price-b.price)[0];
-    if(!ask||ask.price>data.items[itemId].value*3||ask.price+spent>limit)return null;
+    if(!ask||ask.price>potionCap(itemId,itemId,worth)||ask.price+spent>limit)return null;
     const qty=Math.min(missing,ask.qty,Math.floor((limit-spent)/ask.price));
     if(!valid(qty))return null;
     return {...action({t:'marketBuy',itemId,qty,price:ask.price},`顺路补药 · ${data.items[itemId].name} × ${qty}`,
       `每瓶 ${ask.price} 金币，本批 ${qty*ask.price}；近一小时已承诺 ${spent}，当前额度 ${limit}；保留任务预算与 1000 金币`),
-      consumablePurchase:true,potionRestock:{desiredQty,coins,reserve}};
+      consumablePurchase:true,potionRestock:{desiredQty,coins,reserve,worth}};
   }
   function issued(before,intent,plan=null) {
     select(before);
@@ -859,7 +865,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       const restock=plan.potionRestock;
       if(intent.t!=='marketBuy'||!restock||!valid(intent.qty)||!valid(intent.price))return false;
       const current=restockPotion(before,intent.itemId,
-        {budget:{coins:restock.coins,items:{[intent.itemId]:restock.reserve}}},restock.desiredQty);
+        {budget:{coins:restock.coins,items:{[intent.itemId]:restock.reserve}}},restock.desiredQty,[],restock.worth);
       if(!current||current.intent.price!==intent.price||current.intent.qty<intent.qty)return false;
     }
     const cancelled=intent.t==='marketCancel'?state.owned[intent.orderId]:null;

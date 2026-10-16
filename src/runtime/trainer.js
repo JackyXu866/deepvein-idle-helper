@@ -149,6 +149,7 @@ export class Trainer {
     this.mainMonsterId=null;
     this.itemTarget=null;
     this.buffRefill=null;
+    this.potionBrew=null;
     this.consumableLogAt={};
     this.boss=createWorldBoss(data,now);
     this.farmJobId=null;
@@ -600,7 +601,9 @@ export class Trainer {
     const route=p.route;
     const banking=!p.path?.length&&(p.activity==='banking'&&route?.phase==='banking'||
       p.activity==='idle'&&route?.phase==='toWork');
-    if(!(this.bankedLoad||banking)||!this.planner.nearBank(p)||!route||route.limit===0||route.errand||route.questId!=null||
+    // Unlimited routes the helper started resume as they were; the game's own
+    // fallback and a player's unlimited route (assist mode) are left alone.
+    if(!(this.bankedLoad||banking)||!this.planner.nearBank(p)||!route||route.fallback||route.limit===0&&this.mode==='assist'||route.errand||route.questId!=null||
       p.held||p.raidHeld||p.queue?.length||p.enhance)return false;
     const resume=resumeIntent(p,route);
     // Probe only a confirmed banking boundary, keeping the live route's input
@@ -619,6 +622,8 @@ export class Trainer {
       this.message=this.player.ironman?'铁人角色不能执行普通玩家市场交易；保留物品':'采购报价或预算未通过复核，跳过本次购买';return;
     }
     if(['setRoute','fight','walk','clearRoute'].includes(intent.t))this.bankedLoad=false;
+    if(plan.potionBrew)this.potionBrew={playerId:this.player.id,jobId:plan.potionBrew.jobId,until:this.now()+1200000};
+    else if(['setRoute','fight','walk','clearRoute'].includes(intent.t))this.potionBrew=null;
     this.recentDeposit=null;
     this.pending={intent,label,before:this.player,sentAt:this.now(),consumablePurchase:plan.consumablePurchase===true};
     this.nextAction=this.now()+4000;this.log(`执行：${label}`);this.telemetry.command(intent);
@@ -934,6 +939,11 @@ export class Trainer {
     if (p.route?.errand && this.data.jobs.some(j=>j.id===p.route.jobId&&j.grow)) {
       this.message='正在收获补种，完成后继续原任务'; return;
     }
+    // A potion brew the helper started runs to its end (it counts as a task
+    // boundary until its ingredients are loaded, so the plan must not replace it).
+    if(this.potionBrew&&(this.potionBrew.playerId!==p.id||p.route?.jobId!==this.potionBrew.jobId||now>this.potionBrew.until))
+      this.potionBrew=null;
+    if(this.potionBrew){this.message='正在自制药水，完成后继续原任务';return;}
     for (const [skill,until] of Object.entries(this.deferred)) if (until<=now) delete this.deferred[skill];
     for (const [key,until] of Object.entries(this.questDeferred)) if (until<=now) delete this.questDeferred[key];
     if(this.goal?.development&&!this.goal.craftPreparation&&!equipmentProject(this.goal)&&

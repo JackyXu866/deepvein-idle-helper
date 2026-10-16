@@ -13,7 +13,7 @@ import {PLANNING_STORAGE_KEYS, enhancementStorage, wirePlanner} from '../economy
 // transaction journal, Boss lifecycle and every actual command submission.
 export const decisionFields=['goal','served','deferred','questDeferred','waitingGoals','blockedReasons','sequence',
   'goalSince','bankedLoad','message','plan','history','farmJobId','progress','stallCheck','failures','failureKey','itemTarget','buffRefill',
-  'hotFollow','hotParkedGoal','hotFollowValidation','fallbackCheckedAt','pausedError','consumableLogAt'];
+  'hotFollow','hotParkedGoal','hotFollowValidation','fallbackCheckedAt','pausedError','consumableLogAt','potionBrew'];
 // fallbackOwned is read-only here: only a confirmed snapshot on the page changes it.
 export const inputFields=[...decisionFields,'player','active','style','mode','mainTrade','mainJobId','mainMonsterId','softRefused','fallbackOwned',
   'snapshotSequence','syncAfter','nextSync','lastSync'];
