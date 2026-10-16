@@ -52,6 +52,9 @@ import {fallbackOwnership} from '../planner/fallback.js';
   const autoFallbackKey='deepvein-auto-fallback-v1',fallbackOwnedKey='deepvein-fallback-owned-v1';
   let autoFallback=true;
   try {autoFallback=localStorage.getItem(autoFallbackKey)!=='false';}catch{}
+  const autoSeedQualityKey='deepvein-auto-seed-quality-v1';
+  let autoSeedQuality=true;
+  try {autoSeedQuality=localStorage.getItem(autoSeedQualityKey)!=='false';}catch{}
   function saveFallbackOwned(owned) {
     try {localStorage.setItem(fallbackOwnedKey,JSON.stringify(owned));}
     catch {/* Without it, a helper-set fallback later reads as the player's and is left alone. */}
@@ -127,7 +130,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
       item:id?{id,bank:p.bank[id]??0,pack:p.pack.filter(i=>i.itemId===id).reduce((n,i)=>n+i.qty,0),overflow:p.overflow?.[id]??0}:null};
   }
   const allowed=new Set([...readOnly,'setRoute','fight','walk','wear','equipFromBank','deposit',
-    'eatAt','eat','drink','chooseFood','foodMaxTier','carryFood','enhance','clearRoute','marketDump','depositItem','dropItem','withdraw','marketBuy','marketSell','marketCancel','vendorBuy','claimQuest','rerollQuest','buyPerk','masteryConfirm','setFallback',
+    'eatAt','eat','drink','chooseFood','foodMaxTier','carryFood','enhance','clearRoute','marketDump','depositItem','dropItem','withdraw','marketBuy','marketSell','marketCancel','vendorBuy','claimQuest','rerollQuest','buyPerk','masteryConfirm','setFallback','plantPref',
     'setAside','attackWorldBoss','leaveWorldBoss','startQueued','portal',...HOUSE_ACTIONS]);
   function rememberRequest(intent) {
     const list=recentRequests[readOnly.has(intent.t)?'queries':'actions'];
@@ -219,7 +222,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
     const url=URL.createObjectURL(new Blob([PLANNING_WORKER_SOURCE],{type:'text/javascript'}));
     try{return new Worker(url);}finally{URL.revokeObjectURL(url);}
   }):null;
-  const planningSettings=()=>({autoSell,capacitySales,sellCrafted,autoFallback,potionRestock,profitFloor,salePricing,hotFollow:trainer.getHotFollow()});
+  const planningSettings=()=>({autoSell,capacitySales,sellCrafted,autoFallback,autoSeedQuality,potionRestock,profitFloor,salePricing,hotFollow:trainer.getHotFollow()});
   function planningStorage() {
     return Object.fromEntries(PLANNING_STORAGE_KEYS.map(key=>[key,localStorage.getItem(key)]));
   }
@@ -423,6 +426,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
     trainer.mainTrade=Object.hasOwn(MAIN_TRADES,saved)?saved:'auto';
   } catch { trainer.mainTrade='auto'; }
   trainer.autoFallback=autoFallback;trainer.onFallbackOwned=saveFallbackOwned;
+  planner.autoSeedQuality=autoSeedQuality;
   try {
     const owned=JSON.parse(localStorage.getItem(fallbackOwnedKey)||'null');
     if(owned&&typeof owned==='object'&&!Array.isArray(owned))
@@ -1711,6 +1715,8 @@ import {fallbackOwnership} from '../planner/fallback.js';
                 <p data-training-policy class="muted"></p>
                 <label>自动设置后备活动<input type="checkbox" data-auto-fallback aria-label="自动设置后备活动"></label>
                 <p class="fine-print">游戏自带的后备活动：计划做完或缺料时自动开始，手动停止、跳过或阵亡后不会启动；用于关闭页面、离线或暂停时不空闲。助手选能供应当前计划的采集，否则选经验最高的采集；你自己设置或清除的后备活动不会被改动。<span data-fallback-status></span></p>
+                <label>按配对品质选种<input type="checkbox" data-auto-seed-quality aria-label="按配对品质选种"></label>
+                <p class="fine-print">炼药的草药和怪物掉落必须同品质才能配。种草药前，助手按缺口切换游戏的“先种普通种子”：缺普通草药（配普通掉落）时打开，缺稀有草药（有同品质掉落等着）时关闭，稀有优先。关闭此项则不改动你的设置。</p>
                 <p class="fine-print">切换成长策略／职业后点击“开始”。开始后断线或本页刷新自动恢复；暂停取消恢复。保持电脑运行和标签页打开。</p>
               </div>
             </details>
@@ -1885,6 +1891,12 @@ import {fallbackOwnership} from '../planner/fallback.js';
       trainer.fallbackCheckedAt=0;
       try {localStorage.setItem(autoFallbackKey,String(autoFallback));}
       catch {trainer.log('后备活动设置无法保存，刷新后恢复为开启');}
+      render();
+    };
+    panel.querySelector('[data-auto-seed-quality]').onchange=event=>{
+      autoSeedQuality=event.currentTarget.checked===true;planner.autoSeedQuality=autoSeedQuality;
+      try {localStorage.setItem(autoSeedQualityKey,String(autoSeedQuality));}
+      catch {trainer.log('选种设置无法保存，刷新后恢复为开启');}
       render();
     };
     panel.querySelector('[data-sell-crafted]').onchange=event=>{
@@ -2877,6 +2889,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
     panel.querySelector('[data-capacity-sales]').checked=capacitySales;
     panel.querySelector('[data-sell-crafted]').checked=sellCrafted;
     panel.querySelector('[data-auto-fallback]').checked=autoFallback;
+    panel.querySelector('[data-auto-seed-quality]').checked=autoSeedQuality;
     {
       const p=trainer.player,task=p?.fallback?.task;
       const name=task?task.kind==='job'?gameLabel(GAME_DATA.jobs.find(j=>j.id===task.jobId)?.name??'未知工作'):

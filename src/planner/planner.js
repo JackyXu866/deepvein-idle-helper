@@ -1,5 +1,5 @@
 import {PROFESSIONS, autoUsableMaterial, canWear as canWearWith, craftRecipe, gearRequirementOf, matchesProfessionWeapon, professionSkill, starterWeapon} from './professions.js';
-import {baseId, distance, itemLabel, nearBank as nearBankAt, nearestBank as nearestBankTo, packCapacity, packQty, packUsed, plusOf, qualityPrefix, rarityOf} from './items.js';
+import {RARITY_NAMES, baseId, distance, itemLabel, nearBank as nearBankAt, nearestBank as nearestBankTo, packCapacity, packQty, packUsed, plusOf, qualityPrefix, rarityOf} from './items.js';
 import {createCrafting, finishTaskReason} from './crafting.js';
 import {combatEstimate} from './estimates.js';
 import {combatSupplies} from './supplies.js';
@@ -192,6 +192,19 @@ export function createPlanner(data) {
   const farmErrand = (p,job,site) => ({...action(
     {t:'setRoute',siteId:site.id,jobId:job.id,onFull:'bank',limit:0,errand:true},
     `收获并补种 · ${job.name}`,'播种／收获后继续主任务，生长期间练其他技能'),farmJobId:job.id});
+  // The game sows the rarest seed held first, unless its "plant common ones
+  // first" switch is on. Herbs pair with drops of the same quality, so before a
+  // planting errand the switch follows the quality the crop is short of.
+  function sowFor(p,job,stocks,errand) {
+    const row=stocks?.find(r=>r.job.id===job.id);
+    if(api.autoSeedQuality===false||!errand?.intent||!row?.herblore)return errand;
+    const plainest=row.sowTier===0;
+    if((p.plantPlainest===true)===plainest)return errand;
+    const herb=name(job.output.itemId),drop=row.herblore.drops.map(id=>name(id)).join('、');
+    return {...action({t:'plantPref',plainest},plainest?'种植改为先用普通种子':'种植改为先用稀有种子',
+      plainest?`缺普通${herb}来配普通${drop}，稀有种子留在仓库`:
+        `缺${RARITY_NAMES[row.sowTier]}${herb}来配同品质${drop}，先种稀有种子`),farmJobId:job.id,then:errand};
+  }
   function harvestOnly(p) {
     farmState(p);
     farmDelayReason=manualFarmReason(p);
@@ -258,6 +271,15 @@ export function createPlanner(data) {
     const stock=stocks?.find(row=>row.job.id===selected.id);
     farmTargetReason=busy?`作物库存均已充足；为不让农田空闲，用现有种子续种 ${name(selected.output.itemId)}（农业经验最高）`:stock?`${demanded(selected)?'补充当前计划原料':'维持作物库存'} ${name(selected.output.itemId)}：库存 ${stock.total}/${stock.target}，在田作物计入后续供应`:
       demanded(selected)?`补充当前计划所需原料 ${name(selected.output.itemId)}`:'按已解锁作物的农业经验收益选择';
+    // Herbs pair only with drops of their own quality: say which quality is
+    // short, and which rare herbs are still waiting for matching drops.
+    if(stock?.herblore) {
+      const herb=selected.output.itemId,drop=stock.herblore.drops.map(id=>name(id)).join('、');
+      const short=stock.herblore.tiers.filter(t=>t.short>0).map(t=>`${RARITY_NAMES[t.t]||'普通'} ${t.short}`).join('、');
+      const waiting=[1,2,3].map(t=>({t,n:count(p,herb+t*data.rarityScale)}))
+        .filter(w=>w.n>0&&!stock.herblore.tiers.some(x=>x.t===w.t)).map(w=>`${RARITY_NAMES[w.t]}${name(herb)} ${w.n}（等${RARITY_NAMES[w.t]}${drop}）`);
+      farmTargetReason+=`${short?`；按配对品质缺 ${short}`:''}${waiting.length?`；${waiting.join('、')}`:''}`;
+    }
     const seedSlots=empty.length+ready.filter(f=>f.job.id!==selected.id).length;
     const seedNeed=Math.max(0,(seedSlots||(!empty.length&&!ready.length?plots.filter(f=>f.job.id!==selected.id).length:0))*
       selected.inputs[0].qty-seedCount(p,selected));
@@ -294,7 +316,7 @@ export function createPlanner(data) {
     if (empty.length&&owned.length&&!ready.length) {
       if (!urgentHarvest&&!naturalBreak&&!fullBatchDue)
         return deferFarm('已有种子，等当前任务结束或返仓时合并收菜、补种');
-      return farmErrand(p,owned[0],empty[0]);
+      return sowFor(p,owned[0],stocks,farmErrand(p,owned[0],empty[0]));
     }
     if (ready.length&&(urgentHarvest||farmingChoice.mode==='manual'||!seedNeed)) {
       const expand=empty.length&&hasSeed(p,selected);
@@ -335,7 +357,7 @@ export function createPlanner(data) {
         farmDelayReason=`收菜往返约 ${Math.ceil(trip)} 秒，当前收益不足；等顺路或合批`;
         // Keep crop upgrades attainable even when old crops are not worth a trip.
         if (!naturalBreak) return null;
-      } else return {...errand,reason:`合批收获 ${collected.length} 块；预计往返及农活约 ${Math.ceil(trip)} 秒，完成后继续主任务`};
+      } else return sowFor(p,selected,stocks,{...errand,reason:`合批收获 ${collected.length} 块；预计往返及农活约 ${Math.ceil(trip)} 秒，完成后继续主任务`});
     }
     const catchUp=goal&&data.skills.includes(goal.skill)&&(goal.growth||goal.quest)&&level(p.skills[goal.skill])<level(p.skills.farming);
     if(seedNeed&&farmingChoice.mode==='auto'&&catchUp&&!empty.length&&ready.length<plots.length&&!demanded(selected))

@@ -54,6 +54,7 @@ export function runPlanning(data,input,inspectOnly=false) {
   }};
   planner.runtime(input.planner);
   planner.profitFloor=input.settings.profitFloor??0;
+  planner.autoSeedQuality=input.settings.autoSeedQuality!==false;
   // The game's own engine (when loaded) calibrates every candidate; real
   // measurements of the current route still take precedence.
   if(input.engine)loadEngine(input.engine);

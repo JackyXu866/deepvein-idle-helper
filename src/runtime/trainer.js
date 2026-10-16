@@ -28,7 +28,7 @@ export function isGuildRefusal(code) {return GUILD_REFUSALS.has(code);}
 // refusal disables the action for a while instead of pausing the helper.
 // Growth modes and their labels (the UI uses the same names).
 export const MODE_LABELS={balanced:'自主发展',experience:'经验优先',business:'主业经营',assist:'只收菜＋蹭世界 Boss'};
-export const SOFT_ACTIONS=new Set(['rerollQuest','buyPerk','masteryConfirm','setFallback']);
+export const SOFT_ACTIONS=new Set(['rerollQuest','buyPerk','masteryConfirm','setFallback','plantPref']);
 export const ROUTE_STOPS=new Set(['noMaterials','storageFull','unreachable','levelTooLow','noSuchSite']);
 // Bank, overflow and pack (shared definition in planner/items.js).
 export const quantity=stockQty;
@@ -119,6 +119,7 @@ export function acknowledged(before, p, intent, data=null) {
     case 'rerollQuest': return before.quests?.day===p.quests?.day&&
       before.quests?.daily?.some(q=>q.id===intent.id)===true&&!p.quests?.daily?.some(q=>q.id===intent.id);
     case 'buyPerk': return (p.perks?.[intent.id]??0)>(before.perks?.[intent.id]??0);
+    case 'plantPref': return (p.plantPlainest===true)===intent.plainest;
     case 'setFallback': return fallbackKey(p.fallback?.task)===fallbackKey(intent.fallback?.task)&&
       !!p.fallback?.onStorageFull===!!intent.fallback?.onStorageFull;
     case 'masteryConfirm': return Object.entries(intent.ranks??{}).every(([id,n])=>(p.masteries?.[id]??0)===n)&&
@@ -580,6 +581,8 @@ export class Trainer {
     return result;
   }
   prepareIssue(plan) {
+    // A refused optional setting (e.g. the sowing order) gives way to the work it preceded.
+    while(plan.then&&SOFT_ACTIONS.has(plan.intent?.t)&&(this.softRefused[plan.intent.t]??0)>this.now())plan=plan.then;
     if(plan.intent.t==='fight') {
       const food=this.combatFoodPlan(this.player);if(food)return food;
     }

@@ -21,31 +21,42 @@ const held=stockQty;
 // is started while the current one runs. With the experience table, the current
 // recipe only claims the potions (and shared drops) needed to reach that unlock;
 // the remaining drops size the next herb, or it starts with the potion floor.
+// A brew takes every input in one quality, so herbs and drops pair per quality:
+// rare herbs only count against rare drops. Rarer pairs are brewed first (more
+// XP, stronger and dearer potions). Legendary inputs stay with the player.
+export const PAIR_TIERS=[3,2,1,0];
 export function herbloreNeeds(data,p,levels,thresholds=null) {
-  const herbs=herbIds(data),level=levels.herblore??1;
+  const herbs=herbIds(data),level=levels.herblore??1,R=data.rarityScale;
   const all=data.jobs.filter(j=>j.skill==='herblore');
   const recipes=all.filter(j=>j.levelReq<=level);
   const spare={},left=id=>spare[id]??held(p,id);
   const drops=recipe=>recipe.inputs.filter(i=>!herbs.has(i.itemId));
-  const pairable=recipe=>drops(recipe).length?Math.min(...drops(recipe).map(i=>Math.floor(left(i.itemId)/i.qty))):0;
+  const pairableAt=(recipe,t)=>drops(recipe).length?Math.min(...drops(recipe).map(i=>Math.floor(left(i.itemId+t*R)/i.qty))):0;
+  const pairable=recipe=>PAIR_TIERS.reduce((n,t)=>n+pairableAt(recipe,t),0);
   const next=[...recipes].sort((a,b)=>Number(pairable(b)>0)-Number(pairable(a)>0)||b.xp-a.xp||b.levelReq-a.levelReq)[0]??null;
   const upcoming=all.filter(j=>j.levelReq>level).sort((a,b)=>a.levelReq-b.levelReq||b.xp-a.xp)[0]??null;
   const xp=p.skills?.herblore;
   const toUnlock=next&&upcoming&&Number.isFinite(thresholds?.[upcoming.levelReq])&&Number.isFinite(xp)?
     Math.max(0,Math.ceil((thresholds[upcoming.levelReq]-xp)/next.xp)):Infinity;
-  const potions=next?Math.min(pairable(next),toUnlock):0,recipe={},floor={};
-  if(next&&potions>0)for(const i of next.inputs) {
-    if(herbs.has(i.itemId))recipe[i.itemId]=potions*i.qty;
-    else spare[i.itemId]=left(i.itemId)-potions*i.qty;
+  // Herbs needed per exact quality: as many as that quality's drops pair with.
+  const recipe={},floor={},byTier={};let potions=0,room=toUnlock;
+  if(next)for(const t of PAIR_TIERS) {
+    const n=Math.min(pairableAt(next,t),room);
+    if(!(n>0))continue;
+    room-=n;potions+=n;byTier[t]=n;
+    for(const i of next.inputs) {
+      if(herbs.has(i.itemId))recipe[i.itemId+t*R]=(recipe[i.itemId+t*R]??0)+n*i.qty;
+      else spare[i.itemId+t*R]=left(i.itemId+t*R)-n*i.qty;
+    }
   }
   let ahead=null;
   if(upcoming&&Number.isFinite(toUnlock)) {
-    const paired=pairable(upcoming),herbsAhead={};
+    const paired=pairableAt(upcoming,0),herbsAhead={};
     for(const i of upcoming.inputs)if(herbs.has(i.itemId))herbsAhead[i.itemId]=(paired>0?paired:POTION_FLOOR)*i.qty;
     ahead={recipe:upcoming,potions:paired,herbs:herbsAhead,drops:drops(upcoming).map(i=>i.itemId)};
   }
   for(const r of recipes)for(const i of r.inputs)if(herbs.has(i.itemId))floor[i.itemId]=Math.max(floor[i.itemId]??0,POTION_FLOOR*i.qty);
-  return {next,potions,toUnlock,recipe,floor,ahead,drops:next?drops(next).map(i=>i.itemId):[]};
+  return {next,potions,byTier,toUnlock,recipe,floor,ahead,drops:next?drops(next).map(i=>i.itemId):[]};
 }
 
 // The reserve a crop keeps against sale and aims for when farming: herbs by
@@ -70,7 +81,7 @@ export function cropReserve(data,p,job,levels,herblore=herbloreNeeds(data,p,leve
 // herbs for the next herblore recipe, then the potion floor and food reserve.
 // With nothing short, the planner keeps the fields busy on farming experience.
 export function farmingStocks(data,p,levels,goal=null,thresholds=null) {
-  const base=id=>baseId(data,id),stock={...p.bank};
+  const base=id=>baseId(data,id),stock={...p.bank},R=data.rarityScale;
   for(const i of p.pack)stock[i.itemId]=(stock[i.itemId]??0)+i.qty;
   for(const [id,qty]of Object.entries(p.overflow??{}))stock[id]=(stock[id]??0)+qty;
   const herblore=herbloreNeeds(data,p,levels,thresholds);
@@ -83,24 +94,33 @@ export function farmingStocks(data,p,levels,goal=null,thresholds=null) {
     const growing=Object.values(future).reduce((a,b)=>a+b,0);
     const demands=Object.entries(goal?.budget?.items??{}).filter(([id])=>base(+id)===itemId);
     const total=Object.entries(stock).reduce((n,[id,qty])=>n+(autoUsableMaterial(data,+id)&&base(+id)===itemId?qty:0),0);
-    const recipeNeed=herblore.recipe[itemId]??0,aheadNeed=herblore.ahead?.herbs[itemId]??0;
+    // A herb counts only in the quality its drops pair with: compare need and
+    // supply (held plus growing) per quality, and sow the rarest one short.
+    const herb=data.jobs.some(j=>j.skill==='herblore'&&j.inputs.some(i=>i.itemId===itemId));
+    const tierSupply=t=>(stock[itemId+t*R]??0)+(future[itemId+t*R]??0);
+    const unmet=PAIR_TIERS.map(t=>({t,need:herblore.recipe[itemId+t*R]??0})).map(u=>({...u,short:Math.max(0,u.need-tierSupply(u.t))}));
+    const recipeNeed=unmet.reduce((n,u)=>n+u.need,0),recipeShort=unmet.reduce((n,u)=>n+u.short,0);
+    const sowTier=unmet.find(u=>u.short>0)?.t??0;
+    const aheadNeed=herblore.ahead?.herbs[itemId]??0;
     const reserve=cropReserve(data,p,job,levels,herblore);
     const target=Math.max(reserve,demands.reduce((n,[,qty])=>n+qty,0));
     const plannedMissing=demands.reduce((n,[id,qty])=>n+Math.max(0,qty-(stock[id]??0)),0);
     const plannedUncovered=demands.reduce((n,[id,qty])=>n+Math.max(0,qty-(stock[id]??0)-(future[id]??0)),0);
-    const missing=Math.max(plannedUncovered,target-total-growing);
-    const supply=total+growing;
+    // Reserves and the next unlock are common herbs; food counts every quality.
+    const held=herb?stock[itemId]??0:total,supply=herb?tierSupply(0):total+growing;
+    const missing=Math.max(plannedUncovered,recipeShort,target-supply);
     // Tiers: plan shortfall, current recipe, the next unlock's herb, reserves.
-    const tier=plannedUncovered>0?0:recipeNeed>supply?1:recipeNeed+aheadNeed>supply?1.5:missing>0?2:3;
+    const tier=plannedUncovered>0?0:recipeShort>0?1:(herblore.recipe[itemId]??0)+aheadNeed>supply?1.5:missing>0?2:3;
     const floorNeed=herblore.floor[itemId]??0;
-    const reason=plannedMissing>0?'plan':recipeNeed>supply||recipeNeed>0&&!aheadNeed?'herblore':
+    const reason=plannedMissing>0?'plan':recipeShort>0||recipeNeed>0&&!aheadNeed?'herblore':
       aheadNeed>floorNeed&&recipeNeed+aheadNeed>=floorNeed?'ahead':recipeNeed>0?'herblore':'reserve';
-    return {job,total,target,plannedMissing,plannedUncovered,missing,tier,reason,
+    return {job,total,target,plannedMissing,plannedUncovered,missing,tier,reason,sowTier,
       ...(recipeNeed>0?{herblore:{recipeId:herblore.next.id,potions:herblore.potions,toUnlock:herblore.toUnlock,
-        unlockLevel:herblore.ahead?.recipe.levelReq??null,drops:herblore.drops,need:recipeNeed}}:{}),
+        unlockLevel:herblore.ahead?.recipe.levelReq??null,drops:herblore.drops,need:recipeNeed,
+        tiers:unmet.filter(u=>u.need>0)}}:{}),
       ...(aheadNeed>0?{ahead:{recipeId:herblore.ahead.recipe.id,level:herblore.ahead.recipe.levelReq,
         potions:herblore.ahead.potions,drops:herblore.ahead.drops,need:aheadNeed}}:{}),
-      short:Math.max(plannedMissing,target-total)};
+      short:Math.max(plannedMissing,recipeShort,target-held)};
   }).filter(row=>row.short>0).sort((a,b)=>a.tier-b.tier||
     b.missing/b.target-a.missing/a.target||b.short/b.target-a.short/a.target);
 }
