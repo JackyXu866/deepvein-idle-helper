@@ -18,7 +18,7 @@ import {validateIntent} from '../runtime/intents.js';
 import {createUpdateChecker} from '../ui/update-checker.js';
 import {gameLabel, translateGameText} from '../ui/labels-zh.js';
 import {createBossLootChat, createBossLootHistory} from '../ui/boss-loot.js';
-import {applyPlanning, createPlanningClient, planningGuard, planningState} from '../worker/planning.js';
+import {applyPlanning, createPlanningClient, guardChange, planningGuard, planningState} from '../worker/planning.js';
 import {PLANNING_STORAGE_KEYS, enhancementStorage, wirePlanner} from '../economy/wiring.js';
 import {fallbackOwnership} from '../planner/fallback.js';
 
@@ -244,7 +244,12 @@ import {fallbackOwnership} from '../planner/fallback.js';
     trainer.player?.plots,trainer.goal,planner.farmingPreference(),
     !!panel?.querySelector('[data-economy-details]')?.open,!!panel?.querySelector('[data-equipment-details]')?.open,
     planDetailsWanted(),profitFloor]);
+  // A result is discarded when the state changed while it was computed. Should
+  // that repeat (something keeps changing), say what and plan on the page once,
+  // so the helper never sits idle on discarded results.
+  let staleResults=0,staleLoggedAt=0,planOnPage=false;
   if(background)trainer.scheduleAdvance=deferBoss=>{
+    if(planOnPage){planOnPage=false;return trainer.advance(deferBoss);}
     if(background.busy)return;
     const input=planningInput(deferBoss),guard=planningGuard(trainer,planner,market,planningSettings());
     const ledger=JSON.stringify(input.storage),requested=Date.now();
@@ -253,9 +258,20 @@ import {fallbackOwnership} from '../planner/fallback.js';
       // Native work continues while computing. Do not stop it to acquire a lock.
       if(Date.now()-requested>3000)throw new Error('本次规划耗时过长，重新计算');
       if(!trainer.active||!trainer.compatible||trainer.awaitInitial||Date.now()-trainer.received>45000||trainer.pending||trainer.recovery||
-        trainer.snapshotSequence<=trainer.syncAfter||
-        guard!==planningGuard(trainer,planner,market,planningSettings())||
-        !input.storageUnavailable&&ledger!==JSON.stringify(planningStorage()))return;
+        trainer.snapshotSequence<=trainer.syncAfter)return;
+      const changed=guardChange(guard,planningGuard(trainer,planner,market,planningSettings()))??
+        (!input.storageUnavailable&&ledger!==JSON.stringify(planningStorage())?'规划存储':null);
+      if(changed) {
+        if(++staleResults>=3) {
+          staleResults=0;planOnPage=true;
+          if(Date.now()-staleLoggedAt>600000) {
+            staleLoggedAt=Date.now();
+            trainer.log(`后台规划结果连续 3 次因“${changed}”变化作废；下一步改在页面内直接计算`);
+          }
+        }
+        return;
+      }
+      staleResults=0;
       if(!claimLease()){trainer.pause('另一个标签页已接管调度');return;}
       applyPlanning(trainer,planner,economy,market,result,localStorage);
       planningFailures=0;planningError='';planningView=result.view;planningViewKey=viewKey();

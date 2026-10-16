@@ -854,7 +854,8 @@ export class Trainer {
     const result=this.scheduleAdvance?this.scheduleAdvance(false):this.advance(false);
     if(bossFoodBlocked) {
       const reason='本场 Boss 跳过：唯一可用食物是目标物品';
-      this.message=this.message&&this.message!==reason?`${this.message}；${reason}`:reason;
+      // Once: the message is not replaced while a background result is pending.
+      if(!this.message?.includes(reason))this.message=this.message?`${this.message}；${reason}`:reason;
     }
     return result;
   }

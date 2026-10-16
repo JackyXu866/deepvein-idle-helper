@@ -19,12 +19,28 @@ export const inputFields=[...decisionFields,'player','active','style','mode','ma
   'snapshotSequence','syncAfter','nextSync','lastSync'];
 export const planningState=trainer=>Object.fromEntries(inputFields.map(key=>[key,trainer[key]]));
 
+// The status message is display only: the page may annotate it (e.g. a skipped
+// Boss) while a calculation runs, and that must not discard the result.
 export function planningGuard(trainer,planner,market,settings) {
-  return JSON.stringify([planningState(trainer),trainer.pending,trainer.recovery,trainer.awaitInitial,
+  return JSON.stringify([{...planningState(trainer),message:undefined},trainer.pending,trainer.recovery,trainer.awaitInitial,
     trainer.boss.status(),planner.farmingPreference(),planner.housingRuntime?.(),market.runtime(),settings],(key,value)=>
     // A heartbeat alone does not invalidate an otherwise identical decision.
     key==='lastTick'||key==='snapshotTick'||key==='snapshotSequence'||key==='syncAfter'||key==='nextSync'||key==='lastSync'?undefined:
       value instanceof Map?[...value]:value);
+}
+
+const GUARD_PARTS=['调度状态','待确认操作','重连恢复','初始同步','世界 Boss','农业偏好','房屋','市场','设置'];
+// Names what changed between two guards, so a discarded result can say why.
+export function guardChange(before,after) {
+  if(before===after)return null;
+  const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+  const differs=(a,b)=>Object.keys({...a,...b}).find(key=>!same(a?.[key],b?.[key]));
+  try {
+    const a=JSON.parse(before),b=JSON.parse(after),i=a.findIndex((part,k)=>!same(part,b[k]));
+    if(i!==0)return GUARD_PARTS[i]??'未知';
+    const key=differs(a[0],b[0]),inner=key==='player'&&differs(a[0].player,b[0].player);
+    return `${GUARD_PARTS[0]} · ${key}${inner?`.${inner}`:''}`;
+  } catch {return '未知';}
 }
 
 export function runPlanning(data,input,inspectOnly=false) {
