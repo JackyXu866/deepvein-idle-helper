@@ -48,6 +48,40 @@ test('with Sage and Husk chitin held, missing swift draughts are brewed before b
   assert.deepEqual(result.potionBrew, {jobId: recipe.id});
 });
 
+function priced({potion, values, asks}) {
+  const s = brewing();
+  s.planner.marketAsk = (_p, id) => id === SWIFT ? potion : asks?.[id] ?? null;
+  s.planner.marketUnitValue = (_p, id) => values?.[id] ?? 0;
+  const calls = [];
+  s.planner.restockPotion = (_p, id, _goal, qty) => { calls.push(['potion', id, qty]); return {intent: {t: 'marketBuy', itemId: id}}; };
+  s.planner.restockIngredient = (_p, id, qty) => { calls.push(['ingredient', id, qty]); return {intent: {t: 'marketBuy', itemId: id}}; };
+  return {...s, calls};
+}
+
+test('held ingredients worth more than the potion are kept: the potion is bought', () => {
+  const s = brewing(), [sage, husk] = s.recipe.inputs.map(i => i.itemId);
+  const {planner, p, plan, calls} = priced({potion: 1980, values: {[sage]: 1500, [husk]: 600}});
+  const result = planner.consumable(p, null, 'melee', plan);
+  assert.equal(result?.intent?.t, 'marketBuy');
+  assert.deepEqual(calls[0], ['potion', SWIFT, 20]);
+});
+
+test('when buying the missing ingredient and brewing is cheaper, the ingredient is bought', () => {
+  const s = brewing(), [sage, husk] = s.recipe.inputs.map(i => i.itemId);
+  const {planner, p, plan, calls} = priced({potion: 1980, values: {[sage]: 100}, asks: {[husk]: 100}});
+  const noHusk = {...p, bank: {[sage]: 30}};
+  planner.consumable(noHusk, null, 'melee', plan);
+  assert.deepEqual(calls[0], ['ingredient', husk, 20]);
+});
+
+test('herblore XP counts while herblore is the goal: brewing wins even with dearer ingredients', () => {
+  const s = brewing(), [sage, husk] = s.recipe.inputs.map(i => i.itemId);
+  const {planner, p, plan, recipe} = priced({potion: 1980, values: {[sage]: 1500, [husk]: 600}});
+  const result = planner.consumable(p, {skill: 'herblore', rate: {xp: 1}, budget: {coins: 0, items: {}}}, 'melee', plan);
+  assert.equal(result?.intent?.jobId, recipe.id, JSON.stringify(result));
+  assert.match(result.reason, /炼药练级/);
+});
+
 test('the brew runs to its end before the plan resumes', () => {
   const {planner, d, p, recipe} = brewing();
   const t = new Trainer(d, planner, () => {}, () => 1e9);

@@ -105,18 +105,46 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
   const worthOf=fraction=>fraction>0&&coinRate>0?fraction*3600*coinRate:null;
   const restock=(id,desired,uncovered=[],worth=null)=>planner.nearBank(p)&&p.activity==='idle'&&!p.route&&!p.path?.length?
     planner.restockPotion?.(p,id,goal,desired,uncovered,worth):null;
-  // Brew from held ingredients (cheaper than the market, and herblore XP),
-  // only where switching task costs nothing: no route, or the plan replaces it.
-  const brew=(itemId,label,qty)=>{
-    const recipe=data.jobs.find(j=>j.skill==='herblore'&&!j.grow&&j.output.itemId===itemId);
+  const recipeFor=itemId=>data.jobs.find(j=>j.skill==='herblore'&&!j.grow&&j.output.itemId===itemId);
+  const brewSite=recipe=>data.sites.filter(s=>s.jobIds.includes(recipe.id)).sort((a,b)=>distance(p,a)-distance(p,b))[0];
+  const held=id=>Math.max(0,planner.count(p,id)-(budget.items[id]??0));
+  // Cost per bottle of each way to cover a shortfall of `qty`: buying the
+  // potion at its ask, or brewing it — held ingredients at what they would sell
+  // for, missing ones at their ask, the brewing and trip time at the gold rate,
+  // less the herblore training time its XP saves while herblore is the goal.
+  function supplyCosts(itemId,qty) {
+    const buy=planner.marketAsk?.(p,itemId)??Infinity,recipe=recipeFor(itemId),site=recipe&&brewSite(recipe);
+    if(!recipe||!site||planner.levels(p).herblore<recipe.levelReq)return {buy:buy||Infinity,brew:Infinity,missing:[]};
+    let coins=0;const missing=[];
+    for(const input of recipe.inputs) {
+      const need=input.qty*qty,use=Math.min(need,held(input.itemId)),short=need-use;
+      if(use>0)coins+=use*(planner.marketUnitValue?.(p,input.itemId,use)??0);
+      if(short>0) {
+        const ask=planner.marketAsk?.(p,input.itemId);
+        coins+=ask>0?short*ask:Infinity;missing.push({itemId:input.itemId,qty:short,ask});
+      }
+    }
+    const lv=planner.levels(p),e=workEstimate(data,recipe,lv.herblore,{quick:p.perks?.quick??0,hands:p.perks?.hands??0});
+    const tick=data.tickMs/1000,trip=(distance(p,site)+distance(site,nearestBank(data,site).approach))*tick;
+    const training=goal?.skill==='herblore'&&goal.rate?.xp>0?qty*e.xp/goal.rate.xp:0;
+    const seconds=qty*e.seconds/Math.max(.01,e.success)+trip-training;
+    return {buy:buy||Infinity,brew:(coins+seconds*coinRate)/qty,missing,training:training>0};
+  }
+  // Brew from held ingredients, only where switching task costs nothing: no
+  // route, or the plan replaces it.
+  const brew=(itemId,label,qty,why)=>{
+    const recipe=recipeFor(itemId);
     if(!recipe||planner.levels(p).herblore<recipe.levelReq||!(next?.t==='setRoute'||!p.route&&!p.path?.length))return null;
-    const n=Math.min(qty,20,...recipe.inputs.map(i=>Math.floor(Math.max(0,planner.count(p,i.itemId)-(budget.items[i.itemId]??0))/i.qty)));
-    const site=data.sites.filter(s=>s.jobIds.includes(recipe.id)).sort((a,b)=>distance(p,a)-distance(p,b))[0];
+    const n=Math.min(qty,20,...recipe.inputs.map(i=>Math.floor(held(i.itemId)/i.qty)));
+    const site=brewSite(recipe);
     if(!(n>=1)||!site)return null;
     return {intent:{t:'setRoute',siteId:site.id,jobId:recipe.id,onFull:'bank',limit:n},label:`自制${label} × ${n}`,
-      reason:`药水不足，用库存的${recipe.inputs.map(i=>data.items[i.itemId]?.name).join('、')}自制（比市场便宜，并得炼药经验）；做完继续原任务`,
+      reason:`药水不足，用库存的${recipe.inputs.map(i=>data.items[i.itemId]?.name).join('、')}自制${why?`（${why}）`:''}；做完继续原任务`,
       potionBrew:{jobId:recipe.id}};
   };
+  // Missing ingredients are bought at the same safe boundary as potions.
+  const buyIngredient=(row,why)=>planner.nearBank(p)&&p.activity==='idle'&&!p.route&&!p.path?.length?
+    planner.restockIngredient?.(p,row.itemId,row.qty,goal,Math.ceil(row.ask*1.05),why):null;
   const choose=()=>{
     const due=candidates.filter(({itemId})=>!producing(itemId))
       .map(potion=>({...potion,desired:potionRefillQty(p,potion.kind)})).filter(potion=>potion.desired>0)
@@ -138,7 +166,22 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
         reason:`${action.reason}；药效剩余不超过 6 小时，使用 ${qty} 瓶，目标约 20 小时（库存不足则先补现货）`};
     }
     for(const {itemId,desired,worth,label}of missing) {
-      const own=brew(itemId,label??data.items[itemId]?.name,desired-surplus(itemId));if(own)return own;
+      const name=label??data.items[itemId]?.name,needed=Math.min(20,desired-surplus(itemId));
+      // What the held ingredients make is weighed (and brewed) first; the rest
+      // is decided after, against buying the missing ingredients.
+      const recipe=recipeFor(itemId),makeable=recipe?Math.min(needed,...recipe.inputs.map(i=>Math.floor(held(i.itemId)/i.qty))):0;
+      const short=makeable>=1?makeable:needed;
+      const cost=supplyCosts(itemId,short),round=n=>Number.isFinite(n)?Math.round(n).toLocaleString('en-US'):'—';
+      const why=`自制每瓶约 ${round(cost.brew)}，市场 ${round(cost.buy)}${cost.training?'；含炼药练级省下的时间':''}`;
+      // With neither price known, brew what the held ingredients make, else buy.
+      const brewing=cost.brew<cost.buy||!Number.isFinite(cost.brew)&&!Number.isFinite(cost.buy);      if(brewing&&!cost.missing.length) {
+        const own=brew(itemId,name,short,why);if(own)return own;
+        if(Number.isFinite(cost.brew)){report('brew',`药水未喝：${name}自制更便宜（${why}），换任务或返仓时开做`);continue;}
+      }
+      if(brewing&&cost.missing.length&&Number.isFinite(cost.brew)) {
+        const ingredient=buyIngredient(cost.missing[0],why);if(ingredient)return ingredient;
+        report('brew',`药水未喝：${name}自制更便宜（${why}），返仓时买原料`);continue;
+      }
       const refill=restock(itemId,desired,uncovered,worth);if(refill)return refill;
       const status=planner.potionStatus?.(p,itemId,goal,desired);
       report(status?.key??'stock',status?.message??`药水未喝：${data.items[itemId]?.name??itemId}库存不足，当前无法安全补货`);

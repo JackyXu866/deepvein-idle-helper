@@ -803,6 +803,15 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     state.potionPurchases=state.potionPurchases.filter(entry=>now()-entry.at<3600000);
     return state.potionPurchases.reduce((sum,entry)=>sum+entry.cost,0);
   }
+  // A potion ingredient, when buying it and brewing beats buying the potion.
+  // Same safe boundary and live-book check as a potion purchase.
+  function restockIngredient(p,itemId,qty,goal=null,maxPrice=Infinity,why='') {
+    select(p);
+    if(!procurement?.enabled||!valid(qty)||!planner.nearBank(p)||p.route||p.path?.length||
+      p.enhance||p.held||p.raidHeld||p.queue?.length)return null;
+    const result=buy(p,itemId,qty,goal,'买原料自制药水',why||'买原料自制比直接买药水便宜',maxPrice);
+    return result?.intent?.t==='marketBuy'?{...result,consumablePurchase:true}:null;
+  }
   function restockPotion(p,itemId,goal=null,desiredQty=1,uncovered=[],worth=null) {
     select(p);
     if(procurement)return procurement.enabled?balancedPotion(p,itemId,goal,desiredQty,uncovered,worth):null;
@@ -1003,7 +1012,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     if(value) {({saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status}=value);if(value.pricing)pricing=value.pricing;if('buyback' in value)buyback=value.buyback;if('feed' in value)feed=value.feed;state=playerId===null?null:playerState(playerId);}
     return {saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status,pricing,buyback,feed};
   }
-  return {runtime,receive,next,sale,purchase,restockPotion,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setSalePricing,setBuyback,setPriceFeed,unitValue,askPrice,priceFeedAge:()=>feed?now()-feed.at:null,
+  return {runtime,receive,next,sale,purchase,restockPotion,restockIngredient,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setSalePricing,setBuyback,setPriceFeed,unitValue,askPrice,priceFeedAge:()=>feed?now()-feed.at:null,
     configureProcurement,equipmentPurchase,foodPurchase,buffFood,potionDose,marketUnitCost,surplusValue,watchPurchases:scan,
     purchaseAllowance:(p,goal)=>{select(p);return purchaseAllowance(p,goal);}};
 }

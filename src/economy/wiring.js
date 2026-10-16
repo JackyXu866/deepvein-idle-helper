@@ -16,6 +16,7 @@ export function wirePlanner(planner,market,economy,potionRestock) {
   planner.investmentBudget=(...args)=>economy().investmentBudget(...args);
   for(const [name,method]of Object.entries(MARKET_HOOKS))planner[name]=(...args)=>market[method](...args);
   planner.restockPotion=(...args)=>potionRestock()?market.restockPotion(...args):null;
+  planner.restockIngredient=(...args)=>potionRestock()?market.restockIngredient(...args):null;
   planner.potionStatus=(...args)=>potionRestock()?market.potionStatus(...args):
     {key:'procurement-off',message:'药水未喝：库存不足，自动补药已关闭'};
   planner.watchPotions=(p,itemIds)=>market.watchPotions(p,potionRestock()?itemIds:[]);

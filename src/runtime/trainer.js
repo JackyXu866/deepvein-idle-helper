@@ -610,7 +610,8 @@ export class Trainer {
     // reserve. Unknown prices never stop native work just to await a quote.
     const reserved={...goal,budget:inventoryBudget(this.data,this.planner,p,goal,true)};
     const plan=this.consume({...p,route:null,path:null,activity:'idle'},reserved,this.style,{intent:resume});
-    if(['drink','eat'].includes(plan?.intent?.t)){this.issue(plan);return true;}
+    // A brew starts here too: the pack was just banked, so nothing is lost.
+    if(['drink','eat'].includes(plan?.intent?.t)||plan?.potionBrew){this.issue(plan);return true;}
     if(plan?.intent?.t!=='marketBuy')return false;
     this.buffRefill={playerId:p.id,resume,budget:reserved.budget};
     this.issue({intent:{t:'clearRoute'},label:'顺路补充增益，暂存原任务',reason:'已有合适卖盘；补充后恢复原路线，无需额外往返'});return true;
