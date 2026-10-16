@@ -44,14 +44,10 @@ export function createSpecialization(data,planner) {
           const quote=planner.marketOpportunity?.(p,itemId,saleQty);
           if(quote?.qty===saleQty&&Number.isFinite(quote.net)&&quote.net>0){proceeds=quote.net;saleItems.push(itemId);}
         }
-        // Gathered quality output and the bonus drop count at market value.
-        // Legendary gathered material is also sold (market only, see sale()).
+        // Gathered quality output (legendary included) and the bonus drop count
+        // at market value; they are kept, not sold.
         if(c.qualityPerAction&&actions>0) {
-          c.qualityPerAction.forEach((perAction,i)=>{
-            const id=itemId+(i+1)*data.rarityScale,qty=perAction*actions;
-            proceeds+=value(id,qty);
-            if(i===3&&qty>0)saleItems.push(id);
-          });
+          c.qualityPerAction.forEach((perAction,i)=>{proceeds+=value(itemId+(i+1)*data.rarityScale,perAction*actions);});
           if(c.bonusPerAction)proceeds+=value(c.bonusPerAction.itemId,c.bonusPerAction.qty*actions);
         }
       }
