@@ -247,21 +247,32 @@ import {fallbackOwnership} from '../planner/fallback.js';
   // A result is discarded when the state changed while it was computed. Should
   // that repeat (something keeps changing), say what and plan on the page once,
   // so the helper never sits idle on discarded results.
-  let staleResults=0,staleLoggedAt=0,planOnPage=false;
+  let staleResults=0,staleLoggedAt=0,planOnPage=false,busySkips=0,scheduledAt=0;
+  // What became of the last background calculations, for deepveinDebug().
+  const planningTrace=[];
+  const trace=(outcome,extra={})=>{
+    planningTrace.push({at:new Date().toLocaleTimeString(),outcome,...extra});
+    if(planningTrace.length>12)planningTrace.shift();
+  };
   if(background)trainer.scheduleAdvance=deferBoss=>{
-    if(planOnPage){planOnPage=false;return trainer.advance(deferBoss);}
-    if(background.busy)return;
+    scheduledAt=Date.now();
+    if(planOnPage){planOnPage=false;trace('页面内计算');return trainer.advance(deferBoss);}
+    if(background.busy){busySkips++;return;}
     const input=planningInput(deferBoss),guard=planningGuard(trainer,planner,market,planningSettings());
     const ledger=JSON.stringify(input.storage),requested=Date.now();
     background.request('advance',input).then(result=>{
       noteEngine(result.engine);
+      const ms=Date.now()-requested;
       // Native work continues while computing. Do not stop it to acquire a lock.
-      if(Date.now()-requested>3000)throw new Error('本次规划耗时过长，重新计算');
-      if(!trainer.active||!trainer.compatible||trainer.awaitInitial||Date.now()-trainer.received>45000||trainer.pending||trainer.recovery||
-        trainer.snapshotSequence<=trainer.syncAfter)return;
+      if(ms>3000)throw new Error(`本次规划耗时过长（${ms} 毫秒），重新计算`);
+      const held=!trainer.active?'未运行':!trainer.compatible?'协议不兼容':trainer.awaitInitial?'等待首个状态':
+        Date.now()-trainer.received>45000?'状态过期':trainer.pending?`待确认：${trainer.pending.label}`:
+        trainer.recovery?'重连中':trainer.snapshotSequence<=trainer.syncAfter?'等待新快照':null;
+      if(held){trace('丢弃',{ms,why:held});return;}
       const changed=guardChange(guard,planningGuard(trainer,planner,market,planningSettings()))??
         (!input.storageUnavailable&&ledger!==JSON.stringify(planningStorage())?'规划存储':null);
       if(changed) {
+        trace('作废',{ms,why:changed});
         if(++staleResults>=3) {
           staleResults=0;planOnPage=true;
           if(Date.now()-staleLoggedAt>600000) {
@@ -274,8 +285,11 @@ import {fallbackOwnership} from '../planner/fallback.js';
       staleResults=0;
       if(!claimLease()){trainer.pause('另一个标签页已接管调度');return;}
       applyPlanning(trainer,planner,economy,market,result,localStorage);
+      trace('已应用',{ms,command:result.proposal?.label??null,plan:result.decision.plan?.label??null,
+        reason:result.decision.plan?.reason??result.decision.message});
       planningFailures=0;planningError='';planningView=result.view;planningViewKey=viewKey();
     }).catch(error=>{
+      trace('出错',{error:error.message});
       planningError=error.message;
       if(trainer.active) {
         if(++planningFailures>=2)trainer.pauseError(`后台规划连续失败：${error.message}；游戏当前任务继续，点击开始可重试`);
@@ -472,6 +486,29 @@ import {fallbackOwnership} from '../planner/fallback.js';
   window.hotWindows=count=>trainer.hotWindows(count);
   window.hotFollowStatus=()=>trainer.hotFollowStatus();
   window.hotFollowSkills=planner.hotFollowSkills.slice();
+  // Read-only report for the console: why the helper is (not) acting right now.
+  window.deepveinDebug=()=>{
+    const now=Date.now(),p=trainer.player,ago=t=>Number.isFinite(t)?now-t:null;
+    const ready=trainer.snapshotSequence>trainer.syncAfter;
+    const waiting=!trainer.active?'未运行':!dataReady?'等待游戏数据':trainer.awaitInitial?'等待首个状态':
+      trainer.pending?`待确认：${trainer.pending.label}`:!ready?'等待新快照':now<trainer.nextAction?'操作间隔':
+      p?.enhance?'强化中':p?.held||p?.raidHeld||p?.queue?.length?'玩家队列或搁置任务':null;
+    return {version:SCRIPT_VERSION,active:trainer.active,compatible:trainer.compatible,waiting,
+      message:trainer.message,pausedError:trainer.pausedError??null,
+      pending:trainer.pending&&{label:trainer.pending.label,intent:trainer.pending.intent.t,agoMs:ago(trainer.pending.sentAt)},
+      resolution:trainer.resolution??null,recovery:trainer.recovery??null,
+      snapshot:{sequence:trainer.snapshotSequence,syncAfter:trainer.syncAfter,receivedAgoMs:ago(trainer.received),
+        nextSyncInMs:trainer.nextSync-now},
+      nextActionInMs:trainer.nextAction-now,
+      worker:{available:!!background,busy:background?.busy??null,lastScheduledAgoMs:scheduledAt?now-scheduledAt:null,
+        busySkips,staleResults,planOnPage,planningFailures,planningError,trace:planningTrace.slice()},
+      player:p&&{activity:p.activity,route:p.route&&{jobId:p.route.jobId,zoneId:p.route.zoneId,phase:p.route.phase,
+        errand:!!p.route.errand,limit:p.route.limit,fallback:!!p.route.fallback},path:p.path?.length??0,
+        held:!!p.held,raidHeld:!!p.raidHeld,queue:p.queue?.length??0,enhance:!!p.enhance,lastStop:p.lastStop??null},
+      goal:trainer.goal&&{skill:trainer.goal.skill,target:trainer.goal.target,craftPreparation:trainer.goal.craftPreparation??null},
+      plan:trainer.plan&&{label:trainer.plan.label,reason:trainer.plan.reason},
+      boss:trainer.boss.status(),history:trainer.history?.map(h=>`${new Date(h.time).toLocaleTimeString()} ${h.message}`)??null};
+  };
 
   function releaseLease() {
     try {
