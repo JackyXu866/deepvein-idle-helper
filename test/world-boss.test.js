@@ -25,7 +25,26 @@ test("the helper's own walk is interrupted for a Boss", () => {
   const walking = {...you, activity: 'walking', path: [{x: 101, y: 100}]};
   assert.equal(boss.next(walking), null, 'default: walking is not interrupted (assist mode)');
   const plan = boss.next(walking, {interruptWalk: true});
-  assert.deepEqual(plan.intent, {t: 'walk', x: 120, y: 100});
+  assert.deepEqual(plan.intent, {t: 'walk', x: 117, y: 97}, 'a tile three steps from the Boss on our side, not its own tile');
+});
+
+test('a walk that finds no path tries another tile near the Boss instead of giving up', () => {
+  const {boss, you, advance} = setup();
+  rise(boss, 1000 + 100000);
+  const tried = [];
+  let p = {...you, activity: 'idle', path: null};
+  for (let i = 0; i < 8; i++) {
+    const plan = boss.next(p, {interruptWalk: true});
+    assert.equal(plan.intent.t, 'walk', plan.reason);
+    const {x, y} = plan.intent;
+    assert.ok(Math.max(Math.abs(x - 120), Math.abs(y - 100)) <= 3 && (x !== 120 || y !== 100));
+    tried.push(`${x},${y}`);
+    boss.issued(plan.intent, p, plan.reason);
+    // The game found no path: the player stays idle where it was.
+    advance(6000); boss.observe({tick: 1002 + i, m: [{t: 'snapshot', you: p}]});
+  }
+  assert.equal(new Set(tried).size, 8, 'eight different tiles');
+  assert.equal(boss.next(p, {interruptWalk: true}).intent.t, 'leaveWorldBoss', 'then the round is given up');
 });
 
 test('a player queue is still never overridden', () => {

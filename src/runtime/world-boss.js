@@ -165,6 +165,17 @@ export function createWorldBoss(data,now=()=>Date.now()){
       }
     }
   }
+  // The Boss's own tile usually cannot be walked onto, so a walk there finds no
+  // path. Like the native join, aim at the tiles within three steps of it,
+  // nearest to where the trip started first; a walk that finds no path moves
+  // on to the next tile.
+  const MAX_WALKS=8;
+  function approachTile(from,b,attempt){
+    const tiles=[];
+    for(let dy=-3;dy<=3;dy++)for(let dx=-3;dx<=3;dx++)if(dx||dy)tiles.push({x:b.x+dx,y:b.y+dy});
+    tiles.sort((a,c)=>distance(from,a)-distance(from,c)||a.x-c.x||a.y-c.y);
+    return tiles[attempt%tiles.length];
+  }
   // interruptWalk: the helper's own walk (bank, market, portal) may be dropped
   // for a Boss; a player's walk in assist mode is left alone.
   function next(p,{interruptWalk=false}={}){
@@ -223,9 +234,12 @@ export function createWorldBoss(data,now=()=>Date.now()){
         const changed=run.destination&&distance(run.destination,boss)>3;
         const stopped=snapshotAt>run.sentAt&&now()-run.sentAt>=5000&&!p.path?.length&&p.activity!=='walking';
         if(!changed&&!stopped)return wait('正在前往世界 Boss，保留玩家原队列');
-        if((run.walkAttempts??0)>=3)return action({t:'leaveWorldBoss'},'重新赶路仍未推进，结束本轮并恢复原任务');
+        if((run.walkAttempts??0)>=MAX_WALKS)return action({t:'leaveWorldBoss'},
+          `Boss 周围 ${MAX_WALKS} 个落脚点都走不过去，结束本轮并恢复原任务`);
       }
-      return action({t:'walk',x:boss.x,y:boss.y},'前往服务器公布的 Boss 出生位置');
+      const tile=approachTile(run.origin??p,boss,run.walkAttempts??0);
+      return action({t:'walk',x:tile.x,y:tile.y},(run.walkAttempts??0)?
+        '上一个落脚点没有可走路径，换 Boss 附近另一格前往':'前往 Boss 附近三格内的落脚点');
     }
     if(external||p.raidHeld)return wait('玩家正在参加世界 Boss，助手不接管也不收菜打断');
     if(!fresh||!boss||ignored===round)return null;
@@ -235,15 +249,16 @@ export function createWorldBoss(data,now=()=>Date.now()){
     const walking=!p.route&&(p.path?.length||p.activity==='walking');
     if(p.route?.errand||p.enhance||p.held||!p.route&&p.queue?.length||walking&&!interruptWalk)return null;
     if(p.route)return action({t:'setAside',raid:true},'临时保留当前任务的剩余份额和原队列，再参加世界 Boss');
-    return distance(p,boss)<=3?action({t:'attackWorldBoss'},'使用当前装备参加世界 Boss'):
-      action({t:'walk',x:boss.x,y:boss.y},'前往世界 Boss；不增加或覆盖玩家队列');
+    if(distance(p,boss)<=3)return action({t:'attackWorldBoss'},'使用当前装备参加世界 Boss');
+    const tile=approachTile(p,boss,0);
+    return action({t:'walk',x:tile.x,y:tile.y},'前往世界 Boss 附近三格内的落脚点；不增加或覆盖玩家队列');
   }
   function issued(intent,p,reason){
     if(!intent||!p)return;
     if(!run&&['setAside','walk','attackWorldBoss'].includes(intent.t)&&boss&&fresh){
       lastResult=null;
       run={key:key(boss),round,name:boss.name,until:boss.until,playerId:p.id,stage:'ready',
-        startedAt:now(),startTick:p.lastTick,sentAt:now(),progressAt:now(),position:{x:p.x,y:p.y},
+        startedAt:now(),startTick:p.lastTick,sentAt:now(),progressAt:now(),position:{x:p.x,y:p.y},origin:{x:p.x,y:p.y},
         beforeQueue:copy(p.queue??[]),expectedQueue:null,hit:false,attackSent:false,lastActivityAt:null};
       if(intent.t==='setAside'&&intent.raid&&p.route)run.expectedQueue=[savedTask(p),...copy(p.queue??[])];
     }
