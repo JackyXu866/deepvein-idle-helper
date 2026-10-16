@@ -21,9 +21,12 @@ export const planningState=trainer=>Object.fromEntries(inputFields.map(key=>[key
 
 // The status message is display only: the page may annotate it (e.g. a skipped
 // Boss) while a calculation runs, and that must not discard the result.
+// The Boss countdown ticks every second; decisions only ask whether a Boss
+// rises within five minutes (trainer bossSoon), so only that is compared.
 export function planningGuard(trainer,planner,market,settings) {
+  const boss=trainer.boss.status();
   return JSON.stringify([{...planningState(trainer),message:undefined},trainer.pending,trainer.recovery,trainer.awaitInitial,
-    trainer.boss.status(),planner.farmingPreference(),planner.housingRuntime?.(),market.runtime(),settings],(key,value)=>
+    {...boss,nextIn:undefined,soon:(boss.nextIn??Infinity)<=300},planner.farmingPreference(),planner.housingRuntime?.(),market.runtime(),settings],(key,value)=>
     // A heartbeat alone does not invalidate an otherwise identical decision.
     key==='lastTick'||key==='snapshotTick'||key==='snapshotSequence'||key==='syncAfter'||key==='nextSync'||key==='lastSync'?undefined:
       value instanceof Map?[...value]:value);

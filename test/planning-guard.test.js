@@ -20,6 +20,18 @@ test('a status annotation made while the Worker computes does not discard its re
   assert.equal(guardChange(before, guard(state)), null, 'a heartbeat alone changes nothing');
 });
 
+test('the Boss countdown ticking does not discard results; crossing the five-minute mark does', () => {
+  const state = page();
+  let nextIn = 900;
+  state.trainer.boss = {status: () => ({phase: 'watching', nextIn})};
+  const before = guard(state);
+  nextIn = 899;
+  assert.equal(guardChange(before, guard(state)), null, 'one second later');
+  const near = (nextIn = 301, guard(state));
+  nextIn = 299;
+  assert.equal(guardChange(near, guard(state)), '世界 Boss', 'now within five minutes: house trips are off');
+});
+
 test('a real change discards the result and names what changed', () => {
   const state = page(), before = guard(state);
   state.trainer.player = {...state.trainer.player, bank: {5: 4}};
