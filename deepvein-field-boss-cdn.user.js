@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         Deep Vein Idle 世界 Boss 与种菜助手
 // @namespace    local.deepvein.field-boss
-// @version      0.2.1
+// @version      0.2.2
 // @description  独立世界 Boss 与原生整批收菜；本机参战时段、每轮跳过概率、分组成熟、随机延迟；默认暂停
 // @homepageURL  https://github.com/ljyoukong-cpu/deepvein-idle-helper
 // @updateURL    https://gcore.jsdelivr.net/gh/ljyoukong-cpu/deepvein-idle-helper@main/deepvein-field-boss-cdn.meta.js
-// @downloadURL  https://gcore.jsdelivr.net/gh/ljyoukong-cpu/deepvein-idle-helper@field-boss-v0.2.1/deepvein-field-boss-cdn.user.js
+// @downloadURL  https://gcore.jsdelivr.net/gh/ljyoukong-cpu/deepvein-idle-helper@field-boss-v0.2.2/deepvein-field-boss-cdn.user.js
 // @match        https://deepveinidle.com/*
 // @match        https://cn.deepveinidle.com/*
 // @run-at       document-start
@@ -16,7 +16,7 @@
 
 (function(){
 'use strict';
-const SCRIPT_VERSION="0.2.1";
+const SCRIPT_VERSION="0.2.2";
 const GAME_DATA={"protocol":3,"tickMs":600,"xp":{"journeyLevel":99,"baseXp":100,"growth":1.12,"beyondStep":0.1,"beyondGrowth":1.145,"speedPerLevelAboveRequirement":0.005},"farmUnlocks":[1,1,15,30,45,60],"farmWaterTrim":20,"farmGates":{"387":{"name":"林间田","skill":"woodcutting","level":75,"x":152,"y":32},"389":{"name":"沼泽花园","skill":"fishing","level":75,"x":180,"y":118},"391":{"name":"弓手台地","skill":"fletching","level":70,"x":208,"y":30},"393":{"name":"深处花园","skill":"mining","level":85,"x":251,"y":51}},"plusScale":10000,"rarityScale":1000,"jobs":[{"id":160,"name":"Potato","skill":"farming","group":"Crops","levelReq":1,"baseTicks":2,"xp":110,"inputs":[{"itemId":160,"qty":1}],"output":{"itemId":170,"qty":1},"grow":800},{"id":161,"name":"Glowcap","skill":"farming","group":"Crops","levelReq":15,"baseTicks":2,"xp":380,"inputs":[{"itemId":161,"qty":1}],"output":{"itemId":171,"qty":1},"grow":1500},{"id":162,"name":"Cave turnip","skill":"farming","group":"Crops","levelReq":30,"baseTicks":2,"xp":900,"inputs":[{"itemId":162,"qty":1}],"output":{"itemId":172,"qty":1},"grow":2500},{"id":163,"name":"Bitterroot","skill":"farming","group":"Crops","levelReq":45,"baseTicks":2,"xp":1900,"inputs":[{"itemId":163,"qty":1}],"output":{"itemId":173,"qty":1},"grow":4000},{"id":164,"name":"Voidmelon","skill":"farming","group":"Crops","levelReq":60,"baseTicks":2,"xp":3800,"inputs":[{"itemId":164,"qty":1}],"output":{"itemId":174,"qty":1},"grow":6000},{"id":165,"name":"Ember pepper","skill":"farming","group":"Crops","levelReq":75,"baseTicks":2,"xp":6500,"inputs":[{"itemId":165,"qty":1}],"output":{"itemId":175,"qty":1},"grow":9000},{"id":210,"name":"Sage","skill":"farming","group":"Herbs","levelReq":10,"baseTicks":2,"xp":260,"inputs":[{"itemId":190,"qty":1}],"output":{"itemId":193,"qty":1},"grow":1200},{"id":211,"name":"Nightshade","skill":"farming","group":"Herbs","levelReq":35,"baseTicks":2,"xp":1200,"inputs":[{"itemId":191,"qty":1}],"output":{"itemId":194,"qty":1},"grow":3000},{"id":212,"name":"Dragonleaf","skill":"farming","group":"Herbs","levelReq":65,"baseTicks":2,"xp":4600,"inputs":[{"itemId":192,"qty":1}],"output":{"itemId":195,"qty":1},"grow":7000}],"sites":[{"id":74,"x":207,"y":93,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":75,"x":209,"y":93,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":76,"x":211,"y":93,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":77,"x":207,"y":97,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":78,"x":209,"y":97,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":79,"x":211,"y":97,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":387,"x":152,"y":32,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":389,"x":180,"y":118,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":391,"x":208,"y":30,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]},{"id":393,"x":251,"y":51,"kind":"field","jobIds":[160,161,162,163,164,165,210,211,212]}]};
 function farmFields(data,p) {
   const unlocked=(skill,level)=>p.skills?.[skill]>=Math.round(data.xp.baseXp*(data.xp.growth**(level-1)-1)/(data.xp.growth-1));
@@ -87,7 +87,8 @@ function farmBatch(data,p,settings,previous={}) {
   const empty={key:null,intent:null,ripe:0,planted:0,reason:'等待作物成熟'};
   if(!p?.skills||!Number.isFinite(p.lastTick))return {...empty,reason:'等待角色状态'};
   const base=id=>id%data.plusScale%data.rarityScale;
-  const fields=farmFields(data,p);
+  const fields=farmFields(data,p).filter(site=>p.plotChoice?.[site.id]!==0);
+  if(!fields.length)return {...empty,reason:'没有启用的农田；已设为“不使用”的田保持停用'};
   const jobs=data.jobs.filter(j=>j.grow),plots=[];
   for(const site of fields){
     const plot=p.plots?.[site.id];if(!plot)continue;
@@ -245,6 +246,7 @@ function createFarmControls(document,container,data,send,label=name=>name) {
       text.textContent=name;select.setAttribute('aria-label',`${name}作物`);select.setAttribute('data-plot-setting',String(site.id));
       select.style.maxWidth='200px';select.style.minWidth='0';
       const option=document.createElement('option');option.value='';option.textContent='游戏默认（任意作物）';select.append(option);
+      const disabled=document.createElement('option');disabled.value='0';disabled.textContent='不使用';select.append(disabled);
       for(const job of data.jobs.filter(j=>j.grow&&site.jobIds.includes(j.id))){
         const option=document.createElement('option');option.value=String(job.inputs[0].itemId);
         option.textContent=`${label(job.name)} · ${job.levelReq} 级`;
