@@ -1,4 +1,5 @@
 import {professionSkill} from './professions.js';
+import {PAIR_TIERS} from './quality.js';
 import {workEstimate} from './estimates.js';
 import {dayTicks as dayTicksOf} from './items.js';
 
@@ -48,7 +49,16 @@ export function createQuests(data,planner) {
     // Price the whole input chain, so a cheap market input can beat a long
     // unlock (e.g. buying wood for a rod quest without the Woodcutting level).
     if(job)planner.watchPurchases?.(p,planner.crafting?.ingredients(job.output.itemId)??job.inputs.map(i=>i.itemId));
-    const estimate=planner.routeEstimate(p,job??{monsterId:q.monsterId},Math.ceil(q.remaining/success),{style,buyInputs:true});
+    // Held matched quality sets count too (progress takes any quality); only
+    // the rest needs the common supply chain.
+    const crafts=Math.ceil(q.remaining/success);
+    const held=job&&job.inputs.length&&!job.grow?Math.min(crafts,PAIR_TIERS.filter(t=>t>0)
+      .reduce((n,t)=>n+(planner.crafting?.available(p,job,t,{},crafts)??0),0)):0;
+    const work=job?workEstimate(data,job,levels[skill],{hands:p.perks?.hands??0}):null;
+    const rest=crafts-held;
+    const estimate=rest>0?planner.routeEstimate(p,job??{monsterId:q.monsterId},rest,{style,buyInputs:true}):
+      {seconds:0,xp:0,coins:0,budget:{coins:0,items:{}},recipes:{[skill]:job.id},supplyRecipes:{},purchases:{}};
+    if(held>0)estimate.seconds+=held*work.seconds/Math.max(.01,work.success),estimate.xp+=held*work.xp;
     const seconds=estimate.seconds,left=(q.expiresAtTick-p.lastTick)*data.tickMs/1000;
     const base={job,skill,estimate,seconds,left};
     if(!Number.isFinite(seconds)||seconds<=0)return {...base,reason:q.kind==='kill'?'没有可安全击杀的路线':'没有可行的供料路线'};

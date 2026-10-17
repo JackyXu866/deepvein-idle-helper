@@ -1197,7 +1197,15 @@ export function createPlanner(data) {
       if(!quest||quest.claimed||quest.remaining<=0)return wait('任务已完成或已刷新，重新安排成长');
       const job=jobs.find(j=>j.id===quest.jobId);
       if(quest.kind!=='kill'&&!job)return blocked('任务配方尚未核对，先继续成长');
-      result=quest.kind==='kill'?fight(style):batch(job,quest.remaining);
+      // Progress counts any quality. When the common recipe cannot be made from
+      // stock now, held matched quality sets finish it first, rarest first; with
+      // commons in stock, those are used and the rare materials kept.
+      const reserve=plannedGearReserve(p,profession);
+      const sets=job&&job.inputs.length&&!job.grow&&api.crafting.available(p,job,0,reserve,1)<1?
+        PAIR_TIERS.filter(t=>t>0).map(t=>({recipe:craftRecipe(data,job,t),n:api.crafting.available(p,job,t,reserve,quest.remaining)}))
+          .find(s=>s.recipe&&s.n>0):null;
+      result=quest.kind==='kill'?fight(style):sets?batch(sets.recipe,Math.min(quest.remaining,sets.n)):batch(job,quest.remaining);
+      if(sets)result.reason=`任务计入任何品质：普通配方暂缺原料，先用已有的 ${RARITY_NAMES[sets.recipe.rarity]}配对做 ${Math.min(quest.remaining,sets.n)} 次；${result.reason||result.label}`;
     } else if(goal.itemTarget) {
       const id=goal.targetItemId,owned=count(p,id)+(p.overflow?.[id]??0)+
         Object.values(p.equipment).filter(item=>item===id).length+(goal.listedQty??0);
