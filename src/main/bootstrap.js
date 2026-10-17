@@ -639,6 +639,8 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
     catch {trainer.log('种植偏好已应用，但无法保存；刷新后恢复原设置');}
     render();
   }
+  // The queue-clear button starts through the same checks as 开始调度.
+  trainer.onStartAfterClear=()=>startScheduling();
   async function startScheduling(target=null) {
     if(checking||trainer.recovery||!target&&trainer.active)return;
     const attempt=++startCheck;

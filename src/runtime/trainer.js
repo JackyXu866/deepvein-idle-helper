@@ -189,7 +189,7 @@ export class Trainer {
     return intent;
   }
   pause(reason='已暂停调度，游戏继续当前任务',preserveBoss=false) {
-    this.pausedError=null;
+    this.pausedError=null;this.startAfterClear=null;
     if(!preserveBoss){this.boss.cancel(reason);this.planner.cancelHousing?.();this.buffRefill=null;}
     if(this.player)this.planner.watchPotions?.(this.player,[]);
     this.active=false; this.pending=null; this.recentDeposit=null; this.recovery=null;this.resolution=null;this.stallCheck=null;this.bankedLoad=false; this.log(reason);
@@ -459,6 +459,12 @@ export class Trainer {
         this.player=message.you; this.received=this.now(); this.snapshotTick=frame.tick; this.awaitInitial=false;
         this.planner.enhancementTraining?.observe(this.player);
         this.snapshotSequence++;
+        if(this.startAfterClear&&!this.active) {
+          const p=this.player;
+          if(!p.queue?.length&&!p.held&&!p.raidHeld){this.startAfterClear=null;(this.onStartAfterClear??(()=>this.start()))();}
+          else if(this.now()>this.startAfterClear){this.startAfterClear=null;this.queueBlocked=true;
+            this.log(`游戏未确认清空队列：`+this.queueSummary()+'；请在游戏里检查后再开始');}
+        }
         if(this.pending?.intent.t==='walk'){
           const position=`${this.player.x},${this.player.y}`;
           if(this.pending.position&&this.pending.position!==position)this.pending.sentAt=this.now();
@@ -567,8 +573,11 @@ export class Trainer {
     if(!p||!(p.queue?.length||held)||this.active)return false;
     for(let index=(p.queue?.length??0)-1;index>=0;index--)this.send({t:'unqueue',index});
     if(held)this.send({t:'skip'});
-    this.queueBlocked=false;
-    this.log('已按你的操作清空游戏队列并解除搁置；同步后可点击开始');return true;
+    // The button follows a blocked start: start once the game confirms,
+    // asking for that state now rather than at the next periodic sync.
+    this.queueBlocked=false;this.startAfterClear=this.now()+30000;
+    this.send({t:'resync'});
+    this.log('已按你的操作清空游戏队列并解除搁置；游戏确认后自动开始调度');return true;
   }
   start(preservePreparation=false) {
     if (!this.player||!this.compatible) return this.log('尚未取得兼容的角色状态，请刷新游戏后重试');
