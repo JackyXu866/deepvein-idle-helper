@@ -554,21 +554,29 @@ export class Trainer {
   queueSummary(p=this.player) {
     const name=q=>q.kind==='zone'?`战斗 · ${this.data.monsters.find(m=>m.id===this.data.zones.find(z=>z.id===q.zoneId)?.monsterId)?.name??q.zoneId}`:
       q.kind==='quest'?'任务':this.data.jobs.find(j=>j.id===q.jobId)?.name??`工作 ${q.jobId}`;
-    return `${(p?.queue??[]).map(name).join('、')}${p?.held?'（已搁置，不会自动开始）':''}`;
+    const held=p?.held||p?.raidHeld;
+    if(!p?.queue?.length)return held?'空队列，但仍处于搁置状态':'';
+    return `${p.queue.map(name).join('、')}${held?'（已搁置，不会自动开始）':''}`;
   }
   // Player-initiated only (the panel button): empty the game's queue. The
   // game removes one entry per index; last first keeps the others in place.
+  // Removing entries leaves the "held" mark set; only the game's resume
+  // ({t:'skip'}, with no task running) clears it.
   clearGameQueue() {
-    if(!this.player?.queue?.length||this.active)return false;
-    for(let index=this.player.queue.length-1;index>=0;index--)this.send({t:'unqueue',index});
+    const p=this.player,held=(p?.held||p?.raidHeld)&&!p.route;
+    if(!p||!(p.queue?.length||held)||this.active)return false;
+    for(let index=(p.queue?.length??0)-1;index>=0;index--)this.send({t:'unqueue',index});
+    if(held)this.send({t:'skip'});
     this.queueBlocked=false;
-    this.log('已按你的操作清空游戏队列；同步后可点击开始');return true;
+    this.log('已按你的操作清空游戏队列并解除搁置；同步后可点击开始');return true;
   }
   start(preservePreparation=false) {
     if (!this.player||!this.compatible) return this.log('尚未取得兼容的角色状态，请刷新游戏后重试');
-    if ((this.mode!=='assist'||this.itemTarget&&this.itemTarget.status!=='completed')&&this.player.queue?.length&&!this.boss.ownsQueue(this.player)) {
+    const p=this.player,blocking=p.queue?.length||p.held||p.raidHeld;
+    if ((this.mode!=='assist'||this.itemTarget&&this.itemTarget.status!=='completed')&&blocking&&!this.boss.ownsQueue(p)) {
       this.queueBlocked=true;
-      return this.log(`游戏队列里还有 ${this.player.queue.length} 项：${this.queueSummary()}。为免打乱你的队列，请先在游戏里继续或清除，或点“清空游戏队列”，再开始自动调度`);
+      return this.log(p.queue?.length?`游戏队列里还有 ${p.queue.length} 项：${this.queueSummary()}。为免打乱你的队列，请先在游戏里继续或清除，或点“清空游戏队列”，再开始自动调度`:
+        '游戏队列已空，但仍处于搁置状态（游戏不会自动开始）。请在游戏里点继续，或点“清空游戏队列”解除搁置，再开始自动调度');
     }
     this.queueBlocked=false;
     this.active=true; this.recovery=null; this.pending=null; this.pausedError=null;

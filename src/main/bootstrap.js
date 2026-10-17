@@ -136,7 +136,7 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
   }
   const allowed=new Set([...readOnly,'setRoute','fight','walk','wear','equipFromBank','deposit',
     'eatAt','eat','drink','chooseFood','foodMaxTier','carryFood','enhance','clearRoute','marketDump','depositItem','dropItem','withdraw','marketBuy','marketSell','marketCancel','vendorBuy','claimQuest','rerollQuest','buyPerk','masteryConfirm','setFallback','plantPref','plotChoice','unqueue',
-    'setAside','attackWorldBoss','leaveWorldBoss','startQueued','portal',...HOUSE_ACTIONS]);
+    'setAside','skip','attackWorldBoss','leaveWorldBoss','startQueued','portal',...HOUSE_ACTIONS]);
   function rememberRequest(intent) {
     const list=recentRequests[readOnly.has(intent.t)?'queries':'actions'];
     list.push({time:Date.now(),intent:diagnosticIntent(intent)});if(list.length>5)list.shift();
@@ -3035,7 +3035,8 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
         `${slots[s.slot]??s.slot}：${s.current?.name??'未装备'}${describe(s.upgrade,'当前可穿')}${describe(s.next,'下一档')}`).join('\n\n');
     }
     {
-      const blocked=!trainer.active&&trainer.queueBlocked&&trainer.player?.queue?.length>0,box=panel.querySelector('[data-queue-block]');
+      const queued=trainer.player&&(trainer.player.queue?.length>0||trainer.player.held||trainer.player.raidHeld);
+      const blocked=!trainer.active&&trainer.queueBlocked&&!!queued,box=panel.querySelector('[data-queue-block]');
       if(box.hidden===blocked)box.hidden=!blocked;
       const text=blocked?`游戏队列：${trainer.queueSummary()}`:'',span=box.querySelector('[data-queue-text]');
       if(span.textContent!==text)span.textContent=text;
