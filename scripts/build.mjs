@@ -28,6 +28,7 @@ const header = d => `// ==UserScript==
 // @namespace    local.deepvein.balanced
 // @version      ${version}
 // @description  自主发展、经验优先、指定主业与收菜Boss辅助；连续发展计划、批量供料、装备与市场比价；默认暂停
+// @homepageURL  https://github.com/ljyoukong-cpu/deepvein-idle-helper
 // @updateURL    ${d.updateURL}
 // @downloadURL  ${d.downloadURL}
 // @match        https://deepveinidle.com/*
