@@ -150,12 +150,14 @@ export function createPlanner(data) {
   // Unlocked fields: the base fields by farming level (farmUnlocks, in id
   // order), plus fields gated by another skill (farmGates, client v0.8.1:
   // woodcutting 75, fishing 75, fletching 70, mining 85).
+  // A field the player set to "不使用" in the game (saved choice 0, upstream
+  // v0.8.7) is left alone: not counted, harvested into or replanted.
   const farmFields = p => {
     let index=0;
     return sites.filter(s=>s.kind==='field').sort((a,b)=>a.id-b.id).filter(site=>{
       const gate=data.farmGates?.[site.id];
       return gate?level(p.skills[gate.skill]??0)>=gate.level:level(p.skills.farming)>=(data.farmUnlocks[index++]??Infinity);
-    });
+    }).filter(site=>p.plotChoice?.[site.id]!==0);
   };
   const farmFieldCount = (data.farmUnlocks?.length??0)+Object.keys(data.farmGates??{}).length;
   function farmPlots(p) {
