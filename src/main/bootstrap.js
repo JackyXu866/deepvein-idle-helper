@@ -3001,7 +3001,13 @@ import {fallbackOwnership} from '../planner/fallback.js';
     panel.querySelector('[data-reason]').hidden=!trainer.plan?.reason;
     panel.querySelector('[data-farm]').textContent=farmText;
     panel.querySelector('[data-housing]').textContent=houseText;
-    panel.querySelector('[data-farm-fields]').textContent=farming?`${farming.fields} / ${GAME_DATA.farmUnlocks.length} 块${GAME_DATA.farmUnlocks[farming.fields]?` · 下一块农业 ${GAME_DATA.farmUnlocks[farming.fields]} 级`:''}`:'等待田地状态';
+    {
+      // Base fields by farming level, plus fields gated by another skill.
+      const lv=p?planner.levels(p):{},nextFarming=GAME_DATA.farmUnlocks.find(n=>(lv.farming??0)<n);
+      const gate=Object.values(GAME_DATA.farmGates??{}).find(g=>(lv[g.skill]??0)<g.level);
+      const next=nextFarming?` · 下一块农业 ${nextFarming} 级`:gate?` · 下一块 ${gate.name}：${NAMES[gate.skill]??gate.skill} ${gate.level} 级`:'';
+      panel.querySelector('[data-farm-fields]').textContent=farming?`${farming.fields} / ${planner.farmFieldCount} 块${next}`:'等待田地状态';
+    }
     panel.querySelector('[data-farm-ready]').textContent=farming?String(ready):'—';
     panel.querySelector('[data-farm-growing]').textContent=farming?String(crops.length-ready):'—';
     panel.querySelector('[data-farm-empty]').textContent=farming?String(farming.empty):'—';

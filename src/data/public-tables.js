@@ -46,6 +46,9 @@ export function validateGameData(data) {
       /^[a-z]+$/.test(r.id)&&typeof r.name==='string'&&r.bonus&&typeof r.bonus.kind==='string'&&
       (!r.bonus.skill||data.skills.includes(r.bonus.skill))&&finite(r.rate)&&
       [r.feeds,...r.alsoFeeds??[]].every(f=>['wood','stone','fish','crop','hide'].includes(f)))))return false;
+  // Fields unlocked by another skill (client v0.8.1 table): a known field and skill, a level.
+  if(data.farmGates&&!Object.entries(data.farmGates).every(([id,g])=>data.sites.some(s=>s.id===Number(id)&&s.kind==='field')&&
+    data.skills.includes(g?.skill)&&Number.isInteger(g?.level)&&g.level>=1))return false;
   if(data.houseRules&&(!Object.values(data.houseRules).every(n=>Number.isFinite(n)&&n>0)||
     data.houseRules.grid!==5||data.houseRules.entrance!==12||data.houseRules.lake!==6))return false;
   if(data.houseTravel) {
@@ -167,7 +170,8 @@ export async function refreshGameData(data,sources,pageUrl,{fetch:request,parse,
   if(client===data.client)return {updated:false,message:`数据已核对：${client}`};
   try {
     const saved=JSON.parse(storage?.getItem(key)||'null');
-    const cache=saved&&{...saved,hot:saved.hot??data.hot,houseRooms:saved.houseRooms??data.houseRooms,houseRules:data.houseRules,houseTravel:data.houseTravel};
+    const cache=saved&&{...saved,hot:saved.hot??data.hot,houseRooms:saved.houseRooms??data.houseRooms,houseRules:data.houseRules,houseTravel:data.houseTravel,
+      farmGates:data.farmGates};
     if(cache?.client===client&&cache.protocol===data.protocol&&validateGameData(cache)&&!cache.jobs.some(j=>j.retired))
       return {updated:true,data:cache,message:`已加载本页校验数据：${client}`};
   } catch { /* A damaged cache never prevents a fresh public-data check. */ }

@@ -9337,6 +9337,36 @@
     45,
     60
   ],
+  "farmGates": {
+    "387": {
+      "name": "林间田",
+      "skill": "woodcutting",
+      "level": 75,
+      "x": 152,
+      "y": 32
+    },
+    "389": {
+      "name": "沼泽花园",
+      "skill": "fishing",
+      "level": 75,
+      "x": 180,
+      "y": 118
+    },
+    "391": {
+      "name": "弓手台地",
+      "skill": "fletching",
+      "level": 70,
+      "x": 208,
+      "y": 30
+    },
+    "393": {
+      "name": "深处花园",
+      "skill": "mining",
+      "level": 85,
+      "x": 251,
+      "y": 51
+    }
+  },
   "farmWaterTrim": 20,
   "plusScale": 10000,
   "rarityScale": 1000,

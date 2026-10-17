@@ -178,7 +178,7 @@ export function createStrategy(data, planner) {
         const seedId=crop.inputs[0].itemId;
         const liveSeeds=Object.entries(stock).reduce((n,[id,qty])=>n+(planner.base(+id)===seedId?qty:0),0)+
           Object.values(p.plots??{}).filter(f=>planner.base(f.seedItemId)===seedId).length;
-        const fields=Math.max(1,Math.min(data.farmUnlocks.filter(n=>n<=lv.farming).length,liveSeeds));
+        const fields=Math.max(1,Math.min(planner.farmFields?.(p).length??data.farmUnlocks.filter(n=>n<=lv.farming).length,liveSeeds));
         const harvests=missing/(4+lv.farming/100);
         seconds+=Math.ceil(harvests/fields)*crop.grow*tick;xp+=harvests*crop.xp;
         recipes.farming=crop.id;supplyRecipes[id]=crop.id;

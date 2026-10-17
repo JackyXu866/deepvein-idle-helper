@@ -146,8 +146,17 @@ export function createPlanner(data) {
     if(nearBank(p)&&(p.route||p.path?.length))return action({t:'clearRoute'},'制作出发前准备整批原料','先停止旧路线，存回零散原料后按背包容量取料');
     return bankAction(p,{t:'deposit'},'存回零散原料，再整批取料制作');
   }
-  const farmFields = p => sites.filter(s=>s.kind==='field').sort((a,b)=>a.id-b.id)
-    .slice(0,data.farmUnlocks.filter(n=>level(p.skills.farming)>=n).length);
+  // Unlocked fields: the base fields by farming level (farmUnlocks, in id
+  // order), plus fields gated by another skill (farmGates, client v0.8.1:
+  // woodcutting 75, fishing 75, fletching 70, mining 85).
+  const farmFields = p => {
+    let index=0;
+    return sites.filter(s=>s.kind==='field').sort((a,b)=>a.id-b.id).filter(site=>{
+      const gate=data.farmGates?.[site.id];
+      return gate?level(p.skills[gate.skill]??0)>=gate.level:level(p.skills.farming)>=(data.farmUnlocks[index++]??Infinity);
+    });
+  };
+  const farmFieldCount = (data.farmUnlocks?.length??0)+Object.keys(data.farmGates??{}).length;
   function farmPlots(p) {
     return farmFields(p).flatMap(site=>{
       const plot=p.plots?.[site.id];
@@ -555,7 +564,7 @@ export function createPlanner(data) {
     }
     function jobTime(job) {
       const e=jobEstimate(job);
-      return e.seconds/e.success + (job.grow??0)/Math.max(1,data.farmUnlocks.filter(n=>lv.farming>=n).length)*data.tickMs/1000;
+      return e.seconds/e.success + (job.grow??0)/Math.max(1,farmFields(p).length)*data.tickMs/1000;
     }
     function batch(job, amount, trail=[]) {
       const site = siteFor(job);
@@ -1459,7 +1468,7 @@ export function createPlanner(data) {
     else if(farmTargetReason)reason=`${farmTargetReason} · ${best.name}：${reason}`;
     return {...status,crop:best.name,reason};
   }
-  const api={level,levels,thresholds,trainedSkills,balancedChooseGoal,plan:planAtBoundary,planItemTarget,itemTargetChoices,count,base,nearBank,carriedBatch,equipmentStats,farmPlots,harvest,harvestOnly,professionUpgrade,equipmentStatus,gearTargets,plannedQualityGear,plannedGearReserve,farmStatus,
+  const api={level,levels,thresholds,trainedSkills,balancedChooseGoal,plan:planAtBoundary,planItemTarget,itemTargetChoices,count,base,nearBank,carriedBatch,equipmentStats,farmPlots,farmFields,farmFieldCount,harvest,harvestOnly,professionUpgrade,equipmentStatus,gearTargets,plannedQualityGear,plannedGearReserve,farmStatus,
     hotFollowSkills:HOT_FOLLOW_SKILLS.slice(),hotSkillAt:tick=>hotSkillAt(data,tick),hotWindows:(tick,count=4)=>hotWindows(data,tick,count),
     setFarmingPreference,farmingPreference,
     taskBoundary:p=>!finishTaskReason(data,p)};
