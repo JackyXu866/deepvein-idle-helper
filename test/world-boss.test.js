@@ -136,3 +136,45 @@ test('bossNext is exposed as seconds until the next spawn', () => {
   boss.observe({tick: 1600, m: []});
   assert.equal(boss.status().nextIn, null, 'past spawns report null');
 });
+
+test('changing task or walking before departure keeps the round open; a takeover mid-round skips it', () => {
+  const {boss, you} = setup();
+  rise(boss, 1000 + 100000);
+  boss.manualAction({t: 'walk', x: 1, y: 1}, you);
+  assert.equal(boss.status().skipped, false, 'not joined yet: still open');
+  assert.ok(boss.next(you, {interruptWalk: true})?.intent, 'the helper still joins');
+  boss.manualAction({t: 'setRoute', jobId: 1, siteId: 1}, {...you, raidHeld: true});
+  assert.equal(boss.status().skipped, true, 'the player took over a round in progress');
+});
+
+test('a best-quality task saved for the Boss may come back at another quality', () => {
+  const {boss, you} = setup();
+  rise(boss, 1000 + 100000);
+  const working = {...you, route: {zoneId: null, jobId: 5, siteId: 2, onFull: 'bank', limit: 40, best: true}, workRarity: 0};
+  const plan = boss.next(working);
+  assert.equal(plan.intent.t, 'setAside');
+  boss.issued(plan.intent, working, plan.reason);
+  const saved = {...you, route: null, held: true, raidHeld: true,
+    queue: [{kind: 'job', siteId: 2, jobId: 5, onFull: 'bank', limit: 40, rarity: 2, best: true}]};
+  boss.observe({tick: 1002, m: [{t: 'snapshot', you: saved}]});
+  assert.notEqual(boss.next(saved)?.blocked, true);
+  assert.equal(boss.ownsQueue(saved), true, 'native best banking changed the quality; the save is still ours');
+});
+
+test('the Boss is checked before ordinary waits: a pending walk does not delay joining', async () => {
+  const {Trainer} = await import('../src/runtime/trainer.js');
+  const {makePlanner, player} = await import('./helpers.js');
+  const planner = makePlanner(), sent = [];
+  let clock = 1_000_000;
+  const t = new Trainer(planner.data, planner, intent => sent.push(intent), () => clock);
+  const p = player(planner, {x: 100, y: 100, lastTick: 1000, route: null, queue: [], path: null, activity: 'idle'});
+  Object.assign(t, {active: true, compatible: true, player: p, received: clock, awaitInitial: false,
+    snapshotSequence: 1, syncAfter: 1, nextSync: clock + 60000, nextAction: clock + 4000,
+    pending: {intent: {t: 'walk', x: 50, y: 50}, label: '回仓', before: p, sentAt: clock}});
+  t.boss.observe({tick: 1000, m: [{t: 'snapshot', you: p}]});
+  t.boss.observe({tick: 1001, m: [{t: 'bossRose', name: 'Vein colossus', x: 120, y: 100, until: 100000}]});
+  t.tick();
+  assert.equal(sent.at(-1)?.t, 'walk', JSON.stringify(sent));
+  assert.notDeepEqual(sent.at(-1), {t: 'walk', x: 50, y: 50}, 'heading to the Boss, not the old walk');
+  assert.equal(t.pending, null, 'the pending walk was replaced');
+});

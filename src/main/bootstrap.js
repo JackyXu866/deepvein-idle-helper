@@ -573,6 +573,10 @@ import {fallbackOwnership} from '../planner/fallback.js';
           if (trainer.snapshotSequence>sequence) {
             pump();
             if(pendingNativeJoin){const join=pendingNativeJoin;pendingNativeJoin=null;afterGameEvent(join);}
+          } else if(Array.isArray(frame.m)&&frame.m.some(m=>['bossRose','bossGone','raidHit'].includes(m?.t))) {
+            // A Boss appearing, ending or a hit is checked at once, after the
+            // game has applied the frame (upstream v0.8.6), not on the next timer.
+            afterGameEvent(pump);
           }
         }
         catch (error) { trainer.pause(`无法解析游戏状态：${error.message}`); }

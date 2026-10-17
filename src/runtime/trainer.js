@@ -850,38 +850,18 @@ export class Trainer {
         this.send(query);
       }
     }
+    // World Boss first (upstream v0.8.6): it runs before the ordinary waits
+    // (sync, action cooldown, a walk awaiting confirmation). Any other
+    // unconfirmed command, e.g. a trade, still waits for its result.
+    const bossReady=!this.awaitInitial&&!this.player?.enhance&&(!this.pending||this.pending.intent.t==='walk');
+    const boss=bossReady?this.bossTick(this.player,now):null;
+    if(boss?.handled)return;
+    const bossFoodBlocked=boss?.foodBlocked===true;
     if ((!ready&&this.snapshotSequence<=this.syncAfter)||this.awaitInitial||this.pending||now<this.nextAction) return;
     const p=this.player;
     if(p.enhance) {
       this.plan={intent:null,label:'等待本次强化结果',reason:'强化进行中，完成后继续原任务'};
       this.message=this.plan.reason;return;
-    }
-    const bossFood=this.bossFoodPlan(p),bossFoodBlocked=bossFood?.blocked===true;
-    if(bossFoodBlocked) {
-      this.plan={intent:null,label:'世界 Boss',reason:bossFood.reason};
-      this.noteConsumable('boss-food',bossFood.reason);
-    }
-    if(bossFood?.intent) {this.plan=bossFood;this.issue(bossFood);return;}
-    // The helper's own errand walks yield to a Boss; in assist mode the walk is the player's.
-    let bossPlan=bossFoodBlocked?null:this.boss.next(p,{interruptWalk:this.mode!=='assist'});
-    const bossStatus=this.boss.status();
-    if(bossStatus.owned&&['attacking','fighting'].includes(bossStatus.phase)&&this.combatFoodPlan(p))
-      bossPlan={intent:{t:'leaveWorldBoss'},label:'保护传说食物，结束本轮 Boss',
-        reason:'已恢复的参战仍允许消耗传说食物，先离开本轮并恢复原任务'};
-    if(bossPlan) {
-      const blockedConsumable=this.consume(p,reserveWaitingGoals(this.goal,this.waitingGoals),this.style,{intent:null});
-      if(blockedConsumable?.intent)this.noteConsumable('boss',`药水未喝：世界 Boss 临时动作优先，${bossPlan.reason??'本轮先完成参战流程'}`);
-      this.plan=bossPlan;this.message=bossPlan.reason??bossPlan.label;
-      if(bossPlan.blocked)return this.pause(bossPlan.reason,true);
-      if(bossPlan.intent) {
-        if(bossPlan.intent.t==='attackWorldBoss') {
-          const food=this.combatFoodPlan(p);if(food){this.issue(food);return;}
-        }
-        this.boss.issued(bossPlan.intent,p,bossPlan.reason);this.log(`执行：${bossPlan.label}`);
-        this.send(bossPlan.intent);this.nextAction=now+1000;
-        this.syncAfter=this.snapshotSequence;this.nextSync=0;
-      }
-      return;
     }
     if((this.mode!=='assist'||this.itemTarget&&this.itemTarget.status!=='completed')&&(p.held||p.raidHeld||p.queue?.length)) {
       this.consume(p,reserveWaitingGoals(this.goal,this.waitingGoals),this.style,{intent:null});
@@ -894,6 +874,44 @@ export class Trainer {
       if(!this.message?.includes(reason))this.message=this.message?`${this.message}；${reason}`:reason;
     }
     return result;
+  }
+  // World Boss step: protective food settings, then joining, fighting or
+  // leaving. `handled` means this tick is spent on the Boss.
+  bossTick(p,now=this.now()) {
+    const bossFood=this.bossFoodPlan(p),foodBlocked=bossFood?.blocked===true;
+    if(foodBlocked) {
+      this.plan={intent:null,label:'世界 Boss',reason:bossFood.reason};
+      this.noteConsumable('boss-food',bossFood.reason);
+    }
+    if(bossFood?.intent) {
+      if(this.pending)return {handled:true,foodBlocked}; // a walk first settles
+      this.plan=bossFood;this.issue(bossFood);return {handled:true,foodBlocked};
+    }
+    // The helper's own errand walks yield to a Boss; in assist mode the walk is the player's.
+    let bossPlan=foodBlocked?null:this.boss.next(p,{interruptWalk:this.mode!=='assist'});
+    const bossStatus=this.boss.status();
+    if(bossStatus.owned&&['attacking','fighting'].includes(bossStatus.phase)&&this.combatFoodPlan(p))
+      bossPlan={intent:{t:'leaveWorldBoss'},label:'保护传说食物，结束本轮 Boss',
+        reason:'已恢复的参战仍允许消耗传说食物，先离开本轮并恢复原任务'};
+    if(!bossPlan)return {handled:false,foodBlocked};
+    const blockedConsumable=this.consume(p,reserveWaitingGoals(this.goal,this.waitingGoals),this.style,{intent:null});
+    if(blockedConsumable?.intent)this.noteConsumable('boss',`药水未喝：世界 Boss 临时动作优先，${bossPlan.reason??'本轮先完成参战流程'}`);
+    this.plan=bossPlan;this.message=bossPlan.reason??bossPlan.label;
+    if(bossPlan.blocked){this.pause(bossPlan.reason,true);return {handled:true,foodBlocked};}
+    if(bossPlan.intent) {
+      if(now-(this.bossSentAt??-Infinity)<1000)return {handled:true,foodBlocked};
+      if(bossPlan.intent.t==='attackWorldBoss') {
+        const food=this.combatFoodPlan(p);
+        if(food){if(!this.pending)this.issue(food);return {handled:true,foodBlocked};}
+      }
+      this.bossSentAt=now;
+      // A Boss command replaces a walk still awaiting confirmation.
+      this.pending=null;this.resolution=null;
+      this.boss.issued(bossPlan.intent,p,bossPlan.reason);this.log(`执行：${bossPlan.label}`);
+      this.send(bossPlan.intent);this.nextAction=now+1000;
+      this.syncAfter=this.snapshotSequence;this.nextSync=0;
+    }
+    return {handled:true,foodBlocked};
   }
   // Pure decision phase may run on a cloned state in the planning Worker.
   // Connection freshness, acknowledgements and Boss protocol stay on the page.

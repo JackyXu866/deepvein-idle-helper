@@ -71,7 +71,10 @@ export function createWorldBoss(data,now=()=>Date.now()){
     if(before.limit!==null&&Number.isFinite(before.limit)&&
       (!Number.isFinite(head.limit)||head.limit<=0||head.limit>before.limit))return false;
     if(before.ticks!==undefined&&(!Number.isInteger(head.ticks)||head.ticks<=0||head.ticks>before.ticks))return false;
-    if(!same({...head,limit:before.limit,...(before.ticks===undefined?{}:{ticks:before.ticks})},before))return false;
+    // Native best-recipe banking can change quality while setAside is in flight (upstream v0.7.18).
+    if(before.kind==='job'&&before.best&&(!Number.isInteger(head.rarity)||head.rarity<0||head.rarity>4))return false;
+    if(!same({...head,limit:before.limit,...(before.ticks===undefined?{}:{ticks:before.ticks}),
+      ...(before.kind==='job'&&before.best?{rarity:before.rarity}:{})},before))return false;
     run.expectedQueue=copy(actual);run.savedConfirmed=true;return true;
   }
   function recordResult(reason){
@@ -273,13 +276,17 @@ export function createWorldBoss(data,now=()=>Date.now()){
     if(intent.t==='leaveWorldBoss')end(reason??'已停止本轮，等待原生恢复原任务');
     if(intent.t==='startQueued')run.stage='resuming';
   }
-  function manualAction(intent){
+  function manualAction(intent,p=null){
     if(!intent)return;
     if(intent.t==='attackWorldBoss'){cancel();external=true;externalUntil=boss?.until??externalUntil;return;}
     if(intent.t==='leaveWorldBoss'){cancel();external=false;ignored=boss?round:null;return;}
     if(['queue','unqueue','moveQueued'].includes(intent.t)){cancel();return;}
     if(['walk','setRoute','fight','clearRoute','setAside','startQueued','skip','enhance'].includes(intent.t)){
-      cancel();external=false;ignored=boss?round:null;
+      // Changing task or walking before departure keeps the round open; only
+      // taking over a round the player is in skips it (upstream v0.7.18).
+      const participating=external||p?.raidHeld===true;
+      cancel();external=false;
+      if(participating)ignored=boss?round:null;
     }
   }
   function retryNativeJoin(p){
