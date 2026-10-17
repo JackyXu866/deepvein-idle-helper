@@ -519,6 +519,9 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
         held:!!p.held,raidHeld:!!p.raidHeld,queue:p.queue?.length??0,enhance:!!p.enhance,lastStop:p.lastStop??null},
       goal:trainer.goal&&{skill:trainer.goal.skill,target:trainer.goal.target,craftPreparation:trainer.goal.craftPreparation??null},
       plan:trainer.plan&&{label:trainer.plan.label,reason:trainer.plan.reason},
+      // The last commands that actually left for the game (a refused one never appears).
+      sent:recentRequests.actions.map(r=>({agoMs:now-r.time,...r.intent})),
+      housePoints:p?.housePoints??null,
       boss:trainer.boss.status(),history:trainer.history?.map(h=>`${new Date(h.time).toLocaleTimeString()} ${h.message}`)??null};
   };
 

@@ -19,7 +19,7 @@
 // src/version.js
 var SCRIPT_VERSION = "0.9.0";
 var SCRIPT_DISTRIBUTION = "github";
-var SCRIPT_BUILT = "10-17 06:14";
+var SCRIPT_BUILT = "10-17 06:19";
 
 // src/data/game-data.json
 var game_data_default = {
@@ -26196,6 +26196,9 @@ function nativeBossJoinControl(document2) {
       },
       goal: trainer.goal && { skill: trainer.goal.skill, target: trainer.goal.target, craftPreparation: trainer.goal.craftPreparation ?? null },
       plan: trainer.plan && { label: trainer.plan.label, reason: trainer.plan.reason },
+      // The last commands that actually left for the game (a refused one never appears).
+      sent: recentRequests.actions.map((r) => ({ agoMs: now - r.time, ...r.intent })),
+      housePoints: p?.housePoints ?? null,
       boss: trainer.boss.status(),
       history: trainer.history?.map((h) => `${new Date(h.time).toLocaleTimeString()} ${h.message}`) ?? null
     };
