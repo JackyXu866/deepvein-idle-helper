@@ -1,6 +1,7 @@
 import {matchesProfessionWeapon, professionSkill} from './professions.js';
 import {reviewInventory} from './inventory.js';
 import {packCapacity} from './items.js';
+import {marketQuality} from './quality.js';
 
 export const MAIN_TRADES={auto:'自动选择（按收益）',mining:'采矿',fishing:'钓鱼',woodcutting:'伐木',
   thieving:'盗窃',cooking:'烹饪',smithing:'锻造',fletching:'箭术制作',herblore:'炼药',crafting:'制作',combat:'战斗（按所选职业）'};
@@ -21,7 +22,12 @@ export function createSpecialization(data,planner) {
     const value=(id,qty)=>qty>0?(planner.marketUnitValue?.(p,id,Math.max(1,Math.round(qty)))??0)*qty:0;
     for(let c of candidates) {
       let proceeds=0,actions=c.actions;const saleItems=[];
-      if(c.output&&c.output.itemId!==data.coinId) {
+      // Quality crafting (held matched sets): its output at its market value,
+      // sold on the market when it is rare processed surplus.
+      if(c.rarity>0&&c.output) {
+        proceeds+=value(c.output.itemId,c.output.qty);
+        if(marketQuality(data,c.output.itemId))saleItems.push(c.output.itemId);
+      } else if(c.output&&c.output.itemId!==data.coinId) {
         const {itemId,qty}=c.output;
         const minSale=['mining','fishing','woodcutting'].includes(c.skill)&&!data.items[itemId]?.stackable?
           Math.min(qty,packCapacity(p)):1;

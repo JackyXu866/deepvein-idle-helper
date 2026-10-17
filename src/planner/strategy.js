@@ -1,5 +1,5 @@
 import {matchesProfessionWeapon, professionSkill, starterWeapon} from './professions.js';
-import {autoUsableMaterial} from './quality.js';
+import {PAIR_TIERS, autoUsableMaterial, craftRecipe, qualityWorth, setsAt} from './quality.js';
 import {combatEstimate, workEstimate} from './estimates.js';
 import {buffKey, combatSupplies} from './supplies.js';
 import {distance, merchantPrice, nearestBank, packCapacity, rarityOf} from './items.js';
@@ -261,6 +261,22 @@ export function createStrategy(data, planner) {
       candidates.push({skill:job.skill,recipeId:job.id,mainXpRate:e.xp*amount/estimate.seconds,output:{itemId:job.output.itemId,qty:Math.floor(e.commonOutput*amount)},...extras,recipes:{...estimate.recipes,[job.skill]:job.id},
         supplyRecipes:estimate.supplyRecipes,batch,estimate,rate:estimate.rate,horizon,
         budget:routeEstimate(p,job,batch,{style,buyInputs:true}).budget,target:lv[job.skill]+1,stage:lv[job.skill]+1});
+      // The same recipe in a quality the held matched sets make (planned gear's
+      // materials kept), valued at that quality: its output is worth more.
+      if(job.inputs.length&&!stockedBatch&&!options.sustainable) {
+        const hold=planner.qualityHold?.(p,style,{gearOnly:true})??{};
+        for(const tier of PAIR_TIERS.filter(t=>t>0)) {
+          const recipe=craftRecipe(data,job,tier),n=Math.min(amount,setsAt(recipe,id=>planner.count(p,id)-(hold[id]??0)));
+          if(!(n>=1)||!qualityWorth(data,planner,p,job,tier).ok)continue;
+          const q=routeEstimate(p,recipe,n,{...routeOptions,buyInputs:false});
+          if(!Number.isFinite(q.seconds)||!q.xp)continue;
+          const qe=estimateWork(p,recipe,lv);
+          candidates.push({skill:job.skill,recipeId:job.id,rarity:tier,mainXpRate:qe.xp*n/q.seconds,
+            output:{itemId:recipe.output.itemId,qty:Math.floor(qe.commonOutput*n)},recipes:{...q.recipes,[job.skill]:job.id},
+            recipeRarities:{[job.skill]:tier},supplyRecipes:q.supplyRecipes,batch:n,estimate:q,rate:q.rate,horizon,
+            budget:q.budget,target:lv[job.skill]+1,stage:lv[job.skill]+1});
+        }
+      }
     }
     if(stockedBatch)return candidates.sort((a,b)=>b.mainXpRate-a.mainXpRate||a.recipeId-b.recipeId);
     let fighter=p,preparation={seconds:0,xp:0,coins:0,budget:{coins:0,items:{}}};

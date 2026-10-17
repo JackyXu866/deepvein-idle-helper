@@ -1,10 +1,11 @@
 import {MASTERY_TRACKS, spentPoints} from '../engine/mastery-rules.js';
 import {NAMES} from './planner.js';
+import {RARITY_NAMES} from './quality.js';
 
 const MODE_LAYERS = {balanced: '自主发展计划', experience: '经验优先', business: '主业经营', assist: '只收菜＋蹭世界 Boss'};
 const BOSS_PHASES = new Set(['ready', 'saving', 'moving', 'attacking', 'fighting', 'dead', 'ended', 'resuming']);
 
-const keyOf = c => c.monsterId != null ? `combat:${c.monsterId}` : `job:${c.recipeId}`;
+const keyOf = c => c.monsterId != null ? `combat:${c.monsterId}` : `job:${c.recipeId}${c.rarity ? `:rarity:${c.rarity}` : ''}`;
 
 // Best XP/hour for each gold/hour floor: the Pareto frontier of the
 // candidates, as a short list of suggestions (at most `limit`, spread out).
@@ -31,7 +32,8 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
   if (!p?.skills) return null;
   const goal = trainer.goal, style = trainer.style;
   const jobName = id => data.jobs.find(j => j.id === id)?.name ?? `工作 ${id}`;
-  const label = c => c.monsterId != null ? `战斗 · ${data.monsters.find(m => m.id === c.monsterId)?.name ?? c.monsterId}` : jobName(c.recipeId);
+  const label = c => c.monsterId != null ? `战斗 · ${data.monsters.find(m => m.id === c.monsterId)?.name ?? c.monsterId}` :
+    `${c.rarity ? RARITY_NAMES[c.rarity] : ''}${jobName(c.recipeId)}`;
   const layer = boss?.owned && BOSS_PHASES.has(boss.phase) ? '世界 Boss（最高优先）' :
     trainer.itemTarget && trainer.itemTarget.status !== 'completed' ? '物品目标' :
     goal?.quest ? (goal.quest.period === 'daily' ? '每日任务（必做）' : '每周任务') :
