@@ -44,3 +44,46 @@ export function setsByTier(data,job,count) {
 
 // Is this item made by a recipe (processed), rather than gathered, grown or dropped?
 export const processed=(data,id)=>data.jobs.some(j=>j.output.itemId===baseId(data,id)&&j.inputs.length&&!j.grow);
+
+// Reserve lists (item id -> quantity) combine by keeping the larger amount.
+export function mergeHold(...lists) {
+  const out={};
+  for(const list of lists)for(const [id,qty]of Object.entries(list??{}))out[id]=Math.max(out[id]??0,qty);
+  return out;
+}
+
+// The one list of rare materials nothing may dispose of (house fuel, sales):
+// planned gear's quality chain, and rare herbs with their matched drops for
+// the brews they pair into. Crafting goals keep only the gear part, so a
+// herblore brew or quest may use the pairs it was kept for.
+// It depends only on the quality stock, worn gear and levels, so copies of the
+// player with more ordinary output (income estimates) share one computation.
+const holds=new Map();
+export function qualityHold(data,planner,p,profession,{gearOnly=false}={}) {
+  if(!p||typeof p!=='object'||!p.bank)return {};
+  const quality=[...Object.entries(p.bank),...(p.pack??[]).map(i=>[i.itemId,i.qty])]
+    .filter(([id,qty])=>qty>0&&rarityOf(data,+id)>0).sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
+  const key=JSON.stringify([p.id,profession,gearOnly,quality,p.equipment,p.skills]);
+  if(!holds.has(key)) {
+    const gear=planner.plannedGearReserve?.(p,profession)??{};
+    if(holds.size>=32)holds.delete(holds.keys().next().value);
+    holds.set(key,gearOnly?gear:mergeHold(gear,planner.herbloreNeeds?.(p)?.pairs));
+  }
+  return holds.get(key);
+}
+
+// Making `job` at quality `tier` instead of common must pay: what its quality
+// inputs would sell for over the common ones, against what the quality output
+// is worth over the common one plus the extra XP (as time at the gold rate).
+// E.g. a rare rough gem fits accessories of every level and sells high: it is
+// not spent on a low ring worth little. Unknown prices count as nothing.
+export function qualityWorth(data,planner,p,job,tier) {
+  const recipe=craftRecipe(data,job,tier);
+  if(!tier||!recipe)return {ok:!!recipe||!tier,extraIn:0,extraOut:0,xp:0};
+  const value=(id,qty)=>qty*(planner.marketUnitValue?.(p,id,Math.max(1,qty))??0);
+  const extraIn=recipe.inputs.reduce((n,i,k)=>n+value(i.itemId,i.qty)-value(job.inputs[k].itemId,job.inputs[k].qty),0);
+  const extraOut=value(recipe.output.itemId,recipe.output.qty)-value(job.output.itemId,job.output.qty);
+  const e=planner.estimateWork?.(p,job),rate=planner.coinRate?.(p)??0;
+  const xp=e?.xp>0&&rate>0?(recipe.xp-job.xp)*e.seconds/e.xp*rate:0;
+  return {ok:extraIn<=extraOut+xp,extraIn,extraOut,xp};
+}

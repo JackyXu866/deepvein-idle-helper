@@ -1,11 +1,11 @@
 import {PROFESSIONS, canWear as canWearWith, gearRequirementOf, matchesProfessionWeapon, professionSkill, starterWeapon} from './professions.js';
-import {PAIR_TIERS, autoUsableMaterial, craftRecipe} from './quality.js';
+import {PAIR_TIERS, autoUsableMaterial, craftRecipe, mergeHold, qualityHold, qualityWorth} from './quality.js';
 import {RARITY_NAMES, baseId, distance, itemLabel, nearBank as nearBankAt, nearestBank as nearestBankTo, packCapacity, packQty, packUsed, plusOf, qualityPrefix, rarityOf} from './items.js';
 import {createCrafting, finishTaskReason} from './crafting.js';
 import {combatEstimate} from './estimates.js';
 import {combatSupplies} from './supplies.js';
 import {createStrategy} from './strategy.js';
-import {POTION_FLOOR, farmingStocks} from './farming.js';
+import {POTION_FLOOR, farmingStocks, herbloreNeeds} from './farming.js';
 import {createEnhancementTraining, planEnhancement} from './enhancement.js';
 import {planConsumable} from './consumables.js';
 import {createProgression} from './progression.js';
@@ -466,6 +466,7 @@ export function createPlanner(data) {
   };
 
   function plan(p, goal, profession='magic') {
+    api.styleHint=profession;
     if (!goal||goal.toolOnly) return planTask(p,goal,profession);
     function prepareTool() {
       const result=planTask(p,goal.toolUpgrade,profession);
@@ -499,8 +500,10 @@ export function createPlanner(data) {
     // A development project also holds the quality materials of the planned
     // gear (plannedGearReserve), so leveling does not spend them.
     let gearReserve=null;
-    const qualityReserve=()=>goal.itemTarget||goal.quest||goal.upgrade?goal.budget?.items:
-      goal.development?gearReserve??=plannedGearReserve(p,profession):{};
+    // Planned gear's quality materials are kept from every crafting goal
+    // (quality.js reserve rules); item targets and upgrades bring their own.
+    const qualityReserve=()=>goal.itemTarget||goal.upgrade?goal.budget?.items:
+      gearReserve??=mergeHold(goal.quest?goal.budget?.items:{},plannedGearReserve(p,profession));
     const unlocked = j => lv[j.skill]>=j.levelReq;
     const made = id => jobs.filter(j=>j.output.itemId===id);
     const atGoal = (skill,target) => lv[skill]>=target;
@@ -681,7 +684,7 @@ export function createPlanner(data) {
       }
       const choices = jobs.filter(j=>j.skill===skill && (fixed==null||j.id===fixed) && (!j.grow||allowedCrop(j)) && unlocked(j) && siteFor(j))
         .flatMap(job=>!goal.itemTarget&&!goal.quest&&!goal.upgrade&&job.inputs.length&&!job.grow?
-          [job,...[1,2,3,4].map(tier=>craftRecipe(data,job,tier)).filter(j=>j&&trainingLimit(j)>0)]:[job])
+          [job,...[1,2,3,4].map(tier=>craftRecipe(data,job,tier)).filter(j=>j&&trainingLimit(j)>0&&qualityWorth(data,api,p,job,j.rarity).ok)]:[job])
         .filter(j=>fixed!=null||trainingLimit(j)>0);
       const neededXp = Math.max(1,thresholds[target]-p.skills[skill]);
       const scores=new Map();
@@ -1202,7 +1205,7 @@ export function createPlanner(data) {
       // commons in stock, those are used and the rare materials kept.
       const reserve=plannedGearReserve(p,profession);
       const sets=job&&job.inputs.length&&!job.grow&&api.crafting.available(p,job,0,reserve,1)<1?
-        PAIR_TIERS.filter(t=>t>0).map(t=>({recipe:craftRecipe(data,job,t),n:api.crafting.available(p,job,t,reserve,quest.remaining)}))
+        PAIR_TIERS.filter(t=>t>0&&qualityWorth(data,api,p,job,t).ok).map(t=>({recipe:craftRecipe(data,job,t),n:api.crafting.available(p,job,t,reserve,quest.remaining)}))
           .find(s=>s.recipe&&s.n>0):null;
       result=quest.kind==='kill'?fight(style):sets?batch(sets.recipe,Math.min(quest.remaining,sets.n)):batch(job,quest.remaining);
       if(sets)result.reason=`任务计入任何品质：普通配方暂缺原料，先用已有的 ${RARITY_NAMES[sets.recipe.rarity]}配对做 ${Math.min(quest.remaining,sets.n)} 次；${result.reason||result.label}`;
@@ -1258,10 +1261,13 @@ export function createPlanner(data) {
       // materials, the lowest that beats the worn piece, as a target to look for.
       const planned=id=>{
         if(id==null)return null;
+        const maker=jobs.find(j=>j.output.itemId===base(id)&&j.inputs.length&&!j.grow);
         for(let r=3;r>=1;r--) {
           const quality=base(id)+r*data.rarityScale;
           if(!better(quality))continue;
           if(count(p,quality)>0)return quality;
+          // Its quality materials must not be worth more than the piece gains.
+          if(maker&&!qualityWorth(data,api,p,maker,r).ok)continue;
           if(!Object.keys(api.crafting.shortfall(pool,quality,1).missing).length){take(quality,1);return quality;}
         }
         return id;
@@ -1466,6 +1472,8 @@ export function createPlanner(data) {
   const investments=createInvestments(data,api);
   return Object.assign(api,{growthChooseGoal:growth.chooseGoal,growthStatus:growth.status,
     housingPlan:housing.plan,housingStatus:housing.status,validateHousing:housing.validate,
+    herbloreNeeds:p=>herbloreNeeds(data,p,levels(p),thresholds),
+    qualityHold:(p,profession=api.styleHint??'magic',options)=>qualityHold(data,api,p,profession,options),
     housingRuntime:housing.runtime,cancelHousing:housing.cancel,housingRejected:housing.rejected,refuseHouseFuel:housing.refuseFuel,
     observeDevelopment:growth.observe,resetDevelopment:growth.reset,developmentRuntime:growth.runtime,developmentStalled:growth.stalled,
     resumeDevelopment:growth.resumeReady,

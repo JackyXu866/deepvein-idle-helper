@@ -46,6 +46,8 @@ export function inventoryBudget(data, planner, p, goal=null,consuming=false) {
     ((p.bank[id]??0)>0||used<capacity));
   const pressure=used>=capacity-3||Object.values(p.overflow??{}).some(n=>n>0);
   const reserve=(id,qty)=>{items[id]=Math.max(items[id]??0,Math.ceil(qty));};
+  // Rare materials for planned gear and matched brews are never disposed of.
+  for(const [id,qty]of Object.entries(planner.qualityHold?.(p)??{}))reserve(Number(id),qty);
   const development=(goal?.development||goal?.quest)&&planner.developmentRuntime?.();
   const plans=[goal,...goal?.reservedGoals??[],...(development?.owner===p.id?[development.focus,...Object.values(development.parked)]:[])].filter(Boolean);
   const recipes=new Map();

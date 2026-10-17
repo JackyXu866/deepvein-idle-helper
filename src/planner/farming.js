@@ -38,7 +38,8 @@ export function herbloreNeeds(data,p,levels,thresholds=null) {
   const toUnlock=next&&upcoming&&Number.isFinite(thresholds?.[upcoming.levelReq])&&Number.isFinite(xp)?
     Math.max(0,Math.ceil((thresholds[upcoming.levelReq]-xp)/next.xp)):Infinity;
   // Herbs needed per exact quality: as many as that quality's drops pair with.
-  const recipe={},floor={},byTier={};let potions=0,room=toUnlock;
+  // `pairs`: the rare herbs and drops matched for these brews, kept together.
+  const recipe={},floor={},byTier={},pairs={};let potions=0,room=toUnlock;
   if(next)for(const t of PAIR_TIERS) {
     const n=Math.min(pairableAt(next,t),room);
     if(!(n>0))continue;
@@ -46,6 +47,7 @@ export function herbloreNeeds(data,p,levels,thresholds=null) {
     for(const i of next.inputs) {
       if(herbs.has(i.itemId))recipe[i.itemId+t*R]=(recipe[i.itemId+t*R]??0)+n*i.qty;
       else spare[i.itemId+t*R]=left(i.itemId+t*R)-n*i.qty;
+      if(t>0)pairs[i.itemId+t*R]=(pairs[i.itemId+t*R]??0)+Math.min(n*i.qty,held(p,i.itemId+t*R));
     }
   }
   let ahead=null;
@@ -55,7 +57,7 @@ export function herbloreNeeds(data,p,levels,thresholds=null) {
     ahead={recipe:upcoming,potions:paired,herbs:herbsAhead,drops:drops(upcoming).map(i=>i.itemId)};
   }
   for(const r of recipes)for(const i of r.inputs)if(herbs.has(i.itemId))floor[i.itemId]=Math.max(floor[i.itemId]??0,POTION_FLOOR*i.qty);
-  return {next,potions,byTier,toUnlock,recipe,floor,ahead,drops:next?drops(next).map(i=>i.itemId):[]};
+  return {next,potions,byTier,pairs,toUnlock,recipe,floor,ahead,drops:next?drops(next).map(i=>i.itemId):[]};
 }
 
 // The reserve a crop keeps against sale and aims for when farming: herbs by
