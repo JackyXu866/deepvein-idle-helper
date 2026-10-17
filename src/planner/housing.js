@@ -124,13 +124,13 @@ export function createHousing(data,planner) {
       .filter(c=>c>=0&&c<rules.grid**2&&c!==rules.lake&&!p.houseCells.includes(c)).sort((a,b)=>a-b);
   }
   const action=(intent,label,reason)=>({intent,label,reason,housing:true});
-  function work(p,goal,style='magic',mode='balanced') {
-    review=[];
-    if(!enabled||!known(p)||mode==='assist'||goal?.itemTarget||p.held||p.raidHeld||p.queue?.length||p.enhance)return null;
+  const idle=(p,goal,mode)=>enabled&&known(p)&&mode!=='assist'&&!goal?.itemTarget&&!p.held&&!p.raidHeld&&!p.queue?.length&&!p.enhance;
+  // What home spending must leave alone: the plans' coins and materials.
+  function reserves(p,goal,style) {
     // The quality hold in the budget is by profession: the planner and the
     // page's check must use the same one (housing can run before any plan()).
     planner.styleHint=style;
-    const budget=inventoryBudget(data,planner,p,goal),cells=frontier(p);
+    const budget=inventoryBudget(data,planner,p,goal);
     // Maintenance can hold a separate equipment project while the main goal
     // remains unchanged. Its supplies must survive home spending too.
     const investment=planner.pendingEquipmentPlan?.(p,style);
@@ -138,6 +138,12 @@ export function createHousing(data,planner) {
       const reserved=inventoryBudget(data,planner,p,investment);budget.coins+=reserved.coins;
       for(const [id,qty]of Object.entries(reserved.items))budget.items[id]=Math.max(budget.items[id]??0,qty);
     }
+    return budget;
+  }
+  function work(p,goal,style='magic',mode='balanced') {
+    review=[];
+    if(!idle(p,goal,mode))return null;
+    const budget=reserves(p,goal,style),cells=frontier(p);
     if(!p.houseBuild&&cells.length&&Number.isSafeInteger(cellPrice(p))&&p.coins>=cellPrice(p)+budget.coins)
       return action({t:'buildRoom',cell:cells[0]},`扩建房屋地块 · ${cellPrice(p).toLocaleString()} 金币`,
         '逐块扩建，保留当前计划必要开销；施工期间继续原任务，不花宝石加速');
@@ -257,8 +263,23 @@ export function createHousing(data,planner) {
       '\n完成当前一趟后回家扩建、升级，再恢复原任务；只转换普通现货盈余，不拆设施、不花宝石。'+
       (p.lastTick<retryAt?'\n房屋操作被拒绝，暂缓五分钟；正常挂机继续。':'');
   }
+  // The page's check before a conversion is sent: safety, not a second
+  // economic decision. The page has no engine-simulated rates, so repeating
+  // the payback could disagree on costly quality fuel and refuse it; it only
+  // confirms the item is unprotected surplus beyond every reserve, and that a
+  // placed facility not already upgrading takes its points.
+  function fuelSafe(p,intent,goal,style,mode) {
+    if(Object.keys(intent).length!==3||!Number.isSafeInteger(intent.itemId)||!Number.isSafeInteger(intent.qty)||intent.qty<=0)return false;
+    if(!idle(p,goal,mode)||!goal||goal.developmentFiller||goal.temporary||goal.quest)return false;
+    const points=housePoints(intent.itemId);
+    if(!points||!rooms.some(r=>p.houseFurniture[r.id]&&p.houseUpgrades[r.id]==null&&feeds(r).includes(points.family)))return false;
+    const budget=reserves(p,goal,style),inventory=reviewInventory(data,planner,p,goal,style,budget);
+    const {donors}=chooseHouseFuel(data,{p,families:[points.family],missing:0,inventory,budget,unitValue:()=>0,refused:refusedFuel});
+    return donors.some(d=>d.itemId===intent.itemId&&d.available>=intent.qty);
+  }
   const validate=(p,intent,goal,style,mode)=>HOUSE_ACTIONS.has(intent.t)&&atHome(data,p)&&!p.route&&!p.path?.length&&
-    p.lastTick>=retryAt&&JSON.stringify(work(p,goal,style,mode)?.intent)===JSON.stringify(intent);
+    p.lastTick>=retryAt&&(intent.t==='convertHouse'?fuelSafe(p,intent,goal,style,mode):
+      JSON.stringify(work(p,goal,style,mode)?.intent)===JSON.stringify(intent));
   return {plan,status,validate,rejected,refuseFuel,cancel:()=>{visit=null;},
     setEnabled:value=>{enabled=value!==false;},enabled:()=>enabled,
     runtime(value){if(value){({owner,visit,retryAt}=value);review=value.review??[];refusedFuel=value.refusedFuel??{};}

@@ -672,7 +672,11 @@ export class Trainer {
     this.pending={intent,label,before:this.player,sentAt:this.now(),consumablePurchase:plan.consumablePurchase===true};
     this.nextAction=this.now()+4000;this.log(`执行：${label}`);this.telemetry.command(intent);
     if(intent.t==='enhance')this.planner.enhancementTraining?.issued(this.player,intent);
-    this.send(intent);this.nextSync=Math.min(this.nextSync,this.now()+2000);
+    // Refused before sending (e.g. the page's safety check): nothing reached the
+    // game, so nothing awaits confirmation, which would later read as ignored.
+    try {this.send(intent);}
+    catch(error){if(this.pending?.intent===intent){this.pending=null;this.plan=null;}throw error;}
+    this.nextSync=Math.min(this.nextSync,this.now()+2000);
   }
   // Keep the game's fallback activity on a gathering job that feeds the plan
   // (else the best experience). Never touches a fallback the player set or

@@ -110,3 +110,34 @@ test('house fuel and the page check use the player\'s profession for quality hol
     assert.ok(!seen.includes('magic'), JSON.stringify(seen));
   }
 });
+
+test('the page lets a quality conversion through on safety alone, not a second payback verdict', async () => {
+  const {makePlanner, player} = await import('./helpers.js');
+  const {validateIntent} = await import('../src/runtime/intents.js');
+  const planner = makePlanner(), d = planner.data, R = d.rarityScale, region = d.houseTravel.region;
+  const hide = id('Drake hide'), forge = d.houseRules.entrance;
+  const home = extra => player(planner, {x: region.x + 1, y: region.y + 1, path: null, route: null, activity: 'idle',
+    houseCells: [forge], houseFurniture: {forge: {cell: forge, slot: 0}}, house: {}, housePoints: {}, houseUpgrades: {},
+    bank: {[hide + R]: 5, [hide + 4 * R]: 2}, ...extra});
+  const goal = {skill: 'smithing'}, check = (p, intent) => validateIntent(d, p, intent, {planner, goal, style: 'melee'});
+  // No gold rate on the page (no simulated rates): its own payback could not
+  // be computed, yet the planner's conversion of rare hide is safe to send.
+  planner.coinRate = () => 0;
+  assert.equal(check(home(), {t: 'convertHouse', itemId: hide + R, qty: 5}), true);
+  assert.equal(check(home(), {t: 'convertHouse', itemId: hide + R, qty: 6}), false, 'more than held');
+  assert.equal(check(home(), {t: 'convertHouse', itemId: hide + 4 * R, qty: 1}), false, 'legendary is the player\'s');
+  assert.equal(check(home({houseFurniture: {}}), {t: 'convertHouse', itemId: hide + R, qty: 5}), false, 'no facility takes hide points');
+  assert.equal(check(home({houseUpgrades: {forge: 1e12}}), {t: 'convertHouse', itemId: hide + R, qty: 5}), false, 'already upgrading');
+  assert.equal(check(home({bankLocked: [hide + R]}), {t: 'convertHouse', itemId: hide + R, qty: 5}), false, 'bank-locked');
+  assert.equal(check(home({x: 0, y: 0}), {t: 'convertHouse', itemId: hide + R, qty: 5}), false, 'away from home');
+});
+
+test('a command refused before sending is not left waiting to be confirmed', async () => {
+  const {Trainer} = await import('../src/runtime/trainer.js');
+  const {makePlanner, player} = await import('./helpers.js');
+  const planner = makePlanner(), d = planner.data;
+  const t = new Trainer(d, planner, () => {throw new Error('计划涉及未知或受保护物品，等待重新核对');}, () => 1e9);
+  t.player = player(planner, {hp: 100});
+  assert.throws(() => t.issue({intent: {t: 'convertHouse', itemId: 3, qty: 1}, label: 'x'}, true), /受保护/);
+  assert.equal(t.pending, null);
+});
