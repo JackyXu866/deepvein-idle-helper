@@ -52,6 +52,9 @@ import {fallbackOwnership} from '../planner/fallback.js';
   const autoFallbackKey='deepvein-auto-fallback-v1',fallbackOwnedKey='deepvein-fallback-owned-v1';
   let autoFallback=true;
   try {autoFallback=localStorage.getItem(autoFallbackKey)!=='false';}catch{}
+  const autoHousingKey='deepvein-auto-housing-v1';
+  let autoHousing=true;
+  try {autoHousing=localStorage.getItem(autoHousingKey)!=='false';}catch{}
   const autoSeedQualityKey='deepvein-auto-seed-quality-v1';
   let autoSeedQuality=true;
   try {autoSeedQuality=localStorage.getItem(autoSeedQualityKey)!=='false';}catch{}
@@ -222,7 +225,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
     const url=URL.createObjectURL(new Blob([PLANNING_WORKER_SOURCE],{type:'text/javascript'}));
     try{return new Worker(url);}finally{URL.revokeObjectURL(url);}
   }):null;
-  const planningSettings=()=>({autoSell,capacitySales,sellCrafted,autoFallback,autoSeedQuality,potionRestock,profitFloor,salePricing,hotFollow:trainer.getHotFollow()});
+  const planningSettings=()=>({autoSell,capacitySales,sellCrafted,autoFallback,autoSeedQuality,autoHousing,potionRestock,profitFloor,salePricing,hotFollow:trainer.getHotFollow()});
   function planningStorage() {
     return Object.fromEntries(PLANNING_STORAGE_KEYS.map(key=>[key,localStorage.getItem(key)]));
   }
@@ -389,6 +392,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
         const refreshed=createPlanner(GAME_DATA);
         refreshed.housingRuntime(planner.housingRuntime());
         refreshed.setFarmingPreference(planner.farmingPreference());
+        refreshed.setHousingEnabled(autoHousing);
         refreshed.enhancementTraining=createEnhancementTraining(GAME_DATA,refreshed,enhancementStore);
         Object.assign(planner,refreshed);
         trainer.mainJobId=validMainJob(trainer.mainJobId,trainer.mainTrade);
@@ -426,7 +430,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
     trainer.mainTrade=Object.hasOwn(MAIN_TRADES,saved)?saved:'auto';
   } catch { trainer.mainTrade='auto'; }
   trainer.autoFallback=autoFallback;trainer.onFallbackOwned=saveFallbackOwned;
-  planner.autoSeedQuality=autoSeedQuality;
+  planner.autoSeedQuality=autoSeedQuality;planner.setHousingEnabled?.(autoHousing);
   try {
     const owned=JSON.parse(localStorage.getItem(fallbackOwnedKey)||'null');
     if(owned&&typeof owned==='object'&&!Array.isArray(owned))
@@ -1744,7 +1748,10 @@ import {fallbackOwnership} from '../planner/fallback.js';
               <div class="detail-content">
                 <details data-quests-details open><summary>日常／周常任务</summary><p data-quests class="muted"></p><p class="fine-print">短且收益合算的任务优先，长任务顺路推进；完成后自动领奖，不停止当前工作。击杀任务经验按领奖时的武器职业发放。</p></details>
                 <details data-equipment-details><summary>当前与下一档装备</summary><p data-equipment-policy class="muted"></p><pre data-equipment></pre></details>
-                <details data-housing-details><summary>房屋扩建与升级</summary><pre data-housing></pre></details>
+                <details data-housing-details><summary>房屋扩建与升级</summary>
+                  <label>自动升级房屋<input type="checkbox" data-auto-housing aria-label="自动升级房屋"></label>
+                  <p class="fine-print">关闭后不再扩建、摆放、投料或开始新的升级；已开始的施工照常进行，正在回家维护时会退出并恢复原任务。</p>
+                  <pre data-housing></pre></details>
                 <details data-economy-details><summary>物资保留与强化预算</summary><pre data-inventory></pre><pre data-enhancement></pre>
                   <details><summary>预算规则</summary><p class="fine-print">保留计划用料、关键种子和装备；在用装备以 +5 为基线，每次尝试一级并确认。后续强化单次只用现有金币与最多 25% 自由碎片；同装备每阶段最多五次，失败停止本阶段重试。临近换代先换装，中间一级属性取整不变但 +5 有提升时可继续。</p><p class="fine-print">强化报价按基础属性估算，是否执行由策略决定；高阶失败可能回到 +0。售价有最低报价保护，未知物品和稀有装备保留。</p></details>
                 </details>
@@ -1892,6 +1899,12 @@ import {fallbackOwnership} from '../planner/fallback.js';
       trainer.fallbackCheckedAt=0;
       try {localStorage.setItem(autoFallbackKey,String(autoFallback));}
       catch {trainer.log('后备活动设置无法保存，刷新后恢复为开启');}
+      render();
+    };
+    panel.querySelector('[data-auto-housing]').onchange=event=>{
+      autoHousing=event.currentTarget.checked===true;planner.setHousingEnabled?.(autoHousing);
+      try {localStorage.setItem(autoHousingKey,String(autoHousing));}
+      catch {trainer.log('房屋设置无法保存，刷新后恢复为开启');}
       render();
     };
     panel.querySelector('[data-clear-queue]').onclick=()=>{
@@ -2895,6 +2908,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
     panel.querySelector('[data-sell-crafted]').checked=sellCrafted;
     panel.querySelector('[data-auto-fallback]').checked=autoFallback;
     panel.querySelector('[data-auto-seed-quality]').checked=autoSeedQuality;
+    panel.querySelector('[data-auto-housing]').checked=autoHousing;
     {
       const p=trainer.player,task=p?.fallback?.task;
       const name=task?task.kind==='job'?gameLabel(GAME_DATA.jobs.find(j=>j.id===task.jobId)?.name??'未知工作'):

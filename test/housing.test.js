@@ -74,3 +74,19 @@ test('a conversion the game ignored (nothing changed) does not pause; that fuel 
   spent.tick();
   assert.ok(spent.pausedError, 'a partial change still pauses');
 });
+
+test('auto-housing off: no new house work, and a visit under way leaves home', async () => {
+  const {makePlanner, player} = await import('./helpers.js');
+  const planner = makePlanner(), d = planner.data;
+  const p = player(planner, {houseCells: [d.houseRules.entrance], houseFurniture: {}, house: {}, housePoints: {}, houseUpgrades: {},
+    path: null, route: null, activity: 'idle'});
+  const portal = d.houseTravel.portals[0];
+  const visiting = () => planner.housingRuntime({owner: p.id, visit: {phase: 'work', portalId: portal.id, resume: null}, retryAt: 0});
+  visiting();
+  assert.ok(planner.housingPlan(p, {skill: 'mining'}, 'melee', 'balanced')?.intent, 'enabled: the visit carries on toward home');
+  visiting();
+  planner.setHousingEnabled(false);
+  assert.equal(planner.housingPlan(p, {skill: 'mining'}, 'melee', 'balanced'), null, 'outside home with nothing to resume');
+  assert.equal(planner.housingRuntime().visit, null, 'the visit is over');
+  assert.equal(planner.housingPlan(p, {skill: 'mining'}, 'melee', 'balanced'), null, 'and no new visit starts');
+});

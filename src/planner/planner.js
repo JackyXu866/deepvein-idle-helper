@@ -1496,7 +1496,7 @@ export function createPlanner(data) {
     herbloreNeeds:p=>herbloreNeeds(data,p,levels(p),thresholds),
     qualityHold:(p,profession=api.styleHint??'magic',options)=>qualityHold(data,api,p,profession,options),
     potionSaleWorth:(p,id)=>potionSaleWorth(data,api,p,id),
-    housingRuntime:housing.runtime,cancelHousing:housing.cancel,housingRejected:housing.rejected,refuseHouseFuel:housing.refuseFuel,
+    housingRuntime:housing.runtime,cancelHousing:housing.cancel,housingRejected:housing.rejected,refuseHouseFuel:housing.refuseFuel,setHousingEnabled:housing.setEnabled,
     observeDevelopment:growth.observe,resetDevelopment:growth.reset,developmentRuntime:growth.runtime,developmentStalled:growth.stalled,
     resumeDevelopment:growth.resumeReady,
     incomeChoices:specialization.incomeChoices,

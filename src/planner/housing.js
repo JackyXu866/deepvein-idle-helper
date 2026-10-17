@@ -106,6 +106,9 @@ export function chooseHouseFuel(data,{p,families,missing,inventory,budget,unitVa
 export function createHousing(data,planner) {
   // Fuel the game ignored (no error, nothing changed) is skipped for a while.
   let owner=null,visit=null,retryAt=0,review=[],refusedFuel={};
+  // "自动升级房屋" (upstream v0.8.2): off stops new building, placing, fuel and
+  // upgrades; running timers continue and a visit under way leaves home.
+  let enabled=true;
   const rules=data.houseRules,rooms=data.houseRooms??[];
   const housePoints=id=>housePointsOf(data,id);
   const known=p=>rules&&rooms.length&&Array.isArray(p.houseCells)&&p.houseCells.length>0&&
@@ -123,7 +126,7 @@ export function createHousing(data,planner) {
   const action=(intent,label,reason)=>({intent,label,reason,housing:true});
   function work(p,goal,style='magic',mode='balanced') {
     review=[];
-    if(!known(p)||mode==='assist'||goal?.itemTarget||p.held||p.raidHeld||p.queue?.length||p.enhance)return null;
+    if(!enabled||!known(p)||mode==='assist'||goal?.itemTarget||p.held||p.raidHeld||p.queue?.length||p.enhance)return null;
     const budget=inventoryBudget(data,planner,p,goal),cells=frontier(p);
     // Maintenance can hold a separate equipment project while the main goal
     // remains unchanged. Its supplies must survive home spending too.
@@ -193,6 +196,10 @@ export function createHousing(data,planner) {
     if(owner!==p.id){owner=p.id;visit=null;retryAt=0;review=[];}
     if(!known(p)||!data.houseTravel||mode==='assist'||goal?.itemTarget||p.held||p.raidHeld||p.queue?.length||p.enhance||p.route?.errand)return null;
     const home=atHome(data,p),wait=reason=>action(null,'房屋维护',reason);
+    if(!enabled) {
+      if(!visit)return null;
+      visit.phase='leave';
+    }
     if(!visit) {
       if(p.lastTick<retryAt)return null;
       // A manually opened home can be maintained without claiming a return task.
@@ -250,6 +257,7 @@ export function createHousing(data,planner) {
   const validate=(p,intent,goal,style,mode)=>HOUSE_ACTIONS.has(intent.t)&&atHome(data,p)&&!p.route&&!p.path?.length&&
     p.lastTick>=retryAt&&JSON.stringify(work(p,goal,style,mode)?.intent)===JSON.stringify(intent);
   return {plan,status,validate,rejected,refuseFuel,cancel:()=>{visit=null;},
+    setEnabled:value=>{enabled=value!==false;},enabled:()=>enabled,
     runtime(value){if(value){({owner,visit,retryAt}=value);review=value.review??[];refusedFuel=value.refusedFuel??{};}
       return {owner,visit,retryAt,review,refusedFuel};}};
 }
