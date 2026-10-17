@@ -41,6 +41,20 @@ test('rare drops waiting for rare herbs: the rare seed is sown first', () => {
   assert.deepEqual(night.herblore.tiers.find(t => t.t === 1), {t: 1, need: 20, short: 20});
 });
 
+test('a field saved to another crop in the game is cleared before the planting errand', () => {
+  const {planner, p, nightshade, R, d} = herbalist(({dust}) => ({[dust]: 200}));
+  const seed = d.jobs.find(j => j.grow && j.output.itemId === nightshade).inputs[0].itemId;
+  const pepper = d.jobs.find(j => j.grow && j.name === 'Ember pepper').inputs[0].itemId;
+  const field = d.sites.filter(s => s.kind === 'field').sort((a, b) => a.id - b.id)[1];
+  const farmer = {...p, bank: {...p.bank, [seed]: 20}, plantPlainest: true, plotChoice: {[field.id]: pepper}};
+  const plan = planner.harvest(farmer, null, null, 'melee', true);
+  assert.deepEqual(plan?.intent, {t: 'plotChoice', siteId: field.id, seed: null}, JSON.stringify(plan?.intent));
+  assert.equal(plan.then?.intent?.errand, true, 'the planting errand follows');
+  const cleared = planner.harvest({...farmer, plotChoice: {}}, null, null, 'melee', true);
+  assert.equal(cleared?.intent?.t, 'setRoute');
+  void R;
+});
+
 test('before planting, the game\'s sowing order is switched to the quality that is short', () => {
   const {planner, p, nightshade, dust, R, d} = herbalist(({nightshade, dust, R}) => ({[dust]: 200}));
   const seed = d.jobs.find(j => j.grow && j.output.itemId === nightshade).inputs[0].itemId;

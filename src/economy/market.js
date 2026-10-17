@@ -999,7 +999,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const known=['not-at-bank','price-changed','not-tradable','too-many-orders','cannot-afford',
       'below-floor','nothing-to-sell','no-such-order','storage-full','bank-full','pack-full',
       'nothing-to-deposit','nothing-to-withdraw','nothing-to-eat','cannot-enhance','cannot-fight',
-      'cannot-set-route','cannot-wield','cannot-equip','level-too-low'];
+      'cannot-set-route','cannot-wield','cannot-equip','level-too-low','market-price-step'];
     if(!state?.attempt||!known.includes(code))return;
     const intent=state.attempt.intent,owned=state.owned[intent.orderId];
     const id=intent.itemId??owned?.itemId;

@@ -67,6 +67,9 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
   }
   // Clearing the whole game queue: only from the player's own button.
   if(intent.t==='unqueue')return Object.keys(intent).length===1&&!!p.queue?.length;
+  // Clearing a field's saved seed choice (the helper only ever clears it).
+  if(intent.t==='plotChoice')return intent.seed===null&&Number.isInteger(intent.siteId)&&Object.keys(intent).length===3&&
+    data.sites.some(s=>s.id===intent.siteId&&s.kind==='field')&&p.plotChoice?.[intent.siteId]!=null;
   if(intent.t==='plantPref')return typeof intent.plainest==='boolean'&&Object.keys(intent).length===2;
   if(intent.t==='setFallback') {
     // Only a gathering job the character can do now, at a real site, banking

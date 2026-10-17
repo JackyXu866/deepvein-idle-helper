@@ -197,6 +197,18 @@ export function createPlanner(data) {
   // first" switch is on. Herbs pair with drops of the same quality, so before a
   // planting errand the switch follows the quality the crop is short of.
   function sowFor(p,job,stocks,errand) {
+    if(!errand?.intent)return errand;
+    // The game sows a field's own saved seed choice before the errand's crop.
+    // The helper picks the crops here, so a differing saved choice is cleared
+    // first (one field per step); the game then sows the errand's crop.
+    const seed=job.inputs[0].itemId;
+    const field=farmFields(p).find(s=>p.plotChoice?.[s.id]!=null&&p.plotChoice[s.id]!==seed);
+    if(field)return {...action({t:'plotChoice',siteId:field.id,seed:null},`清除田地的指定作物 · ${name(p.plotChoice[field.id])}`,
+      `这块田在游戏里指定了种 ${name(p.plotChoice[field.id])}，补种时会代替 ${name(job.output.itemId)}；清除后按助手的选择补种`),
+      farmJobId:job.id,then:sowQuality(p,job,stocks,errand)};
+    return sowQuality(p,job,stocks,errand);
+  }
+  function sowQuality(p,job,stocks,errand) {
     const row=stocks?.find(r=>r.job.id===job.id);
     if(api.autoSeedQuality===false||!errand?.intent||!row?.herblore)return errand;
     const plainest=row.sowTier===0;

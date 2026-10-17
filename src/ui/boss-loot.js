@@ -2,7 +2,8 @@
 // Original chat ticks survive welcome-history replay and are not frame ticks.
 // Chat senders of the town's boss-loot receipts.
 export const BOSS_LOOT_SENDERS=['Deep Vein','The Deep'];
-export const BOSS_LOOT_RECEIPT=/^Your share of the (.+): (.+) — on your shelf at the depot\.$/;
+// Two native wordings: "… — on your shelf …" and the newer "…. On your shelf …".
+export const BOSS_LOOT_RECEIPT=/^Your share of the (.+): (.+?)(?: — on|\. On) your shelf at the depot\.$/;
 
 export function createBossLootHistory(data,storage,now=()=>Date.now()) {
   let playerId=null,entries=[],saved=true,lastFrame=null,migratedFrom=null;
@@ -13,7 +14,8 @@ export function createBossLootHistory(data,storage,now=()=>Date.now()) {
       !Number.isSafeInteger(message.tick)||message.tick<0)return null;
     const match=BOSS_LOOT_RECEIPT.exec(message.text);
     if(!match)return null;
-    return {key:`${message.tick}:${message.text}`,tick:message.tick,
+    // Both wordings use the original storage key, so history replays stay unique.
+    return {key:`${message.tick}:Your share of the ${match[1]}: ${match[2]} — on your shelf at the depot.`,tick:message.tick,
       time:Number.isFinite(time)&&Math.abs(time)<=8640000000000000?time:null,boss:match[1],reward:match[2]};
   }
   function newest(rows) {

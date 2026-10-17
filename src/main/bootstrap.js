@@ -130,7 +130,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
       item:id?{id,bank:p.bank[id]??0,pack:p.pack.filter(i=>i.itemId===id).reduce((n,i)=>n+i.qty,0),overflow:p.overflow?.[id]??0}:null};
   }
   const allowed=new Set([...readOnly,'setRoute','fight','walk','wear','equipFromBank','deposit',
-    'eatAt','eat','drink','chooseFood','foodMaxTier','carryFood','enhance','clearRoute','marketDump','depositItem','dropItem','withdraw','marketBuy','marketSell','marketCancel','vendorBuy','claimQuest','rerollQuest','buyPerk','masteryConfirm','setFallback','plantPref','unqueue',
+    'eatAt','eat','drink','chooseFood','foodMaxTier','carryFood','enhance','clearRoute','marketDump','depositItem','dropItem','withdraw','marketBuy','marketSell','marketCancel','vendorBuy','claimQuest','rerollQuest','buyPerk','masteryConfirm','setFallback','plantPref','plotChoice','unqueue',
     'setAside','attackWorldBoss','leaveWorldBoss','startQueued','portal',...HOUSE_ACTIONS]);
   function rememberRequest(intent) {
     const list=recentRequests[readOnly.has(intent.t)?'queries':'actions'];
