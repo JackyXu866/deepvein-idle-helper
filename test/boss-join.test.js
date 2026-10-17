@@ -28,3 +28,11 @@ test('the run/attack button is used too, in either language', () => {
   hidden.nodes['[data-boss-pill]'].hidden = true;
   assert.equal(nativeBossJoinControl(hidden), null, 'hidden controls are not clicked');
 });
+
+test('the pill alone is the game\'s full join; its own sends are known', async () => {
+  const {nativeBossJoinPill, NATIVE_JOIN_FLOW} = await import('../src/ui/boss-join.js');
+  assert.ok(nativeBossJoinPill(page({pill: '加入'})));
+  assert.equal(nativeBossJoinPill(page({run: '攻击'})), null, 'the panel button is not the full join');
+  for (const t of ['setAside', 'joinWorldBoss', 'raidSupply', 'walk', 'attackWorldBoss']) assert.ok(NATIVE_JOIN_FLOW.has(t), t);
+  assert.ok(!NATIVE_JOIN_FLOW.has('setRoute'), 'other work is still the player\'s');
+});

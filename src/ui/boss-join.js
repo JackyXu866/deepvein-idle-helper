@@ -6,6 +6,16 @@ const visible=el=>!!el?.isConnected&&!el.hidden&&!el.disabled&&!el.closest?.('[h
 const JOIN=/^(Join|加入|加入战斗)$/i;
 const RUN=/^(Run to it|Attack|跑过去|攻击|前往|赶过去)$/i;
 
+// The top bar's "加入" pill alone: the game's full join, usable from anywhere.
+export function nativeBossJoinPill(document) {
+  const pill=document?.querySelector?.('[data-boss-pill]');
+  return visible(pill)&&JOIN.test(pill.querySelector?.('.boss-pill-join')?.textContent?.trim()??'')?pill:null;
+}
+
+// What that join sends on its own (client b2/Nv): set the work aside, join,
+// take supplies, walk, attack, deliver, and resume afterwards.
+export const NATIVE_JOIN_FLOW=new Set(['setAside','joinWorldBoss','raidSupply','deliverToBoss','walk','attackWorldBoss','skip','startQueued']);
+
 export function nativeBossJoinControl(document) {
   const pill=document?.querySelector?.('[data-boss-pill]'),run=document?.querySelector?.('[data-boss-run]');
   if(visible(pill)&&JOIN.test(pill.querySelector?.('.boss-pill-join')?.textContent?.trim()??''))return pill;

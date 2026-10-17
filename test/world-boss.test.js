@@ -202,3 +202,20 @@ test('the player\'s time window and per-round skip chance gate joining; one draw
   saved.observe({tick: 2001, m: [{t: 'bossRose', name: 'Vein colossus', x: 120, y: 100, until: 2e9}]});
   assert.equal(saved.next(you)?.intent?.t, 'attackWorldBoss', '01:00 is inside a window across midnight');
 });
+
+test('a round handed to the game\'s own join is waited out, never driven or retried', () => {
+  const {boss, you} = setup();
+  rise(boss, 1000 + 100000);
+  const p = {...you, activity: 'idle', path: null};
+  const plan = boss.next(p, {interruptWalk: true});
+  boss.issued(plan.intent, p, plan.reason);
+  assert.equal(boss.ownsRun(), true);
+  boss.handOff();
+  assert.equal(boss.ownsRun(), false, 'the helper no longer owns the round');
+  assert.equal(boss.status().phase, 'manual');
+  const next = boss.next({...p, raidHeld: true, held: true}, {interruptWalk: true});
+  assert.equal(next?.intent, undefined, 'no command of its own while the game joins');
+  assert.match(next.reason, /不接管/);
+  boss.observe({tick: 1002, m: [{t: 'bossGone'}]});
+  assert.equal(boss.next(p, {interruptWalk: true}), null, 'over: back to normal');
+});

@@ -17,7 +17,7 @@ import {CLIENT_ASSET, refreshGameData} from '../data/public-tables.js';
 import {validateIntent} from '../runtime/intents.js';
 import {createUpdateChecker} from '../ui/update-checker.js';
 import {gameLabel, translateGameText} from '../ui/labels-zh.js';
-import {nativeBossJoinControl} from '../ui/boss-join.js';
+import {NATIVE_JOIN_FLOW, nativeBossJoinControl, nativeBossJoinPill} from '../ui/boss-join.js';
 import {createBossLootChat, createBossLootHistory} from '../ui/boss-loot.js';
 import {applyPlanning, createPlanningClient, guardChange, planningGuard, planningState} from '../worker/planning.js';
 import {PLANNING_STORAGE_KEYS, enhancementStorage, wirePlanner} from '../economy/wiring.js';
@@ -142,7 +142,18 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
     const list=recentRequests[readOnly.has(intent.t)?'queries':'actions'];
     list.push({time:Date.now(),intent:diagnosticIntent(intent)});if(list.length>5)list.shift();
   }
-  const nativeBossJoinButton=()=>nativeBossJoinControl(document);
+  // The captured attack step clicks the game's control only with the Boss in
+  // view (the game then just attacks); otherwise the round is handed over.
+  const nativeBossJoinButton=()=>trainer.boss.status().visible?nativeBossJoinControl(document):null;
+  // A round handed to the game's own join: its sends pass through untouched.
+  let nativeHandoff=null;
+  function handOffBossJoin(pill) {
+    abortNativeBossJoin();pendingNativeJoin=null;
+    nativeHandoff={playerId:trainer.player.id,until:Date.now()+20*60000,endedAt:null};
+    trainer.boss.handOff('附近尚未看到 Boss：已交给游戏自己的“加入”（补给、赶路、攻击、结束后恢复原任务）');
+    trainer.log('世界 Boss：附近尚未看到 Boss，改点顶部“加入”，由游戏自己补给、赶路、参战并在结束后恢复原任务；助手等本轮结束');
+    try {pill.click();} catch { /* The game's handler owns the join from here. */ }
+  }
 
   function afterGameEvent(callback) {
     if(typeof MessageChannel!=='function')return setTimeout(callback,0);
@@ -157,6 +168,12 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
       throw new Error('日常出售已关闭，且当前操作不是获准的满仓清理');
     if (!validateIntent(GAME_DATA,trainer.player,intent,{planner,goal:trainer.goal,style:trainer.style,mode:trainer.mode,waitingGoals:trainer.waitingGoals})) throw new Error('计划涉及未知或受保护物品，等待重新核对');
     if (!socket||socket.readyState!==NativeWebSocket.OPEN) throw new Error('游戏连接已断开');
+    // Upstream: with the top bar offering 加入 before the Boss is in view, the
+    // game's own join does the whole round. Walking ourselves aims at the
+    // announced spawn point, which may be stale or unreachable.
+    const bossStep=intent.t==='attackWorldBoss'||intent.t==='setAside'&&intent.raid===true||intent.t==='walk'&&trainer.boss.ownsRun();
+    const pill=bossStep&&!trainer.boss.status().visible?nativeBossJoinPill(document):null;
+    if(pill){handOffBossJoin(pill);return;}
     const send=()=>{
       NativeWebSocket.prototype.send.call(socket,JSON.stringify(intent));rememberRequest(intent);
       if(intent.t==='attackWorldBoss')trainer.boss.nativeJoinSent();
@@ -600,6 +617,13 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
       });
     }
     send(raw) {
+      if(this===socket&&nativeHandoff&&typeof raw==='string') {
+        let intent;try {intent=JSON.parse(raw);}catch{}
+        if(intent&&NATIVE_JOIN_FLOW.has(intent.t)) {
+          if(Date.now()<nativeHandoff.until&&trainer.player?.id===nativeHandoff.playerId){rememberRequest(intent);return super.send(raw);}
+          nativeHandoff=null;
+        }
+      }
       if(this===socket&&nativeBossClick&&typeof raw==='string') {
         let intent;try {intent=JSON.parse(raw);}catch{}
         if(intent&&nativeBossClick.capture(intent,()=>{const result=super.send(raw);rememberRequest(intent);return result;}))return;
@@ -3174,6 +3198,9 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
     pumping=true;
     try {
       if(nativeBossClick&&!nativeBossClick.state().active&&!trainer.boss.ownsRun())abortNativeBossJoin();
+      // A handed-over round ends with the Boss; the game's resume follows soon after.
+      if(nativeHandoff&&!nativeHandoff.endedAt){if(trainer.boss.status().active)nativeHandoff.seenActive=true;else if(nativeHandoff.seenActive)nativeHandoff.endedAt=Date.now();}
+      if(nativeHandoff?.endedAt&&Date.now()-nativeHandoff.endedAt>60000||nativeHandoff&&Date.now()>nativeHandoff.until)nativeHandoff=null;
       if (trainer.active||trainer.recovery) {
         if (!claimLease()) trainer.pause('另一个标签页已接管调度');
         else if(dataReady) {

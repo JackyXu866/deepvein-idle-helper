@@ -88,6 +88,13 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
     if(!run||['ended','resuming'].includes(run.stage))return;
     run.stage='ended';run.reason=reason;run.endedAt=now();
   }
+  // The game's own "加入" takes this round (upstream): it supplies, walks,
+  // attacks and restores the set-aside work by itself; the helper waits.
+  function handOff(reason='已交给游戏自己的加入流程'){
+    recordResult(reason);
+    if(run)ignored=run.round;
+    run=null;external=true;externalUntil=boss?.until??externalUntil;
+  }
   function cancel(reason='调度暂停或玩家接管，结束本轮自动参与'){
     recordResult(reason);
     if(run){
@@ -311,7 +318,7 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
     retrySkipped(){if(!skipped())return false;ignored=null;return true;},
     queueNativeJoin(){if(run?.stage==='attacking'){run.nativeJoinPending=true;run.attackSent=false;}},
     nativeJoinSent(){if(run?.stage==='attacking'){run.nativeJoinPending=false;run.attackSent=true;run.sentAt=now();}},
-    ownsRun:()=>!!run,
+    ownsRun:()=>!!run,handOff,
     ownsQueue:p=>run?.expectedQueue&&!run.savedConfirmed?acceptSaved(p):ownQueue(p),
     ownsDeath:value=>lastDeath?.playerId===playerId&&lastDeath.tick===(typeof value==='number'?value:value?.tick),
     status:()=>({participation,name:boss?.name??run?.name??null,active:!!boss&&fresh&&
