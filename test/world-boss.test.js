@@ -178,3 +178,27 @@ test('the Boss is checked before ordinary waits: a pending walk does not delay j
   assert.notDeepEqual(sent.at(-1), {t: 'walk', x: 50, y: 50}, 'heading to the Boss, not the old walk');
   assert.equal(t.pending, null, 'the pending walk was replaced');
 });
+
+test('the player\'s time window and per-round skip chance gate joining; one draw per round', async () => {
+  const {createWorldBoss} = await import('../src/runtime/world-boss.js');
+  let clock = new Date(2026, 9, 17, 3, 0).getTime(), roll = 0.9;
+  const boss = createWorldBoss(data, () => clock, {random: () => roll});
+  const you = {id: 1, x: 120, y: 100, lastTick: 1000, route: null, queue: [], pack: [], bank: {}};
+  boss.observe({tick: 1000, m: [{t: 'snapshot', you}]});
+  boss.observe({tick: 1001, m: [{t: 'bossRose', name: 'Vein colossus', x: 120, y: 100, until: 1e9}]});
+  boss.setAutomation({bossStart: '08:00', bossEnd: '24:00'});
+  assert.equal(boss.next(you), null, '03:00 is outside 08:00–24:00');
+  assert.match(boss.status().policyReason, /参战时段/);
+  clock = new Date(2026, 9, 17, 9, 0).getTime();
+  boss.setAutomation({bossStart: '08:00', bossEnd: '24:00', skipPercent: 50});
+  assert.equal(boss.next(you)?.intent?.t, 'attackWorldBoss', 'a 0.9 roll is not below 50%: join');
+  roll = 0.1;
+  assert.equal(boss.next(you)?.intent?.t, 'attackWorldBoss', 'the same round keeps its first draw');
+  const saved = createWorldBoss(data, () => clock, {random: () => 0.1});
+  saved.restore(boss.save());
+  saved.setAutomation({bossStart: '22:00', bossEnd: '02:00'});
+  clock = new Date(2026, 9, 17, 1, 0).getTime();
+  saved.observe({tick: 2000, m: [{t: 'snapshot', you}]});
+  saved.observe({tick: 2001, m: [{t: 'bossRose', name: 'Vein colossus', x: 120, y: 100, until: 2e9}]});
+  assert.equal(saved.next(you)?.intent?.t, 'attackWorldBoss', '01:00 is inside a window across midnight');
+});

@@ -17,6 +17,7 @@ import {perkOverview} from './perks.js';
 import {chooseFallback} from './fallback.js';
 import {createInvestments, payback as paybackRule} from './investment.js';
 import {HOT_FOLLOW_SKILLS, hotSkillAt, hotWindows} from '../runtime/hot-follow.js';
+import {createAutomationPolicy, normalizeAutomation} from '../runtime/automation-policy.js';
 
 export const NAMES = {
   mining:'采矿', fishing:'钓鱼', woodcutting:'伐木', farming:'农业', thieving:'盗窃',
@@ -172,6 +173,9 @@ export function createPlanner(data) {
   const seedCount = (p,job) => held(p).filter(id=>base(id)===job.inputs[0].itemId).reduce((n,id)=>n+count(p,id),0)+
     Object.entries(p.overflow??{}).filter(([id])=>base(+id)===job.inputs[0].itemId).reduce((n,[,qty])=>n+qty,0);
   let farmingChoice={mode:'auto',jobId:null};
+  // Harvest timing settings and the current batch's delay draw (automation-policy.js).
+  let farmPolicy=null;
+  const automation=()=>normalizeAutomation(api.automation);
   const farmingPreference=()=>({...farmingChoice});
   function setFarmingPreference(value) {
     const mode=value?.mode==='manual'?'manual':'auto';
@@ -193,8 +197,14 @@ export function createPlanner(data) {
     return null;
   }
   function waitForFarmBatch(p) {
-    const growing=farmPlots(p).filter(f=>f.readyAt>p.lastTick);
+    const plots=farmPlots(p),growing=plots.filter(f=>f.readyAt>p.lastTick);
     if (!growing.length) return null;
+    // "任一同种田全部成熟": one exact-seed group all ripe is enough (upstream v0.8.1).
+    if(automation().harvestMode==='seed') {
+      const groups=new Map();
+      for(const f of plots){const key=p.plots[f.site.id].seedItemId;groups.set(key,[...groups.get(key)??[],f]);}
+      if([...groups.values()].some(rows=>rows.every(f=>f.readyAt<=p.lastTick)))return null;
+    }
     const readyAt=Math.max(...growing.map(f=>f.readyAt));
     return {...wait(`等全部成熟后一起收菜，最晚约 ${Math.ceil((readyAt-p.lastTick)*data.tickMs/1000)} 秒；先练其他技能`),
       label:'等待整批作物成熟',deferUntilTick:readyAt};
@@ -335,6 +345,13 @@ export function createPlanner(data) {
     // must wait. With no ripe fields, spare seeds can fill empty land without
     // touching the crops that are still growing.
     if (waitingBatch&&ready.length) return deferFarm(waitingBatch.reason);
+    // A random delay after a batch qualifies, drawn once per batch (game time).
+    if(ready.length) {
+      const key=ready.map(f=>`${f.site.id}:${p.plots[f.site.id].seedItemId}:${p.plots[f.site.id].plantedAt}`).sort().join('|');
+      const policy=createAutomationPolicy({now:()=>p.lastTick*data.tickMs,saved:{farm:farmPolicy}});
+      const timing=policy.farm(key,automation());farmPolicy=policy.save().farm;
+      if(!timing.ready)return deferFarm(`收菜随机延迟：约 ${Math.ceil((timing.dueAt-p.lastTick*data.tickMs)/60000)} 分钟后合批收菜`);
+    }
     if (empty.length&&owned.length&&!ready.length) {
       if (!urgentHarvest&&!naturalBreak&&!fullBatchDue)
         return deferFarm('已有种子，等当前任务结束或返仓时合并收菜、补种');
@@ -1503,8 +1520,8 @@ export function createPlanner(data) {
     specialistChooseGoal:specialization.chooseGoal,specializationStatus:specialization.status,
     resetSpecialization:specialization.reset,
     runtime(value) {
-      if(value) {({farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote}=value);specialization.runtime(value.specialization);growth.runtime(value.development);housing.runtime(value.housing);investments.runtime(value.investments);}
-      return {farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote,specialization:specialization.runtime(),development:growth.runtime(),housing:housing.runtime(),investments:investments.runtime()};
+      if(value) {({farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote}=value);farmPolicy=value.farmPolicy??null;specialization.runtime(value.specialization);growth.runtime(value.development);housing.runtime(value.housing);investments.runtime(value.investments);}
+      return {farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote,farmPolicy,specialization:specialization.runtime(),development:growth.runtime(),housing:housing.runtime(),investments:investments.runtime()};
     },
     selectGoal(p,served,deferred,style,mode='balanced',mainTrade='auto',mainJobId=null,mainMonsterId=null) {
       if(mode!=='business'&&mode!=='balanced'&&!(mode==='experience'&&this.profitFloor>0))this.watchMarket?.(p,[]);

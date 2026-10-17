@@ -21,6 +21,7 @@ import {createBossLootChat, createBossLootHistory} from '../ui/boss-loot.js';
 import {applyPlanning, createPlanningClient, guardChange, planningGuard, planningState} from '../worker/planning.js';
 import {PLANNING_STORAGE_KEYS, enhancementStorage, wirePlanner} from '../economy/wiring.js';
 import {fallbackOwnership} from '../planner/fallback.js';
+import {normalizeAutomation} from '../runtime/automation-policy.js';
 
 // Runs in the page at document-start. Uses the game's existing connection;
 // Never reads credentials or opens a second game connection. Update checks read
@@ -225,7 +226,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
     const url=URL.createObjectURL(new Blob([PLANNING_WORKER_SOURCE],{type:'text/javascript'}));
     try{return new Worker(url);}finally{URL.revokeObjectURL(url);}
   }):null;
-  const planningSettings=()=>({autoSell,capacitySales,sellCrafted,autoFallback,autoSeedQuality,autoHousing,potionRestock,profitFloor,salePricing,hotFollow:trainer.getHotFollow()});
+  const planningSettings=()=>({autoSell,capacitySales,sellCrafted,autoFallback,autoSeedQuality,autoHousing,automation,potionRestock,profitFloor,salePricing,hotFollow:trainer.getHotFollow()});
   function planningStorage() {
     return Object.fromEntries(PLANNING_STORAGE_KEYS.map(key=>[key,localStorage.getItem(key)]));
   }
@@ -430,6 +431,11 @@ import {fallbackOwnership} from '../planner/fallback.js';
     trainer.mainTrade=Object.hasOwn(MAIN_TRADES,saved)?saved:'auto';
   } catch { trainer.mainTrade='auto'; }
   trainer.autoFallback=autoFallback;trainer.onFallbackOwned=saveFallbackOwned;
+  // Boss time window, skip chance and harvest timing (upstream v0.8.1 settings key).
+  const automationKey='deepvein-automation-v1';
+  let automation=normalizeAutomation();
+  try {automation=normalizeAutomation(JSON.parse(localStorage.getItem(automationKey)||'{}'));}catch{}
+  trainer.boss.setAutomation(automation);planner.automation=automation;
   planner.autoSeedQuality=autoSeedQuality;planner.setHousingEnabled?.(autoHousing);
   try {
     const owned=JSON.parse(localStorage.getItem(fallbackOwnedKey)||'null');
@@ -1615,6 +1621,9 @@ import {fallbackOwnership} from '../planner/fallback.js';
               <p data-farm class="muted"></p>
               <label>种植方式<select data-farming-mode aria-label="种植方式"><option value="auto">自动选择</option><option value="manual">指定作物</option></select></label>
               <label data-farming-crop-controls hidden>指定作物<select data-farming-crop aria-label="指定作物"></select></label>
+              <label>收菜时机<select data-harvest-mode aria-label="收菜时机"><option value="all">全部田成熟</option><option value="seed">任一同种田全部成熟</option></select></label>
+              <label>收菜随机延迟（分钟）<span><input data-delay-min type="number" min="0" max="1440" step="1" aria-label="最短延迟"> – <input data-delay-max type="number" min="0" max="1440" step="1" aria-label="最长延迟"></span></label>
+              <p class="fine-print">成熟后按设定时机收菜；每批延迟只抽一次，刷新保留。默认 0 分钟。</p>
               <p data-farming-note></p>
             </div>
             <div class="card">
@@ -1622,6 +1631,9 @@ import {fallbackOwnership} from '../planner/fallback.js';
               <p data-boss class="muted"></p>
               <button type="button" data-boss-retry hidden>重新尝试本轮 Boss</button>
               <label>参战方式<select data-boss-participation aria-label="世界 Boss 参战方式"><option value="full">全程打到结束</option><option value="tag">确认有效伤害后离开</option></select></label>
+              <label>参战时段<span><input data-boss-start size="5" aria-label="开始时间" placeholder="00:00"> – <input data-boss-end size="5" aria-label="结束时间" placeholder="24:00"></span></label>
+              <label>每轮跳过概率 %<input data-boss-skip type="number" min="0" max="100" step="1" aria-label="每轮跳过概率"></label>
+              <p class="fine-print">本机时间；起止相同表示全天，可跨午夜。时段外不自动参加。每轮只抽一次是否跳过，刷新后保留。</p>
               <p class="fine-print">离开模式须收到服务器确认的本人有效伤害。按游戏说明，命中过即可参与分配，金币随贡献变化；实际奖励以结束后的掉落记录为准。仅控制助手发起的参战。</p>
             </div>
             <details data-progress-details>
@@ -1816,6 +1828,16 @@ import {fallbackOwnership} from '../planner/fallback.js';
       </div>
     </section>`;
     document.body.append(host);
+    const saveAutomation=()=>{
+      const read=selector=>panel.querySelector(selector).value;
+      automation=normalizeAutomation({...automation,bossStart:read('[data-boss-start]')||'00:00',bossEnd:read('[data-boss-end]')||'24:00',
+        skipPercent:read('[data-boss-skip]'),harvestMode:read('[data-harvest-mode]'),delayMin:read('[data-delay-min]'),delayMax:read('[data-delay-max]')});
+      trainer.boss.setAutomation(automation);planner.automation=automation;
+      try {localStorage.setItem(automationKey,JSON.stringify(automation));}catch{trainer.log('Boss／收菜设置无法保存，本次修改仍在当前页面生效');}
+      render();
+    };
+    for(const selector of ['[data-boss-start]','[data-boss-end]','[data-boss-skip]','[data-harvest-mode]','[data-delay-min]','[data-delay-max]'])
+      panel.querySelector(selector).onchange=saveAutomation;
     panel.querySelector('[data-boss-participation]').onchange=event=>{
       const value=trainer.boss.setParticipation(event.currentTarget.value);
       try {localStorage.setItem(bossParticipationKey,value);}catch{}
@@ -2892,6 +2914,11 @@ import {fallbackOwnership} from '../planner/fallback.js';
     panel.querySelector('[data-run-state]').setAttribute('data-state',stateCode);
     panel.querySelector('section').setAttribute('data-state',stateCode);
     panel.querySelector('[data-boss-participation]').value=boss.participation;
+    for(const [selector,value] of [['[data-boss-start]',automation.bossStart],['[data-boss-end]',automation.bossEnd],['[data-boss-skip]',automation.skipPercent],
+      ['[data-harvest-mode]',automation.harvestMode],['[data-delay-min]',automation.delayMin],['[data-delay-max]',automation.delayMax]]) {
+      const input=panel.querySelector(selector);
+      if(input&&input!==panel.activeElement&&input.value!==String(value))input.value=String(value);
+    }
     const targetActive=!!itemTarget&&!itemTarget.completed,compactTarget=panel.querySelector('[data-compact-target]');
     panel.querySelector('section').setAttribute('data-target',String(targetActive));compactTarget.hidden=!targetActive;
     if(targetActive) {
@@ -3049,7 +3076,7 @@ import {fallbackOwnership} from '../planner/fallback.js';
       ended:'本轮结束，等待恢复原任务',resuming:'恢复原任务中',manual:'玩家正在参战，助手让行',watching:'等待可参与机会'};
     const lastBoss=boss.lastResult;
     panel.querySelector('[data-boss]').textContent=boss.name?`世界 Boss：${boss.name} · ${boss.participated&&boss.phase==='watching'?'本轮已确认有效伤害并按策略离开，等待结算':
-      boss.skipped?'本轮已跳过，可手动重新尝试':bossPhase[boss.phase]??'等待状态'}`:
+      boss.skipped?'本轮已跳过，可手动重新尝试':boss.policyReason??bossPhase[boss.phase]??'等待状态'}`:
       lastBoss?`世界 Boss 上轮：${lastBoss.name} · ${lastBoss.hit?'服务器已确认命中':lastBoss.attackSent===true?'已请求加入，未收到有效命中确认':lastBoss.attackSent===false?'未请求加入':'旧版记录，加入请求未知'}；${lastBoss.reason}`:
       '世界 Boss：等待服务器公布';
     panel.querySelector('[data-boss-retry]').hidden=!boss.skipped;

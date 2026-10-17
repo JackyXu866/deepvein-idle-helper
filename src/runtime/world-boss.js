@@ -1,4 +1,5 @@
 import {action, copy, distance, point, same, wait} from './util.js';
+import {createAutomationPolicy, normalizeAutomation} from './automation-policy.js';
 
 export function savedTask(p){
   const r=p.route;
@@ -39,8 +40,9 @@ export function createNativeBossJoinCapture({windowMs=1500,setTimer=setTimeout,c
   return scope;
 }
 
-export function createWorldBoss(data,now=()=>Date.now()){
+export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={}){
   let participation='full';
+  let settings=normalizeAutomation(),policy=createAutomationPolicy({now,random}),policyReason=null;
   const setParticipation=value=>participation=value==='tag'?'tag':'full';
   let boss=null,run=null,external=false,externalUntil=null,ignored=null,lastDeath=null,lastResult=null;
   let tick=0,received=now(),fresh=false,playerId=null,snapshotAt=0,visibleBossId=null,observationSince=now();
@@ -246,6 +248,11 @@ export function createWorldBoss(data,now=()=>Date.now()){
     }
     if(external||p.raidHeld)return wait('玩家正在参加世界 Boss，助手不接管也不收菜打断');
     if(!fresh||!boss||ignored===round)return null;
+    // The player's time window and per-round skip chance (one draw per round).
+    const verdict=policy.boss(key(boss),settings);
+    policyReason=verdict==='outside'?`不在设定的参战时段（${settings.bossStart}–${settings.bossEnd}）`:
+      verdict==='skip'?`本轮按 ${settings.skipPercent}% 概率跳过`:null;
+    if(verdict!=='join')return null;
     const remaining=boss.until==null?null:boss.until-currentTick(),steps=Math.max(0,distance(p,boss)-3);
     if(remaining!==null&&remaining<Math.max(15,steps*2+10))return null;
     if(remaining===null&&steps>0)return null;
@@ -300,6 +307,7 @@ export function createWorldBoss(data,now=()=>Date.now()){
   }
   return {
     observe,next,issued,manualAction,cancel,retryNativeJoin,setParticipation,
+    setAutomation(value){settings=normalizeAutomation(value);},
     retrySkipped(){if(!skipped())return false;ignored=null;return true;},
     queueNativeJoin(){if(run?.stage==='attacking'){run.nativeJoinPending=true;run.attackSent=false;}},
     nativeJoinSent(){if(run?.stage==='attacking'){run.nativeJoinPending=false;run.attackSent=true;run.sentAt=now();}},
@@ -311,14 +319,16 @@ export function createWorldBoss(data,now=()=>Date.now()){
       phase:run?.stage??(external?'manual':'watching'),skipped:skipped(),participated:participated(),
       hit:run?.hit??false,recentActivity:recentActivity()===true,lastActivityAt:run?.lastActivityAt??null,
       owned:!!run,until:boss?.until??run?.until??null,lastResult:copy(lastResult),
+      policyReason:!run&&!external&&boss&&fresh?policyReason:null,
       nextIn:nextRise!=null&&nextRise>currentTick()?(nextRise-currentTick())*(data.tickMs??600)/1000:null}),
     // Round numbers restart with the page, so a done round is saved by its key,
     // and only an announced one (with an end time) is ever matched again.
     save:()=>copy({v:1,participation,boss,run,external,externalUntil,lastDeath,playerId,lastResult,
-      ignoredKey:ignored!==null&&ignored===round&&boss?.until!=null?key(boss):null}),
+      ignoredKey:ignored!==null&&ignored===round&&boss?.until!=null?key(boss):null,policy:policy.save()}),
     restore(value){
       if(value?.v!==1)return;
       setParticipation(value.participation);
+      policy=createAutomationPolicy({now,random,saved:value.policy});
       boss=null;fresh=false;visibleBossId=null;observationSince=now();
       external=value.external===true;ignored=null;
       const savedKey=typeof value.ignoredKey==='string'?value.ignoredKey:typeof value.ignored==='string'?value.ignored:null;
