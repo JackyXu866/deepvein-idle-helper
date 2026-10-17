@@ -9,15 +9,17 @@ test('a held queue the game does not show is named, and only the player clears i
   const job = d.jobs.find(j => j.skill === 'mining' && !j.inputs.length);
   const t = new Trainer(d, planner, intent => sent.push(intent), () => 1e9);
   t.compatible = true;
-  t.player = player(planner, {queue: [{kind: 'job', jobId: job.id, siteId: 1}], held: true, route: null});
+  t.player = player(planner, {queue: [{kind: 'job', jobId: job.id, siteId: 1}, {kind: 'job', jobId: job.id, siteId: 1}], held: true, route: null});
   t.start();
   assert.equal(t.active, false, 'the queue is not overridden');
   assert.equal(t.queueBlocked, true);
-  assert.match(t.history[0].message, new RegExp(`${job.name}（已搁置`));
+  assert.match(t.history[0].message, new RegExp(`${job.name}、${job.name}（已搁置`));
   assert.equal(sent.length, 0, 'nothing is cleared on its own');
   assert.equal(t.clearGameQueue(), true);
-  assert.deepEqual(sent, [{t: 'unqueue'}]);
-  assert.equal(validateIntent(d, t.player, {t: 'unqueue'}), true);
-  assert.equal(validateIntent(d, {...t.player, queue: []}, {t: 'unqueue'}), false);
-  assert.equal(validateIntent(d, t.player, {t: 'unqueue', index: 0}), false, 'only the whole-queue form');
+  // The game's own form: one entry per index (a bare unqueue is ignored), last first.
+  assert.deepEqual(sent, [{t: 'unqueue', index: 1}, {t: 'unqueue', index: 0}]);
+  for (const intent of sent) assert.equal(validateIntent(d, t.player, intent), true);
+  assert.equal(validateIntent(d, t.player, {t: 'unqueue'}), false);
+  assert.equal(validateIntent(d, t.player, {t: 'unqueue', index: 2}), false);
+  assert.equal(validateIntent(d, {...t.player, queue: []}, {t: 'unqueue', index: 0}), false);
 });

@@ -556,10 +556,12 @@ export class Trainer {
       q.kind==='quest'?'任务':this.data.jobs.find(j=>j.id===q.jobId)?.name??`工作 ${q.jobId}`;
     return `${(p?.queue??[]).map(name).join('、')}${p?.held?'（已搁置，不会自动开始）':''}`;
   }
-  // Player-initiated only (the panel button): empty the game's queue.
+  // Player-initiated only (the panel button): empty the game's queue. The
+  // game removes one entry per index; last first keeps the others in place.
   clearGameQueue() {
     if(!this.player?.queue?.length||this.active)return false;
-    this.send({t:'unqueue'});this.queueBlocked=false;
+    for(let index=this.player.queue.length-1;index>=0;index--)this.send({t:'unqueue',index});
+    this.queueBlocked=false;
     this.log('已按你的操作清空游戏队列；同步后可点击开始');return true;
   }
   start(preservePreparation=false) {

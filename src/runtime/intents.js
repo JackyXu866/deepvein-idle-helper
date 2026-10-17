@@ -65,8 +65,10 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
     if(!Object.entries(current).every(([id,n])=>!(n>0)||id in ranks))return false;
     return Object.entries(ranks).some(([id,n])=>n>(current[id]??0));
   }
-  // Clearing the whole game queue: only from the player's own button.
-  if(intent.t==='unqueue')return Object.keys(intent).length===1&&!!p.queue?.length;
+  // Removing a game queue entry (the game's own form: one index at a time);
+  // only from the player's own button.
+  if(intent.t==='unqueue')return Object.keys(intent).length===2&&Number.isInteger(intent.index)&&
+    intent.index>=0&&intent.index<(p.queue?.length??0);
   // Clearing a field's saved seed choice (the helper only ever clears it).
   if(intent.t==='plotChoice')return intent.seed===null&&Number.isInteger(intent.siteId)&&Object.keys(intent).length===3&&
     data.sites.some(s=>s.id===intent.siteId&&s.kind==='field')&&p.plotChoice?.[intent.siteId]!=null&&p.plotChoice[intent.siteId]!==0;
