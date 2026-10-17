@@ -53,7 +53,7 @@ export function createQuests(data,planner) {
     // the rest needs the common supply chain.
     const crafts=Math.ceil(q.remaining/success);
     const held=job&&job.inputs.length&&!job.grow?Math.min(crafts,PAIR_TIERS.filter(t=>t>0)
-      .reduce((n,t)=>n+(planner.crafting?.available(p,job,t,{},crafts)??0),0)):0;
+      .reduce((n,t)=>n+(planner.crafting?.available?.(p,job,t,{},crafts)??0),0)):0;
     const work=job?workEstimate(data,job,levels[skill],{hands:p.perks?.hands??0}):null;
     const rest=crafts-held;
     const estimate=rest>0?planner.routeEstimate(p,job??{monsterId:q.monsterId},rest,{style,buyInputs:true}):
