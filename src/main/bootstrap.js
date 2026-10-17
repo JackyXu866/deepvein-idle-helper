@@ -17,6 +17,7 @@ import {CLIENT_ASSET, refreshGameData} from '../data/public-tables.js';
 import {validateIntent} from '../runtime/intents.js';
 import {createUpdateChecker} from '../ui/update-checker.js';
 import {gameLabel, translateGameText} from '../ui/labels-zh.js';
+import {nativeBossJoinControl} from '../ui/boss-join.js';
 import {createBossLootChat, createBossLootHistory} from '../ui/boss-loot.js';
 import {applyPlanning, createPlanningClient, guardChange, planningGuard, planningState} from '../worker/planning.js';
 import {PLANNING_STORAGE_KEYS, enhancementStorage, wirePlanner} from '../economy/wiring.js';
@@ -141,14 +142,8 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
     const list=recentRequests[readOnly.has(intent.t)?'queries':'actions'];
     list.push({time:Date.now(),intent:diagnosticIntent(intent)});if(list.length>5)list.shift();
   }
-  function nativeBossJoinButton() {
-    const visible=button=>button?.isConnected&&!button.hidden&&!button.disabled&&!button.closest('[hidden]')&&button.getClientRects().length;
-    const button=document.querySelector?.('[data-boss-run]');
-    if(visible(button)&&/^(Attack|攻击)$/.test(button.textContent.trim()))return button;
-    const pill=document.querySelector?.('[data-boss-pill]');
-    if(trainer.boss.status().visible&&visible(pill)&&/^(Join|加入|加入战斗)$/.test(pill.querySelector('.boss-pill-join')?.textContent.trim()??''))return pill;
-    return null;
-  }
+  const nativeBossJoinButton=()=>nativeBossJoinControl(document);
+
   function afterGameEvent(callback) {
     if(typeof MessageChannel!=='function')return setTimeout(callback,0);
     const channel=new MessageChannel();

@@ -75,9 +75,8 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
   // Clearing a stale "held" mark after that (the game's resume): never while a
   // task runs, which it would finish.
   if(intent.t==='skip')return Object.keys(intent).length===1&&!!(p.held||p.raidHeld)&&!p.route;
-  // Clearing a field's saved seed choice (the helper only ever clears it).
-  if(intent.t==='plotChoice')return intent.seed===null&&Number.isInteger(intent.siteId)&&Object.keys(intent).length===3&&
-    data.sites.some(s=>s.id===intent.siteId&&s.kind==='field')&&p.plotChoice?.[intent.siteId]!=null&&p.plotChoice[intent.siteId]!==0;
+  // A field's saved seed choice is the player's (upstream v0.8.1): never changed.
+  if(intent.t==='plotChoice')return false;
   if(intent.t==='plantPref')return typeof intent.plainest==='boolean'&&Object.keys(intent).length===2;
   if(intent.t==='setFallback') {
     // Only a gathering job the character can do now, at a real site, banking

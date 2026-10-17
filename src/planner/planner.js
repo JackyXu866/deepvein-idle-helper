@@ -219,16 +219,13 @@ export function createPlanner(data) {
   // The game sows the rarest seed held first, unless its "plant common ones
   // first" switch is on. Herbs pair with drops of the same quality, so before a
   // planting errand the switch follows the quality the crop is short of.
+  // The game sows a field's own saved seed choice (逐田选种) before the
+  // errand's crop. That choice is the player's and is never cleared (upstream
+  // v0.8.1): such fields grow what the player chose; the helper's crop goes
+  // only into fields without one.
+  const chosenField=(p,site)=>p.plotChoice?.[site.id]!=null;
   function sowFor(p,job,stocks,errand) {
     if(!errand?.intent)return errand;
-    // The game sows a field's own saved seed choice before the errand's crop.
-    // The helper picks the crops here, so a differing saved choice is cleared
-    // first (one field per step); the game then sows the errand's crop.
-    const seed=job.inputs[0].itemId;
-    const field=farmFields(p).find(s=>p.plotChoice?.[s.id]!=null&&p.plotChoice[s.id]!==seed);
-    if(field)return {...action({t:'plotChoice',siteId:field.id,seed:null},`清除田地的指定作物 · ${name(p.plotChoice[field.id])}`,
-      `这块田在游戏里指定了种 ${name(p.plotChoice[field.id])}，补种时会代替 ${name(job.output.itemId)}；清除后按助手的选择补种`),
-      farmJobId:job.id,then:sowQuality(p,job,stocks,errand)};
     return sowQuality(p,job,stocks,errand);
   }
   function sowQuality(p,job,stocks,errand) {
@@ -241,24 +238,46 @@ export function createPlanner(data) {
       plainest?`缺普通${herb}来配普通${drop}，稀有种子留在仓库`:
         `缺${RARITY_NAMES[row.sowTier]}${herb}来配同品质${drop}，先种稀有种子`),farmJobId:job.id,then:errand};
   }
+  // When the harvest settings let the planted fields be collected (upstream
+  // v0.8.1): every field ripe, or with "同种成熟" one exact-seed group ripe;
+  // then a random delay drawn once for the whole planting generation, so a
+  // group ripening during the delay does not restart it. Why not yet, or null.
+  function harvestGate(p,plots=farmPlots(p)) {
+    if(!plots.length)return null;
+    const waiting=waitForFarmBatch(p);
+    if(waiting)return waiting.reason;
+    const key=plots.map(f=>`${f.site.id}:${p.plots[f.site.id].seedItemId}:${p.plots[f.site.id].plantedAt}`).sort().join('|');
+    const policy=createAutomationPolicy({now:()=>p.lastTick*data.tickMs,saved:{farm:farmPolicy}});
+    const timing=policy.farm(key,automation());farmPolicy=policy.save().farm;
+    return timing.ready?null:`收菜随机延迟：约 ${Math.ceil((timing.dueAt-p.lastTick*data.tickMs)/60000)} 分钟后合批收菜`;
+  }
   function harvestOnly(p) {
     farmState(p);
     farmDelayReason=manualFarmReason(p);
     if(farmDelayReason)return null;
     if(p.route?.errand||p.enhance||p.held||!p.route&&(p.path?.length||p.activity==='walking'))return null;
-    const plots=farmPlots(p);
-    if(plots.some(f=>f.readyAt>p.lastTick))return null;
+    const plots=farmPlots(p),ready=plots.filter(f=>f.readyAt<=p.lastTick);
+    // Growing fields with nothing harvestable yet are left alone.
+    if(!ready.length&&plots.length)return null;
+    const gate=ready.length?harvestGate(p,plots):null;
+    if(gate){farmDelayReason=gate;return null;}
+    const emptyFields=farmFields(p).filter(s=>!p.plots?.[s.id]);
     const eligible=jobs.filter(j=>j.grow&&allowedCrop(j)&&level(p.skills.farming)>=j.levelReq&&
       (hasSeed(p,j)||plots.some(f=>f.job.id===j.id)||farmingChoice.mode==='manual'&&plots.length)).sort((a,b)=>b.xp/b.grow-a.xp/a.grow);
     const stocks=farmStockMode(p)?farmingStocks(data,p,levels(p),null,thresholds):null;
-    const job=stocks?stocks.find(row=>eligible.some(j=>j.id===row.job.id))?.job??busyCrop(p,eligible):eligible[0];
+    let job=stocks?stocks.find(row=>eligible.some(j=>j.id===row.job.id))?.job??busyCrop(p,eligible):eligible[0];
+    // Only fields the player assigned are empty: sow their own choice.
+    const assigned=!job&&!ready.length?emptyFields.map(s=>({site:s,job:jobs.find(j=>j.grow&&j.inputs[0].itemId===base(p.plotChoice?.[s.id]??-1))}))
+      .find(c=>c.job&&level(p.skills.farming)>=c.job.levelReq&&hasSeed(p,c.job)):null;
+    if(assigned)job=assigned.job;
     farmTarget=job;farmTargetReason=null;
     if(stocks&&!job){farmDelayReason='农田已全解锁，作物库存充足且没有可续种的种子；先继续主任务';return null;}
     if(!job) {
       if(farmingChoice.mode==='manual')farmDelayReason=`缺少所选 ${manualFarmJob().name} 种子；辅助模式不采购或采种，继续原任务`;
       return null;
     }
-    const site=plots.find(f=>f.job.id===job.id)?.site??plots[0]?.site??farmFields(p).find(s=>!p.plots?.[s.id]);
+    const site=assigned?.site??ready.find(f=>f.job.id===job.id)?.site??ready[0]?.site??
+      emptyFields.find(s=>!chosenField(p,s))??emptyFields[0];
     if(!site)return null;
     // The native unlimited errand banks the harvest and restores route.after;
     // a finite harvest limit would stop before restoring the saved route.
@@ -268,7 +287,7 @@ export function createPlanner(data) {
   // crop that needs no new seeds (a ripe plot returns its own seed), choosing
   // the best farming experience; the crop already in the field wins a tie.
   function busyCrop(p,candidates) {
-    const plots=farmPlots(p),ready=plots.filter(f=>f.readyAt<=p.lastTick),empty=farmFields(p).filter(s=>!p.plots?.[s.id]);
+    const plots=farmPlots(p),ready=plots.filter(f=>f.readyAt<=p.lastTick&&!chosenField(p,f.site)),empty=farmFields(p).filter(s=>!p.plots?.[s.id]&&!chosenField(p,s));
     if(!ready.length&&!empty.length)return null;
     const free=j=>(empty.length+ready.filter(f=>f.job.id!==j.id).length)*j.inputs[0].qty<=seedCount(p,j);
     return candidates.filter(free).sort((a,b)=>b.xp/b.grow-a.xp/a.grow||
@@ -286,7 +305,7 @@ export function createPlanner(data) {
     if (p.route?.errand) return null;
     const plots=farmPlots(p), ready=plots.filter(f=>f.readyAt<=p.lastTick)
       .sort((a,b)=>a.readyAt-b.readyAt);
-    const fields=farmFields(p),empty=fields.filter(s=>!p.plots?.[s.id]);
+    const fields=farmFields(p),empty=fields.filter(s=>!p.plots?.[s.id]&&!chosenField(p,s));
     const eligible=jobs.filter(j=>j.grow&&allowedCrop(j)&&level(p.skills.farming)>=j.levelReq);
     const stocks=farmStockMode(p)?farmingStocks(data,p,levels(p),goal,thresholds):null;
     const demanded=j=>stocks?stocks.some(row=>row.job.id===j.id&&row.plannedMissing>0):
@@ -316,8 +335,8 @@ export function createPlanner(data) {
         .filter(w=>w.n>0&&!stock.herblore.tiers.some(x=>x.t===w.t)).map(w=>`${RARITY_NAMES[w.t]}${name(herb)} ${w.n}（等${RARITY_NAMES[w.t]}${drop}）`);
       farmTargetReason+=`${short?`；按配对品质缺 ${short}`:''}${waiting.length?`；${waiting.join('、')}`:''}`;
     }
-    const seedSlots=empty.length+ready.filter(f=>f.job.id!==selected.id).length;
-    const seedNeed=Math.max(0,(seedSlots||(!empty.length&&!ready.length?plots.filter(f=>f.job.id!==selected.id).length:0))*
+    const seedSlots=empty.length+ready.filter(f=>f.job.id!==selected.id&&!chosenField(p,f.site)).length;
+    const seedNeed=Math.max(0,(seedSlots||(!empty.length&&!ready.length?plots.filter(f=>f.job.id!==selected.id&&!chosenField(p,f.site)).length:0))*
       selected.inputs[0].qty-seedCount(p,selected));
     if(farmQuote&&(farmQuote.jobId!==selected.id||!seedNeed))farmQuote=null;
     const urgentHarvest=ready.some(f=>demanded(f.job));
@@ -351,10 +370,8 @@ export function createPlanner(data) {
     if (waitingBatch&&ready.length) return deferFarm(waitingBatch.reason);
     // A random delay after a batch qualifies, drawn once per batch (game time).
     if(ready.length) {
-      const key=ready.map(f=>`${f.site.id}:${p.plots[f.site.id].seedItemId}:${p.plots[f.site.id].plantedAt}`).sort().join('|');
-      const policy=createAutomationPolicy({now:()=>p.lastTick*data.tickMs,saved:{farm:farmPolicy}});
-      const timing=policy.farm(key,automation());farmPolicy=policy.save().farm;
-      if(!timing.ready)return deferFarm(`收菜随机延迟：约 ${Math.ceil((timing.dueAt-p.lastTick*data.tickMs)/60000)} 分钟后合批收菜`);
+      const gate=harvestGate(p,plots);
+      if(gate)return deferFarm(gate);
     }
     if (empty.length&&owned.length&&!ready.length) {
       if (!urgentHarvest&&!naturalBreak&&!fullBatchDue)

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {farmingStocks} from '../src/planner/farming.js';
 import {makePlanner, player} from './helpers.js';
 import {Trainer} from '../src/runtime/trainer.js';
+import {validateIntent} from '../src/runtime/intents.js';
 
 test('a refused sowing-order switch gives way to the planting errand', () => {
   const planner = makePlanner();
@@ -41,18 +42,19 @@ test('rare drops waiting for rare herbs: the rare seed is sown first', () => {
   assert.deepEqual(night.herblore.tiers.find(t => t.t === 1), {t: 1, need: 20, short: 20});
 });
 
-test('a field saved to another crop in the game is cleared before the planting errand', () => {
-  const {planner, p, nightshade, R, d} = herbalist(({dust}) => ({[dust]: 200}));
+test('a field the player assigned in the game keeps its crop; the helper\'s crop goes elsewhere', () => {
+  const {planner, p, nightshade, d} = herbalist(({dust}) => ({[dust]: 200}));
   const seed = d.jobs.find(j => j.grow && j.output.itemId === nightshade).inputs[0].itemId;
   const pepper = d.jobs.find(j => j.grow && j.name === 'Ember pepper').inputs[0].itemId;
-  const field = d.sites.filter(s => s.kind === 'field').sort((a, b) => a.id - b.id)[1];
+  const fields = planner.farmFields(p), field = fields[1];
   const farmer = {...p, bank: {...p.bank, [seed]: 20}, plantPlainest: true, plotChoice: {[field.id]: pepper}};
   const plan = planner.harvest(farmer, null, null, 'melee', true);
-  assert.deepEqual(plan?.intent, {t: 'plotChoice', siteId: field.id, seed: null}, JSON.stringify(plan?.intent));
-  assert.equal(plan.then?.intent?.errand, true, 'the planting errand follows');
-  const cleared = planner.harvest({...farmer, plotChoice: {}}, null, null, 'melee', true);
-  assert.equal(cleared?.intent?.t, 'setRoute');
-  void R;
+  assert.equal(plan?.intent?.t, 'setRoute', JSON.stringify(plan?.intent));
+  assert.notEqual(plan.intent.siteId, field.id, 'sown into a field without the player\'s choice');
+  assert.equal(validateIntent(d, farmer, {t: 'plotChoice', siteId: field.id, seed: null}), false, 'never cleared');
+  // Every field assigned: the helper sows none of its own crop there.
+  const all = {...farmer, plotChoice: Object.fromEntries(fields.map(s => [s.id, pepper]))};
+  assert.notEqual(planner.harvest(all, null, null, 'melee', true)?.intent?.t, 'plotChoice');
 });
 
 test('before planting, the game\'s sowing order is switched to the quality that is short', () => {
