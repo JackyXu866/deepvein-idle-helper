@@ -546,9 +546,26 @@ export class Trainer {
       if (this.active) this.log('已重新同步同一角色，自动继续调度');
     }
   }
+  // What is waiting in the game's own queue, for messages. A held queue (e.g.
+  // a task set aside for a Boss and never resumed) is not shown as a task.
+  queueSummary(p=this.player) {
+    const name=q=>q.kind==='zone'?`战斗 · ${this.data.monsters.find(m=>m.id===this.data.zones.find(z=>z.id===q.zoneId)?.monsterId)?.name??q.zoneId}`:
+      q.kind==='quest'?'任务':this.data.jobs.find(j=>j.id===q.jobId)?.name??`工作 ${q.jobId}`;
+    return `${(p?.queue??[]).map(name).join('、')}${p?.held?'（已搁置，不会自动开始）':''}`;
+  }
+  // Player-initiated only (the panel button): empty the game's queue.
+  clearGameQueue() {
+    if(!this.player?.queue?.length||this.active)return false;
+    this.send({t:'unqueue'});this.queueBlocked=false;
+    this.log('已按你的操作清空游戏队列；同步后可点击开始');return true;
+  }
   start(preservePreparation=false) {
     if (!this.player||!this.compatible) return this.log('尚未取得兼容的角色状态，请刷新游戏后重试');
-    if ((this.mode!=='assist'||this.itemTarget&&this.itemTarget.status!=='completed')&&this.player.queue?.length&&!this.boss.ownsQueue(this.player)) return this.log('请先在游戏中清空原有任务队列，再开始自动调度');
+    if ((this.mode!=='assist'||this.itemTarget&&this.itemTarget.status!=='completed')&&this.player.queue?.length&&!this.boss.ownsQueue(this.player)) {
+      this.queueBlocked=true;
+      return this.log(`游戏队列里还有 ${this.player.queue.length} 项：${this.queueSummary()}。为免打乱你的队列，请先在游戏里继续或清除，或点“清空游戏队列”，再开始自动调度`);
+    }
+    this.queueBlocked=false;
     this.active=true; this.recovery=null; this.pending=null; this.pausedError=null;
     if(!preservePreparation||!this.goal?.craftPreparation&&!equipmentProject(this.goal))this.goal=null;
     this.plan=null;

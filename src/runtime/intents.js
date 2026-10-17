@@ -65,6 +65,8 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
     if(!Object.entries(current).every(([id,n])=>!(n>0)||id in ranks))return false;
     return Object.entries(ranks).some(([id,n])=>n>(current[id]??0));
   }
+  // Clearing the whole game queue: only from the player's own button.
+  if(intent.t==='unqueue')return Object.keys(intent).length===1&&!!p.queue?.length;
   if(intent.t==='plantPref')return typeof intent.plainest==='boolean'&&Object.keys(intent).length===2;
   if(intent.t==='setFallback') {
     // Only a gathering job the character can do now, at a real site, banking
