@@ -1,6 +1,6 @@
 import {professionSkill} from './professions.js';
 import {autoUsableMaterial} from './quality.js';
-import {inventoryBudget, reviewInventory, saleProtectionReason} from './inventory.js';
+import {inventoryBudget, reviewInventory} from './inventory.js';
 import {COAL_ID, baseId, itemLabel, merchantPrice, plusOf, rarityOf} from './items.js';
 import {payback} from './investment.js';
 
@@ -75,19 +75,18 @@ function buildPointTable(data) {
 
 // Fuel for missing house points is whatever gives them most cheaply: each
 // candidate is valued at its best sale (market, town buyback or merchant) per
-// point it yields. Any quality except legendary; never planned materials, food
-// reserve, worn or locked gear, enhanced or bank-locked items, or common coal.
+// point it yields. Common quality only: the game silently ignored converting
+// rare and epic items (an epic Maple staff, rare Whelp hide) although its own
+// list offers them. Never planned materials, food reserve, worn or locked gear,
+// enhanced or bank-locked items, or common coal.
 export function chooseHouseFuel(data,{p,families,missing,inventory,budget,unitValue,refused={}}) {
   const donors=Object.entries(p.bank).map(([key,qty])=>{
     const id=Number(key),points=housePointsOf(data,id);
-    if(!(qty>0)||!points||!families.includes(points.family)||id===COAL_ID||!autoUsableMaterial(data,id)||
+    if(!(qty>0)||!points||!families.includes(points.family)||id===COAL_ID||rarityOf(data,id)>0||!autoUsableMaterial(data,id)||
       p.bankLocked?.includes(id)||(refused[id]??0)>p.lastTick)return null;
-    const row=inventory.items.find(r=>r.itemId===id),base=baseId(data,id);
-    // Ordinary surplus as the inventory review sees it; a quality material
-    // (not gear, not otherwise protected) beyond what the plans reserve.
-    const available=row?.sellFromBank>0?row.sellFromBank:
-      rarityOf(data,id)>0&&!data.gear.some(g=>g.itemId===base)&&(base===COAL_ID||!saleProtectionReason(data,base))?
-        Math.max(0,qty-(budget.items[id]??0)):0;
+    // Ordinary surplus as the inventory review sees it, beyond plan reserves.
+    const row=inventory.items.find(r=>r.itemId===id);
+    const available=Math.min(row?.sellFromBank>0?row.sellFromBank:0,Math.max(0,qty-(budget.items[id]??0)));
     if(available<=0)return null;
     return {itemId:id,available,each:points.each,unit:unitValue(id,available)};
   }).filter(Boolean).sort((a,b)=>a.unit/a.each-b.unit/b.each||a.itemId-b.itemId);
