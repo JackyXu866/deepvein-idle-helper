@@ -1,4 +1,4 @@
-import {autoUsableMaterial, craftRecipe} from './professions.js';
+import {autoUsableMaterial, craftRecipe} from './quality.js';
 import {workEstimate} from './estimates.js';
 import {baseId, distance, packCapacity, packQty, packUsed, rarityOf} from './items.js';
 

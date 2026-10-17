@@ -1,4 +1,4 @@
-import {autoUsableMaterial} from '../planner/professions.js';
+import {autoUsableMaterial, usableQualities} from '../planner/quality.js';
 import {workEstimate} from '../planner/estimates.js';
 import {POTIONS, foodEffects, foodHealing} from '../planner/supplies.js';
 import {inventoryBudget, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
@@ -347,7 +347,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
   }
   const tier=id=>rarityOf(data,id);
   const itemName=id=>itemLabel(data,id);
-  const variants=id=>qualityIds(data,id).filter(id=>autoUsableMaterial(data,id));
+  const variants=id=>usableQualities(data,id);
   const purchasable=id=>valid(id)&&autoUsableMaterial(data,id)&&plusOf(data,id)<=5&&
     tradable(planner.base(id))&&(id<data.plusScale||!!planner.equipmentStats(id));
   function configureProcurement(value={}) {

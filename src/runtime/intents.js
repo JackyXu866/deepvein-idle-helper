@@ -1,4 +1,4 @@
-import {autoUsableMaterial} from '../planner/professions.js';
+import {autoUsableMaterial} from '../planner/quality.js';
 import {reserveWaitingGoals, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
 import {HOUSE_ACTIONS, validHomePortal} from '../planner/housing.js';
 import {nextPerkCost} from '../planner/perks.js';

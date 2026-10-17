@@ -1,6 +1,7 @@
 import {ENHANCEMENT_BASELINE, enhanceQuote} from './inventory.js';
 import {combatEstimate, workEstimate} from './estimates.js';
-import {autoUsableMaterial, canWear, craftRecipe, gearRequirementOf, matchesProfessionWeapon, professionSkill} from './professions.js';
+import {canWear, gearRequirementOf, matchesProfessionWeapon, professionSkill} from './professions.js';
+import {autoUsableMaterial, craftRecipe} from './quality.js';
 import {baseId, itemLabel, merchantPrice, plusOf, rarityOf} from './items.js';
 
 // Gold as time. Every spend (enhancing, gear, house points) is converted to the

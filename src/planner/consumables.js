@@ -1,4 +1,5 @@
-import {autoUsableMaterial, professionSkill} from './professions.js';
+import {professionSkill} from './professions.js';
+import {autoUsableMaterial, usableQualities} from './quality.js';
 import {expectedAttacks, workEstimate} from './estimates.js';
 import {POTIONS, brewPower, foodEffects, potionRefillQty} from './supplies.js';
 import {inventoryBudget} from './inventory.js';
@@ -82,11 +83,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
   const active=kind=>(p.brews[kind]??0)>p.lastTick;
   const carried=id=>p.pack.some(i=>i.itemId===id&&i.qty>0);
   const accessible=id=>carried(id)||planner.nearBank(p)&&(p.bank[id]??0)>0;
-  const potionVariants=id=>{
-    const base=baseId(data,id);
-    return Array.from({length:data.rarityMultipliers.length},(_,tier)=>base+tier*data.rarityScale)
-      .filter(itemId=>autoUsableMaterial(data,itemId));
-  };
+  const potionVariants=id=>usableQualities(data,id);
   const potionQuantity=id=>p.pack.filter(i=>i.itemId===id&&i.qty>0).reduce((sum,i)=>sum+i.qty,0)+
     (planner.nearBank(p)?p.bank[id]??0:0);
   const potionReserve=id=>Math.max(0,budget.items[id]??0);

@@ -1,4 +1,4 @@
-import {autoUsableMaterial} from './professions.js';
+import {PAIR_TIERS, autoUsableMaterial, setsAt} from './quality.js';
 import {foodEffects} from './supplies.js';
 import {baseId, foodCarry, rarityOf, stockQty} from './items.js';
 
@@ -24,14 +24,13 @@ const held=stockQty;
 // A brew takes every input in one quality, so herbs and drops pair per quality:
 // rare herbs only count against rare drops. Rarer pairs are brewed first (more
 // XP, stronger and dearer potions). Legendary inputs stay with the player.
-export const PAIR_TIERS=[3,2,1,0];
 export function herbloreNeeds(data,p,levels,thresholds=null) {
   const herbs=herbIds(data),level=levels.herblore??1,R=data.rarityScale;
   const all=data.jobs.filter(j=>j.skill==='herblore');
   const recipes=all.filter(j=>j.levelReq<=level);
   const spare={},left=id=>spare[id]??held(p,id);
   const drops=recipe=>recipe.inputs.filter(i=>!herbs.has(i.itemId));
-  const pairableAt=(recipe,t)=>drops(recipe).length?Math.min(...drops(recipe).map(i=>Math.floor(left(i.itemId+t*R)/i.qty))):0;
+  const pairableAt=(recipe,t)=>setsAt({inputs:drops(recipe).map(i=>({...i,itemId:i.itemId+t*R}))},left);
   const pairable=recipe=>PAIR_TIERS.reduce((n,t)=>n+pairableAt(recipe,t),0);
   const next=[...recipes].sort((a,b)=>Number(pairable(b)>0)-Number(pairable(a)>0)||b.xp-a.xp||b.levelReq-a.levelReq)[0]??null;
   const upcoming=all.filter(j=>j.levelReq>level).sort((a,b)=>a.levelReq-b.levelReq||b.xp-a.xp)[0]??null;

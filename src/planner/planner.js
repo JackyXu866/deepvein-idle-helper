@@ -1,4 +1,5 @@
-import {PROFESSIONS, autoUsableMaterial, canWear as canWearWith, craftRecipe, gearRequirementOf, matchesProfessionWeapon, professionSkill, starterWeapon} from './professions.js';
+import {PROFESSIONS, canWear as canWearWith, gearRequirementOf, matchesProfessionWeapon, professionSkill, starterWeapon} from './professions.js';
+import {PAIR_TIERS, autoUsableMaterial, craftRecipe} from './quality.js';
 import {RARITY_NAMES, baseId, distance, itemLabel, nearBank as nearBankAt, nearestBank as nearestBankTo, packCapacity, packQty, packUsed, plusOf, qualityPrefix, rarityOf} from './items.js';
 import {createCrafting, finishTaskReason} from './crafting.js';
 import {combatEstimate} from './estimates.js';
@@ -622,7 +623,7 @@ export function createPlanner(data) {
           craftRecipe(data,job,tier)?api.crafting.available(p,job,tier,qualityReserve(),5000):0);
         return batchLimits.get(key);
       };
-      const ownedCrafts=job=>[0,1,2,3].reduce((n,tier)=>n+craftsAt(job,tier),0);
+      const ownedCrafts=job=>PAIR_TIERS.reduce((n,tier)=>n+craftsAt(job,tier),0);
       // Crafts the stage needs at common XP. Every higher quality gives more,
       // so owned crafts of all qualities together reaching this number makes
       // the stage certain: one total, no separate common target.

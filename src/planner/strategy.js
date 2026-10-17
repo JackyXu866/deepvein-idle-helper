@@ -1,4 +1,5 @@
-import {autoUsableMaterial, matchesProfessionWeapon, professionSkill, starterWeapon} from './professions.js';
+import {matchesProfessionWeapon, professionSkill, starterWeapon} from './professions.js';
+import {autoUsableMaterial} from './quality.js';
 import {combatEstimate, workEstimate} from './estimates.js';
 import {buffKey, combatSupplies} from './supplies.js';
 import {distance, merchantPrice, nearestBank, packCapacity, rarityOf} from './items.js';

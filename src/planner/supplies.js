@@ -1,4 +1,4 @@
-import {autoUsableMaterial} from './professions.js';
+import {autoUsableMaterial} from './quality.js';
 import {baseId, distance, packCapacity, rarityOf} from './items.js';
 
 // Reviewed client index-O0haAaUW.js: Ah/g1 (potions), j4/Rt (quality

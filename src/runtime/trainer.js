@@ -1,4 +1,5 @@
-import {PROFESSIONS, autoUsableMaterial, professionSkill} from '../planner/professions.js';
+import {PROFESSIONS, professionSkill} from '../planner/professions.js';
+import {autoUsableMaterial} from '../planner/quality.js';
 import {bankedGatheringLoad, finishTaskReason} from '../planner/crafting.js';
 import {POTIONS, POTION_TICKS, foodEffects} from '../planner/supplies.js';
 import {inventoryBudget, reserveWaitingGoals} from '../planner/inventory.js';

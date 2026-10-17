@@ -1,4 +1,5 @@
-import {autoUsableMaterial, canWear, craftRecipe, gearRequirementOf, matchesProfessionWeapon, professionSkill, statsDominate} from './professions.js';
+import {canWear, gearRequirementOf, matchesProfessionWeapon, professionSkill, statsDominate} from './professions.js';
+import {autoUsableMaterial, craftRecipe} from './quality.js';
 import {cropReserve, herbloreNeeds} from './farming.js';
 import {COAL_ID, baseId, foodCarry, itemLabel, merchantPrice, plusOf, rarityOf, tradableBase} from './items.js';
 

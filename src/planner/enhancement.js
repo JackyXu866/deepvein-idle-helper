@@ -1,4 +1,5 @@
-import {autoUsableMaterial, gearRequirementOf, matchesProfessionWeapon, professionSkill, statsDominate} from './professions.js';
+import {gearRequirementOf, matchesProfessionWeapon, professionSkill, statsDominate} from './professions.js';
+import {autoUsableMaterial} from './quality.js';
 import {ENHANCEMENT_BASELINE, enhanceQuote} from './inventory.js';
 import {itemLabel, plusOf} from './items.js';
 

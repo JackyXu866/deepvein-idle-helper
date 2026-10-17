@@ -1,4 +1,5 @@
-import {autoUsableMaterial, professionSkill} from './professions.js';
+import {professionSkill} from './professions.js';
+import {autoUsableMaterial} from './quality.js';
 import {inventoryBudget, reviewInventory, saleProtectionReason} from './inventory.js';
 import {COAL_ID, baseId, itemLabel, merchantPrice, plusOf, rarityOf} from './items.js';
 import {payback} from './investment.js';
