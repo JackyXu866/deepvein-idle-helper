@@ -45,6 +45,16 @@ export function setsByTier(data,job,count) {
 // Is this item made by a recipe (processed), rather than gathered, grown or dropped?
 export const processed=(data,id)=>data.jobs.some(j=>j.output.itemId===baseId(data,id)&&j.inputs.length&&!j.grow);
 
+// Rare surplus that may be sold: only processed items (bars, planks, cut gems,
+// quest output), never raw materials; not potions (valued by their effect),
+// food or gear (their own rules), and never legendary or enhanced pieces.
+// Sold on the market only, at recent same-quality trades.
+export function marketQuality(data,id) {
+  const tier=rarityOf(data,id),base=baseId(data,id);
+  return tier>0&&tier<LEGENDARY&&id%data.plusScale===id&&processed(data,id)&&!data.items[base]?.heals&&
+    !data.gear.some(g=>g.itemId===base)&&!data.jobs.some(j=>j.skill==='herblore'&&j.output.itemId===base);
+}
+
 // Reserve lists (item id -> quantity) combine by keeping the larger amount.
 export function mergeHold(...lists) {
   const out={};

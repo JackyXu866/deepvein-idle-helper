@@ -1,5 +1,5 @@
 import {canWear, gearRequirementOf, matchesProfessionWeapon, professionSkill, statsDominate} from './professions.js';
-import {autoUsableMaterial, craftRecipe} from './quality.js';
+import {autoUsableMaterial, craftRecipe, marketQuality} from './quality.js';
 import {cropReserve, herbloreNeeds} from './farming.js';
 import {COAL_ID, baseId, foodCarry, itemLabel, merchantPrice, plusOf, rarityOf, tradableBase} from './items.js';
 
@@ -27,7 +27,7 @@ export function saleProtectionReason(data,id,marketEquipment=false) {
   if(!Number.isSafeInteger(id)||!data.items[base])return '未知物品，保留';
   if(!autoUsableMaterial(data,id))return '传说物品由玩家支配，保留';
   if(id===COAL_ID)return '普通煤炭用于所有品质的冶炼，从不出售';
-  if(id!==base&&!(marketEquipment&&data.gear.some(g=>g.itemId===base)))return '稀有或已强化物品，保留';
+  if(id!==base&&!(marketEquipment&&(data.gear.some(g=>g.itemId===base)||marketQuality(data,id))))return '稀有或已强化物品，保留';
   if(data.gear.some(g=>g.itemId===base&&['mount','pet'].includes(g.slot)))return '坐骑／宠物，所有品质和重复个体均保留';
   if([...data.jobs,...data.monsters].some(row=>row.bonus?.itemId===base))return '低概率副产物／特殊掉落，不按普通盈余处理';
   if(data.jobs.some(j=>j.skill==='herblore'&&j.output.itemId===base))return '药水保留待用';
@@ -143,10 +143,11 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
     const id=row.itemId,base=planner.base(id),g=planner.equipmentStats(id);
     const total=row.bank+row.pack+row.worn+row.overflow;
     let keep=total,reason='用途未完全覆盖，先保留',category='保留';
-    const marketOnly=!!g&&id!==base;
+    const marketOnly=!!g&&id!==base||marketQuality(data,id);
     const protectedReason=saleProtectionReason(data,id,marketOnly);
     if(protectedReason)reason=protectedReason;
     else if(locked.has(id)||lockedVariants.has(id%data.plusScale))reason='装备方案／当前打造或强化目标';
+    else if(marketOnly&&!g){keep=0;reason='稀有加工品：保留清单以外的按同品质近期成交价只挂市场，不转系统回收';}
     else if(marketOnly) {
       keep=row.worn;
       if(superseded(id))reason='已持有同款更高品质／强化的一件；按原品质和强化等级仅售市场';

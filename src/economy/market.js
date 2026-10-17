@@ -685,11 +685,12 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       Math.max(0,quantity(p,id)+worn-protectedQty));
     if(safeQty<=0)return defer('暂无可出售的已确认盈余');
     if(marketOnly) {
+      const what=data.gear.some(g=>g.itemId===planner.base(id))?'淘汰装备':'稀有加工品';
       const offer=equipmentOffer(p,id,safeQty,book);
-      if(!offer)return defer('淘汰装备缺少近期同品质同强化成交参考或需求不足；保留，不转系统回收');
-      status='淘汰装备按同品质同强化近期成交参考出售，不转系统回收';
+      if(!offer)return defer(`${what}缺少近期同品质成交参考或需求不足；保留，不转系统回收`);
+      status=`${what}按同品质近期成交参考出售，不转系统回收`;
       return scoped({...atBank(p,{t:'marketSell',itemId:id,...offer},
-        `出售淘汰装备 · ${itemName(id)} × ${offer.qty}，单价 ${offer.price}`),equipmentSale:{goal,profession}});
+        `出售${what} · ${itemName(id)} × ${offer.qty}，单价 ${offer.price}`),equipmentSale:{goal,profession}});
     }
     const net=netOf;
     const bid=[...book.bids].sort((a,b)=>b.price-a.price).find(row=>
