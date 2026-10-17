@@ -9,6 +9,9 @@ import {MASTERY_RANK_LIMIT, MASTERY_TRACKS} from '../engine/mastery-rules.js';
 
 export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mode='balanced',waitingGoals={}}={}) {
   goal=reserveWaitingGoals(goal,waitingGoals);
+  // Quality holds follow the player's profession; the page's planner never
+  // runs plan(), which otherwise sets it, so a check would use magic's holds.
+  if(planner)planner.styleHint=style;
   if(['drink','eat','chooseFood','enhance','marketBuy','marketSell','marketDump','dropItem'].includes(intent.t)&&
     !autoUsableMaterial(data,intent.itemId))return false;
   if(intent.t==='foodMaxTier')return Number.isInteger(intent.tier)&&intent.tier>=0&&intent.tier<4;

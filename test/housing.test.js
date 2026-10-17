@@ -20,29 +20,28 @@ test('house points follow the client: tier, x3 per quality, crafted depth bonus'
   assert.equal(housePointsOf(d, id('Bronze blade') + d.plusScale), null, 'enhanced items cannot be converted');
 });
 
-test('fuel is common surplus at the cheapest coins per point; coal and any quality are never used', () => {
-  const copper = id('Copper'), tin = id('Tin');
+test('fuel is the cheapest coins per point; common coal and legendary are never used', () => {
+  const copper = id('Copper');
   const legendary = copper + (d.rarityMultipliers.length - 1) * R;
-  const p = {bank: {[COAL_ID]: 5000, [COAL_ID + R]: 40, [copper]: 500, [tin]: 300, [copper + R]: 100, [legendary]: 50}, pack: []};
-  const inventory = {items: [{itemId: copper, sellFromBank: 400}, {itemId: tin, sellFromBank: 300},
-    {itemId: COAL_ID, sellFromBank: 5000}, {itemId: copper + R, sellFromBank: 100}]};
-  const fuel = chooseHouseFuel(d, {p, families: ['stone'], missing: 600, inventory, budget: {items: {}},
+  const p = {bank: {[COAL_ID]: 5000, [COAL_ID + R]: 40, [copper]: 500, [copper + R]: 100, [legendary]: 50}, pack: []};
+  const inventory = {items: [{itemId: copper, sellFromBank: 400}]};
+  const fuel = chooseHouseFuel(d, {p, families: ['stone'], missing: 200, inventory, budget: {items: {}},
     unitValue: item => merchantPrice(d, item)});
-  const used = fuel.donors.map(c => c.itemId);
+  const used = fuel.conversions.map(c => c.itemId);
   assert.ok(!used.includes(COAL_ID), 'common coal is kept for smelting');
-  // The game ignored converting rare and epic items: only commons are offered.
-  assert.deepEqual(used.filter(x => x >= R), []);
-  assert.deepEqual(new Set(used), new Set([copper, tin]));
+  assert.ok(!used.includes(legendary), 'legendary is the player\'s');
+  assert.ok(fuel.donors.some(x => x.itemId === COAL_ID + R), 'uncommon coal is fuel');
+  assert.equal(used[0], copper + R, 'uncommon copper: 3 points for the merchant price of 1');
   const order = fuel.donors.map(x => x.unit / x.each);
   assert.deepEqual(order, [...order].sort((a, b) => a - b));
   assert.ok(fuel.remaining <= 0);
 });
 
-test('planned materials are kept out of the fuel', () => {
+test('planned quality materials are kept out of the fuel', () => {
   const copper = id('Copper');
-  const p = {bank: {[copper]: 100}, pack: []};
-  const fuel = chooseHouseFuel(d, {p, families: ['stone'], missing: 1000, inventory: {items: [{itemId: copper, sellFromBank: 100}]},
-    budget: {items: {[copper]: 80}}, unitValue: item => merchantPrice(d, item)});
+  const p = {bank: {[copper + R]: 100}, pack: []};
+  const fuel = chooseHouseFuel(d, {p, families: ['stone'], missing: 1000, inventory: {items: []},
+    budget: {items: {[copper + R]: 80}}, unitValue: item => merchantPrice(d, item)});
   assert.equal(fuel.donors[0].available, 20);
 });
 
@@ -90,4 +89,24 @@ test('auto-housing off: no new house work, and a visit under way leaves home', a
   assert.equal(planner.housingPlan(p, {skill: 'mining'}, 'melee', 'balanced'), null, 'outside home with nothing to resume');
   assert.equal(planner.housingRuntime().visit, null, 'the visit is over');
   assert.equal(planner.housingPlan(p, {skill: 'mining'}, 'melee', 'balanced'), null, 'and no new visit starts');
+});
+
+test('house fuel and the page check use the player\'s profession for quality holds', async () => {
+  const {makePlanner, player} = await import('./helpers.js');
+  const {validateIntent} = await import('../src/runtime/intents.js');
+  // Background planning and the page each have their own planner; neither has
+  // run plan() before the house work, which used to leave magic's holds.
+  for (const check of [
+    (planner, p) => planner.housingPlan(p, {skill: 'mining'}, 'ranged', 'balanced'),
+    (planner, p) => validateIntent(planner.data, p, {t: 'convertHouse', itemId: 3, qty: 1}, {planner, goal: {skill: 'mining'}, style: 'ranged'}),
+  ]) {
+    const planner = makePlanner(), d = planner.data, seen = [];
+    const reserve = planner.plannedGearReserve;
+    planner.plannedGearReserve = (p, profession) => {seen.push(profession);return reserve(p, profession);};
+    const p = player(planner, {houseCells: [d.houseRules.entrance], houseFurniture: {}, house: {}, housePoints: {}, houseUpgrades: {},
+      path: null, route: null, activity: 'idle', bank: {[3 + d.rarityScale]: 5}});
+    check(planner, p);
+    assert.equal(planner.styleHint, 'ranged');
+    assert.ok(!seen.includes('magic'), JSON.stringify(seen));
+  }
 });
