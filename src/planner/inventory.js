@@ -1,5 +1,5 @@
 import {canWear, gearRequirementOf, matchesProfessionWeapon, professionSkill, statsDominate} from './professions.js';
-import {autoUsableMaterial, craftRecipe, marketQuality} from './quality.js';
+import {POTION_SALE_RATIO, autoUsableMaterial, craftRecipe, marketPotion, marketQuality} from './quality.js';
 import {cropReserve, herbloreNeeds} from './farming.js';
 import {COAL_ID, baseId, foodCarry, itemLabel, merchantPrice, plusOf, rarityOf, tradableBase} from './items.js';
 
@@ -27,10 +27,11 @@ export function saleProtectionReason(data,id,marketEquipment=false) {
   if(!Number.isSafeInteger(id)||!data.items[base])return '未知物品，保留';
   if(!autoUsableMaterial(data,id))return '传说物品由玩家支配，保留';
   if(id===COAL_ID)return '普通煤炭用于所有品质的冶炼，从不出售';
-  if(id!==base&&!(marketEquipment&&(data.gear.some(g=>g.itemId===base)||marketQuality(data,id))))return '稀有或已强化物品，保留';
+  const marketRare=marketEquipment&&(marketQuality(data,id)||marketPotion(data,id));
+  if(id!==base&&!(marketEquipment&&data.gear.some(g=>g.itemId===base))&&!marketRare)return '稀有或已强化物品，保留';
   if(data.gear.some(g=>g.itemId===base&&['mount','pet'].includes(g.slot)))return '坐骑／宠物，所有品质和重复个体均保留';
   if([...data.jobs,...data.monsters].some(row=>row.bonus?.itemId===base))return '低概率副产物／特殊掉落，不按普通盈余处理';
-  if(data.jobs.some(j=>j.skill==='herblore'&&j.output.itemId===base))return '药水保留待用';
+  if(data.jobs.some(j=>j.skill==='herblore'&&j.output.itemId===base)&&!marketRare)return '药水保留待用';
   if(base===data.coinId||base===data.shardId||base===359)return '金币／强化材料／保护卷轴，保留';
   if(base!==70&&!data.jobs.some(j=>j.output.itemId===base)&&!data.monsters.some(m=>m.drop===base))
     return '非普通生产或常规战斗产物，保留';
@@ -46,8 +47,10 @@ export function inventoryBudget(data, planner, p, goal=null,consuming=false) {
     ((p.bank[id]??0)>0||used<capacity));
   const pressure=used>=capacity-3||Object.values(p.overflow??{}).some(n=>n>0);
   const reserve=(id,qty)=>{items[id]=Math.max(items[id]??0,Math.ceil(qty));};
-  // Rare materials for planned gear and matched brews are never disposed of.
-  for(const [id,qty]of Object.entries(planner.qualityHold?.(p)??{}))reserve(Number(id),qty);
+  // Rare materials for planned gear and matched brews are never disposed of;
+  // consuming (brewing, drinking) keeps only the gear part, so the matched
+  // pairs can go into the brews they were kept for.
+  for(const [id,qty]of Object.entries(planner.qualityHold?.(p,undefined,{gearOnly:consuming})??{}))reserve(Number(id),qty);
   const development=(goal?.development||goal?.quest)&&planner.developmentRuntime?.();
   const plans=[goal,...goal?.reservedGoals??[],...(development?.owner===p.id?[development.focus,...Object.values(development.parked)]:[])].filter(Boolean);
   const recipes=new Map();
@@ -143,10 +146,12 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
     const id=row.itemId,base=planner.base(id),g=planner.equipmentStats(id);
     const total=row.bank+row.pack+row.worn+row.overflow;
     let keep=total,reason='用途未完全覆盖，先保留',category='保留';
-    const marketOnly=!!g&&id!==base||marketQuality(data,id);
+    const potionSale=marketPotion(data,id)&&planner.potionSaleWorth?.(p,id)===true;
+    const marketOnly=!!g&&id!==base||marketQuality(data,id)||potionSale;
     const protectedReason=saleProtectionReason(data,id,marketOnly);
     if(protectedReason)reason=protectedReason;
     else if(locked.has(id)||lockedVariants.has(id%data.plusScale))reason='装备方案／当前打造或强化目标';
+    else if(potionSale){keep=0;reason=`稀有药水的买单价超过同等药效最便宜来源的 ${POTION_SALE_RATIO} 倍：只挂市场出售，自用较便宜的药水`;}
     else if(marketOnly&&!g){keep=0;reason='稀有加工品：保留清单以外的按同品质近期成交价只挂市场，不转系统回收';}
     else if(marketOnly) {
       keep=row.worn;

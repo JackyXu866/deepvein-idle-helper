@@ -55,6 +55,20 @@ export function marketQuality(data,id) {
     !data.gear.some(g=>g.itemId===base)&&!data.jobs.some(j=>j.skill==='herblore'&&j.output.itemId===base);
 }
 
+// Rare potions: every quality lasts an hour at its own strength (x1.3, x1.6,
+// ...). A rare bottle whose market bid is at least twice what the same effect
+// costs at the cheapest quality is worth more sold: drink the cheap one.
+export const POTION_SALE_RATIO=2;
+export const isPotion=(data,id)=>data.jobs.some(j=>j.skill==='herblore'&&j.output.itemId===baseId(data,id));
+export const marketPotion=(data,id)=>{const tier=rarityOf(data,id);return tier>0&&tier<LEGENDARY&&id%data.plusScale===id&&isPotion(data,id);};
+export function potionSaleWorth(data,planner,p,id) {
+  if(!marketPotion(data,id))return false;
+  const power=t=>data.rarityMultipliers[t];
+  const perEffect=Math.min(...usableQualities(data,id).map(q=>(planner.marketAsk?.(p,q)||Infinity)/power(rarityOf(data,q))));
+  const bid=planner.marketUnitValue?.(p,id,1)??0;
+  return Number.isFinite(perEffect)&&bid>=POTION_SALE_RATIO*perEffect*power(rarityOf(data,id));
+}
+
 // Reserve lists (item id -> quantity) combine by keeping the larger amount.
 export function mergeHold(...lists) {
   const out={};

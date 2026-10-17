@@ -1,5 +1,5 @@
 import {PROFESSIONS, canWear as canWearWith, gearRequirementOf, matchesProfessionWeapon, professionSkill, starterWeapon} from './professions.js';
-import {PAIR_TIERS, autoUsableMaterial, craftRecipe, mergeHold, qualityHold, qualityWorth} from './quality.js';
+import {PAIR_TIERS, autoUsableMaterial, craftRecipe, mergeHold, potionSaleWorth, qualityHold, qualityWorth} from './quality.js';
 import {RARITY_NAMES, baseId, distance, itemLabel, nearBank as nearBankAt, nearestBank as nearestBankTo, packCapacity, packQty, packUsed, plusOf, qualityPrefix, rarityOf} from './items.js';
 import {createCrafting, finishTaskReason} from './crafting.js';
 import {combatEstimate} from './estimates.js';
@@ -1474,6 +1474,7 @@ export function createPlanner(data) {
     housingPlan:housing.plan,housingStatus:housing.status,validateHousing:housing.validate,
     herbloreNeeds:p=>herbloreNeeds(data,p,levels(p),thresholds),
     qualityHold:(p,profession=api.styleHint??'magic',options)=>qualityHold(data,api,p,profession,options),
+    potionSaleWorth:(p,id)=>potionSaleWorth(data,api,p,id),
     housingRuntime:housing.runtime,cancelHousing:housing.cancel,housingRejected:housing.rejected,refuseHouseFuel:housing.refuseFuel,
     observeDevelopment:growth.observe,resetDevelopment:growth.reset,developmentRuntime:growth.runtime,developmentStalled:growth.stalled,
     resumeDevelopment:growth.resumeReady,

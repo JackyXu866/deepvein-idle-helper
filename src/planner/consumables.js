@@ -1,5 +1,5 @@
 import {professionSkill} from './professions.js';
-import {autoUsableMaterial, usableQualities} from './quality.js';
+import {PAIR_TIERS, RARITY_NAMES, autoUsableMaterial, craftRecipe, setsAt, usableQualities} from './quality.js';
 import {expectedAttacks, workEstimate} from './estimates.js';
 import {POTIONS, brewPower, foodEffects, potionRefillQty} from './supplies.js';
 import {inventoryBudget} from './inventory.js';
@@ -110,8 +110,9 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
   // potion at its ask, or brewing it — held ingredients at what they would sell
   // for, missing ones at their ask, the brewing and trip time at the gold rate,
   // less the herblore training time its XP saves while herblore is the goal.
-  function supplyCosts(itemId,qty) {
-    const buy=planner.marketAsk?.(p,itemId)??Infinity,recipe=recipeFor(itemId),site=recipe&&brewSite(recipe);
+  function supplyCosts(itemId,qty,tier=0) {
+    const buy=planner.marketAsk?.(p,itemId)??Infinity,base=recipeFor(itemId),site=base&&brewSite(base);
+    const recipe=base&&craftRecipe(data,base,tier);
     if(!recipe||!site||planner.levels(p).herblore<recipe.levelReq)return {buy:buy||Infinity,brew:Infinity,missing:[]};
     let coins=0;const missing=[];
     for(const input of recipe.inputs) {
@@ -130,15 +131,16 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
   }
   // Brew from held ingredients, only where switching task costs nothing: no
   // route, or the plan replaces it.
-  const brew=(itemId,label,qty,why)=>{
-    const recipe=recipeFor(itemId);
+  const brew=(itemId,label,qty,why,tier=0)=>{
+    const base=recipeFor(itemId),recipe=base&&craftRecipe(data,base,tier);
     if(!recipe||planner.levels(p).herblore<recipe.levelReq||!(next?.t==='setRoute'||!p.route&&!p.path?.length))return null;
-    const n=Math.min(qty,20,...recipe.inputs.map(i=>Math.floor(held(i.itemId)/i.qty)));
-    const site=brewSite(recipe);
+    const n=Math.min(qty,20,setsAt(recipe,held));
+    const site=brewSite(base);
     if(!(n>=1)||!site)return null;
-    return {intent:{t:'setRoute',siteId:site.id,jobId:recipe.id,onFull:'bank',limit:n},label:`自制${label} × ${n}`,
-      reason:`药水不足，用库存的${recipe.inputs.map(i=>data.items[i.itemId]?.name).join('、')}自制${why?`（${why}）`:''}；做完继续原任务`,
-      potionBrew:{jobId:recipe.id}};
+    const quality=tier?`${RARITY_NAMES[tier]}`:'';
+    return {intent:{t:'setRoute',siteId:site.id,jobId:base.id,onFull:'bank',limit:n,...(tier?{rarity:tier}:{})},label:`自制${quality}${label} × ${n}`,
+      reason:`药水不足，用库存的${quality}${base.inputs.map(i=>data.items[i.itemId]?.name).join('、')}自制${why?`（${why}）`:''}；做完继续原任务`,
+      potionBrew:{jobId:base.id}};
   };
   // Missing ingredients are bought at the same safe boundary as potions.
   const buyIngredient=(row,why)=>planner.nearBank(p)&&p.activity==='idle'&&!p.route&&!p.path?.length?
@@ -165,15 +167,21 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
     }
     for(const {itemId,desired,worth,label}of missing) {
       const name=label??data.items[itemId]?.name,needed=Math.min(20,desired-surplus(itemId));
-      // What the held ingredients make is weighed (and brewed) first; the rest
-      // is decided after, against buying the missing ingredients.
-      const recipe=recipeFor(itemId),makeable=recipe?Math.min(needed,...recipe.inputs.map(i=>Math.floor(held(i.itemId)/i.qty))):0;
-      const short=makeable>=1?makeable:needed;
-      const cost=supplyCosts(itemId,short),round=n=>Number.isFinite(n)?Math.round(n).toLocaleString('en-US'):'—';
-      const why=`自制每瓶约 ${round(cost.brew)}，市场 ${round(cost.buy)}${cost.training?'；含炼药练级省下的时间':''}`;
+      // Every quality competes per unit of effect (a 1.3x bottle lasts as long
+      // but does 1.3x): buying any quality at its ask, or brewing any quality
+      // the held matched sets make. What held sets make is weighed (and
+      // brewed) first; the rest is decided after, against buying ingredients.
+      const recipe=recipeFor(itemId),power=t=>data.rarityMultipliers[t];
+      const options=recipe?PAIR_TIERS.map(t=>({t,n:Math.min(needed,setsAt(craftRecipe(data,recipe,t),held))})).filter(o=>o.n>=1)
+        .map(o=>({...o,cost:supplyCosts(itemId,o.n,o.t)})).sort((a,b)=>a.cost.brew/power(a.t)-b.cost.brew/power(b.t)):[];
+      const pick=options[0]??{t:0,n:needed,cost:supplyCosts(itemId,needed,0)};
+      const short=pick.n,cost=pick.cost,round=n=>Number.isFinite(n)?Math.round(n).toLocaleString('en-US'):'—';
+      const buyPerEffect=Math.min(...potionVariants(itemId).map(id=>(planner.marketAsk?.(p,id)||Infinity)/power(rarityOf(data,id))));
+      const why=`自制每瓶约 ${round(cost.brew)}（药效 ×${power(pick.t)}），市场每份药效最低约 ${round(buyPerEffect)}${cost.training?'；含炼药练级省下的时间':''}`;
       // With neither price known, brew what the held ingredients make, else buy.
-      const brewing=cost.brew<=cost.buy*MAKE_BIAS||!Number.isFinite(cost.brew)&&!Number.isFinite(cost.buy);      if(brewing&&!cost.missing.length) {
-        const own=brew(itemId,name,short,why);if(own)return own;
+      const brewing=cost.brew/power(pick.t)<=buyPerEffect*MAKE_BIAS||!Number.isFinite(cost.brew)&&!Number.isFinite(buyPerEffect);
+      if(brewing&&!cost.missing.length) {
+        const own=brew(itemId,name,short,why,pick.t);if(own)return own;
         if(Number.isFinite(cost.brew)){report('brew',`药水未喝：${name}自制更便宜（${why}），换任务或返仓时开做`);continue;}
       }
       if(brewing&&cost.missing.length&&Number.isFinite(cost.brew)) {
