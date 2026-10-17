@@ -102,6 +102,7 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
     balanced:'均衡发展：所有技能保持在最低技能以上 10 级以内（低等级经验便宜，每 10 级所需经验约为前 10 级的 3 倍）；范围内按速度、解锁与收入选择，原料技能落后时先练原料技能。',
     experience:'比较供料与往返后的总经验效率，允许技能等级拉开差距。',
     business:'主业、具体工作与战斗目标均可自动或手选；指定目标不会因其他工作收益更高而被替换，仍可安排必要供料与换装。',
+    mastery:'按收藏页“即将获得奖励”从左到右补下一档，跳过传说品质与种植任务；本轮顺序固定，完成后按游戏新排序继续。只认亲自产出的收藏计数，购买成品不算；材料仍可按采购开关补齐。',
     assist:'仅合批收菜、用现有种子补种与蹭世界 Boss；保留玩家队列，完成临时外出后继续原任务。'
   };
   const runKey='deepvein-balanced-trainer-session';
@@ -392,6 +393,7 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
         Object.assign(GAME_DATA,result.data);planningView=null;planningViewKey='';
         const refreshed=createPlanner(GAME_DATA);
         refreshed.housingRuntime(planner.housingRuntime());
+        refreshed.masteryRuntime(planner.masteryRuntime());
         refreshed.setFarmingPreference(planner.farmingPreference());
         refreshed.setHousingEnabled(autoHousing);
         refreshed.enhancementTraining=createEnhancementTraining(GAME_DATA,refreshed,enhancementStore);
@@ -459,6 +461,7 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
       trainer.boss.restore(saved.boss);
       if(saved.development?.owner===saved.playerId)planner.developmentRuntime(saved.development);
       if(saved.housing?.owner===saved.playerId)planner.housingRuntime(saved.housing);
+      if(saved.mastery?.owner===saved.playerId)planner.masteryRuntime(saved.mastery);
       if(saved.buffRefill?.playerId===saved.playerId)trainer.buffRefill=saved.buffRefill;
       if(saved.hotParkedGoal)trainer.hotParkedGoal=saved.hotParkedGoal;
       trainer.recovery={playerId:saved.playerId,lastTick:saved.lastTick};
@@ -479,7 +482,7 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
     }
     const record=trainer.active||trainer.recovery?JSON.stringify({
       playerId:trainer.recovery?.playerId??trainer.player?.id,
-      lastTick:trainer.recovery?.lastTick??trainer.player?.lastTick,style:trainer.style,mode:trainer.mode,mainTrade:trainer.mainTrade,mainJobId:trainer.mainJobId,mainMonsterId:trainer.mainMonsterId,boss:trainer.boss.save(),development:planner.developmentRuntime(),housing:planner.housingRuntime(),buffRefill:trainer.buffRefill,hotFollow:trainer.getHotFollow(),hotParkedGoal:trainer.hotParkedGoal,hotFollowState:trainer.hotFollowStatus()}):'';
+      lastTick:trainer.recovery?.lastTick??trainer.player?.lastTick,style:trainer.style,mode:trainer.mode,mainTrade:trainer.mainTrade,mainJobId:trainer.mainJobId,mainMonsterId:trainer.mainMonsterId,boss:trainer.boss.save(),development:planner.developmentRuntime(),housing:planner.housingRuntime(),mastery:planner.masteryRuntime(),buffRefill:trainer.buffRefill,hotFollow:trainer.getHotFollow(),hotParkedGoal:trainer.hotParkedGoal,hotFollowState:trainer.hotFollowStatus()}):'';
     if (record===savedRun) return;
     try {
       if (record) sessionStorage.setItem(runKey,record); else sessionStorage.removeItem(runKey);
@@ -2961,6 +2964,7 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
     panel.querySelector('[data-equipment-policy]').textContent=trainer.mode==='balanced'?
       '先准备当前发展计划需要的工具与装备，再连续工作；全装备列表供参考，不代表同时制作。穿戴、制作与供料门槛分别检查。':
       trainer.mode==='business'?'按主业需要和预计回本选择工具或战斗装备；这里也列出其它装备门槛，列出不代表立即制作。':
+      trainer.mode==='mastery'?'补精通使用当前装备；下方仅展示装备信息，不额外安排换装项目。战斗所需武器和口粮按实际条件准备。':
       '按预计经验收益和准备时间选择装备升级；列出全部门槛供参考，不强制逐件制作。';
     panel.querySelector('[data-profession]').value=trainer.style;
     panel.querySelector('[data-profession-info]').textContent=trainer.mode==='assist'?'辅助模式不安排职业练级或换装，使用角色当前装备。':
@@ -2975,7 +2979,8 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
       `\n当时${r.active?'正在调度':'已暂停'}；${r.stale?'过期消息；':''}${r.scope==='guild'?'公会功能返回，与自动任务分开处理':'错误归属未确定'}`+
       `\n待确认操作：${r.pending?`${translateGameText(r.pending.label??r.pending.intent?.t??'未知')} (${r.pending.intent?.t??'未知'})`:'无'}`+
       (r.pendingConfirmed?'；同帧已观察到成功回报':'')).join('\n\n');
-    panel.querySelector('[data-goal]').textContent=trainer.goal ?
+    panel.querySelector('[data-goal]').textContent=trainer.mode==='mastery'&&!trainer.itemTarget?
+      translateGameText(p?planner.masteryStatus(p):'开始后按收藏页“即将获得奖励”顺序补精通'):trainer.goal ?
       `目标：${NAMES[trainer.goal.skill]} · ${trainer.goal.reason??`目标 ${trainer.goal.target} 级`}` :
       trainer.mode==='balanced'?'比较库存、供料、解锁与收入，选择下一项发展计划':
       trainer.mode==='experience'?'比较当前可执行路线的总经验效率，选择下一批工作':
@@ -2991,6 +2996,8 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
       (growth.deferred.length?`\n生长／条件等待：${growth.deferred.map(s=>NAMES[s.skill]).join('、')}`:'')+
       '\n范围内按价值选（速度、其他技能用得上的解锁、收入）；下一档原料的技能落后时先练原料技能。防御／生命自然提升；当前计划的有用装备强化目标 +5，逐次确认。':
       trainer.mode==='experience'?'允许偏科；计入供料与旅行时间，以总经验效率选路线。农业仍在后台合批处理。':
+      trainer.mode==='mastery'?(trainer.goal?.mastery?translateGameText(trainer.goal.reason)+'\n':'')+
+        '每项补到下一档后继续下一项；本轮前六项顺序固定，刷新后继续。传说品质与种植任务跳过；买来的成品与世界 Boss 奖励不计入。缺同品质材料时继续采集、偷窃或打怪等待产出，市场报价同时进行。':
       trainer.mode==='business'?(trainer.mainTrade!=='auto'?`指定主业：${mainTradeName}${selectedMainJob?` · 指定工作：${selectedMainJob.name}`:selectedMainMonster?` · 指定怪物：${selectedMainMonster.name}`:''}\n`:'')+
         (business?.skill?`当前主业：${NAMES[business.skill]??business.skill}\n${business.reason??''}`:
           trainer.mainTrade!=='auto'?'等待开始或本业条件满足；不自动更换指定主业。':'主业待评估：开始后按可执行路线和市场买单选择。')+

@@ -57,7 +57,11 @@ export function inventoryBudget(data, planner, p, goal=null,consuming=false) {
   for(const plan of plans) {
     for(const [id,qty]of Object.entries(plan.budget?.items??{}))reserve(Number(id),qty);
     for(const [skill,id]of Object.entries(plan.recipes??{}))recipes.set(id,plan.recipeRarities?.[skill]??0);
-    if(plan.recipeId!=null&&!recipes.has(plan.recipeId))recipes.set(plan.recipeId,0);
+    if(plan.recipeId!=null&&!recipes.has(plan.recipeId)) {
+      // A 补精通 craft holds the inputs of its target quality.
+      const job=data.jobs.find(j=>j.id===plan.recipeId);
+      recipes.set(plan.recipeId,job?.inputs.length&&!job.grow?plan.mastery?.rarity??0:0);
+    }
   }
   for(let route=p.route;route;route=route.after)if(route.jobId!=null)recipes.set(route.jobId,route===p.route?p.workRarity??route.rarity??0:route.rarity??0);
   for(const [id,tier]of recipes) {

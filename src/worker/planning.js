@@ -26,13 +26,13 @@ export const planningState=trainer=>Object.fromEntries(inputFields.map(key=>[key
 export function planningGuard(trainer,planner,market,settings) {
   const boss=trainer.boss.status();
   return JSON.stringify([{...planningState(trainer),message:undefined},trainer.pending,trainer.recovery,trainer.awaitInitial,
-    {...boss,nextIn:undefined,soon:(boss.nextIn??Infinity)<=300},planner.farmingPreference(),planner.housingRuntime?.(),market.runtime(),settings],(key,value)=>
+    {...boss,nextIn:undefined,soon:(boss.nextIn??Infinity)<=300},planner.farmingPreference(),planner.housingRuntime?.(),planner.masteryRuntime?.(),market.runtime(),settings],(key,value)=>
     // A heartbeat alone does not invalidate an otherwise identical decision.
     key==='lastTick'||key==='snapshotTick'||key==='snapshotSequence'||key==='syncAfter'||key==='nextSync'||key==='lastSync'?undefined:
       value instanceof Map?[...value]:value);
 }
 
-const GUARD_PARTS=['调度状态','待确认操作','重连恢复','初始同步','世界 Boss','农业偏好','房屋','市场','设置'];
+const GUARD_PARTS=['调度状态','待确认操作','重连恢复','初始同步','世界 Boss','农业偏好','房屋','补精通','市场','设置'];
 // Names what changed between two guards, so a discarded result can say why.
 export function guardChange(before,after) {
   if(before===after)return null;

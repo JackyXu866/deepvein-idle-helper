@@ -92,7 +92,7 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
     if(recovery)recovery=null;
     if(p.route?.errand&&!overflow)return null;
     if(!overflow&&p.coins>=capacity.coins&&finishTaskReason(data,p))return null;
-    if(!overflow&&!upgrading&&!goal?.temporary&&!goal?.developmentFiller&&!goal?.itemTarget&&planner.professionUpgrade&&p.lastTick>=gearDeferredUntil&&
+    if(!overflow&&!upgrading&&!goal?.temporary&&!goal?.developmentFiller&&!goal?.itemTarget&&!goal?.mastery&&planner.professionUpgrade&&p.lastTick>=gearDeferredUntil&&
       (!goal?.development||goal.skill===professionSkill(style))&&
       (mode!=='business'||goal?.mainSkill===professionSkill(style))) {
       const gearPlan=planner.professionUpgrade(p,style,investmentGoal,{growth:goal?!!goal.growth:mode==='balanced',stage:goal?.stage});
@@ -107,7 +107,7 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
       }
     }
     if(goal) {
-      const funding=upgrading||goal.enhancementProject||goal.temporary||goal.developmentFiller||goal.itemTarget?null:investmentBudget(p,goal,style);
+      const funding=upgrading||goal.enhancementProject||goal.temporary||goal.developmentFiller||goal.itemTarget||goal.mastery?null:investmentBudget(p,goal,style);
       if(funding) {
         goal.budget??={items:{},coins:0};goal.budget.coins=funding.coins;goal.enhancement=funding.enhancement;
       } else if(goal.enhancement&&!goal.enhancementProject) {

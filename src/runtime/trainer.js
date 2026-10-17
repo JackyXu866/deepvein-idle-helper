@@ -28,7 +28,7 @@ export function isGuildRefusal(code) {return GUILD_REFUSALS.has(code);}
 // Optional quest-board actions. Their refusal codes are not reviewed, so a
 // refusal disables the action for a while instead of pausing the helper.
 // Growth modes and their labels (the UI uses the same names).
-export const MODE_LABELS={balanced:'自主发展',experience:'经验优先',business:'主业经营',assist:'只收菜＋蹭世界 Boss'};
+export const MODE_LABELS={balanced:'自主发展',experience:'经验优先',business:'主业经营',mastery:'补精通',assist:'只收菜＋蹭世界 Boss'};
 export const SOFT_ACTIONS=new Set(['rerollQuest','buyPerk','masteryConfirm','setFallback','plantPref','plotChoice']);
 export const ROUTE_STOPS=new Set(['noMaterials','storageFull','unreachable','levelTooLow','noSuchSite']);
 // Bank, overflow and pack (shared definition in planner/items.js).
@@ -218,6 +218,7 @@ export class Trainer {
     this.mode=mode;this.resetPlans();
     this.planner.resetSpecialization?.();
     this.planner.resetDevelopment?.();
+    this.planner.resetMastery?.();
     if(this.player)this.planner.watchMarket?.(this.player,[]);
     this.pause(`已选择${MODE_LABELS[mode]}，点击开始应用；先完成当前背包或批次`);
   }
@@ -574,7 +575,8 @@ export class Trainer {
     this.resolution=null;this.progress=null;this.stallCheck=null;this.failures=[];this.bankedLoad=false;
     this.startedAt=this.now(); this.awaitInitial=true;
     this.syncAfter=this.snapshotSequence;
-    this.nextSync=0; this.nextAction=0; this.log(this.mode==='assist'?'已开始辅助收菜与世界 Boss；保留你的原任务和队列':`已开始收益规划 + ${PROFESSIONS[this.style]}训练`);
+    this.nextSync=0; this.nextAction=0; this.log(this.mode==='assist'?'已开始辅助收菜与世界 Boss；保留你的原任务和队列':
+      this.mode==='mastery'?'已开始按顺序补精通；每项只补下一档，跳过传说品质与种植任务':`已开始收益规划 + ${PROFESSIONS[this.style]}训练`);
   }
   checkCommand(reason,code=null) {
     if(this.resolution)return;
@@ -752,6 +754,42 @@ export class Trainer {
     }
     if(!plan.intent){this.message=plan.reason??plan.label;return true;}
     this.bankedLoad=false;this.issue(plan);return true;
+  }
+  // 补精通 (upstream v0.8.2): fill the current round's next tier in order; the
+  // goal stays until the server's collection count reaches it.
+  runMastery(p) {
+    if(p.route?.errand){this.message='完成本次收获补种后继续补精通';return;}
+    if(this.goal?.mastery&&this.planner.masterySkipped(this.goal)) {
+      this.log('补精通跳过种植与传说项，继续本轮下一项');this.goal=null;
+    }
+    if(this.goal?.mastery&&this.planner.masteryCompleted(p,this.goal)) {
+      if(p.route||p.path?.length)return this.issue({intent:{t:'clearRoute'},label:'本档精通已完成，结束当前工作'});
+      this.log(this.goal.reason.replace(/：.*/,'')+' · 本档已完成');this.goal=null;
+    }
+    if(!this.goal?.mastery)this.goal=this.planner.masteryChooseGoal(p,this.style);
+    const goal=this.goal;
+    if(!goal){this.plan=null;this.message=this.planner.masteryStatus(p);return;}
+    let plan=this.planner.plan(p,goal,this.style,this.bankedLoad);
+    const market=this.market?.next(p,goal,this.style);
+    if(market?.intent)return this.issue(market);
+    const maintenance=this.planner.maintenance?.(p,goal,this.style,this.mode,this.mainTrade,this.mainJobId,this.mainMonsterId);
+    if(maintenance?.intent)return this.issue(maintenance);
+    if(maintenance?.marketWaiting||maintenance?.capacityLimited){this.plan=maintenance;this.message=maintenance.reason??maintenance.label;return;}
+    if(Object.values(p.overflow??{}).some(n=>n>0))return this.pause('补精通等待仓库空间；本轮顺序已保留，请整理后继续');
+    const housing=this.planner.housingPlan?.(p,goal,this.style,this.mode,this.bankedLoad);
+    if(housing){this.plan=housing;if(housing.intent)return this.issue(housing);this.message=housing.reason;return;}
+    if(this.watchProgress(p))return;
+    const harvest=plan.intent?.t!=='clearRoute'&&(this.bankedLoad||this.planner.taskBoundary?.(p))?
+      this.planner.harvestOnly?.(p):null;
+    plan=harvest??plan;
+    if(plan.farmJobId)this.farmJobId=plan.farmJobId;
+    this.plan=plan;
+    if(plan.intent?.t!=='clearRoute') {
+      const consumable=this.consume(p,goal,this.style,plan);
+      if(consumable?.intent)return this.issue(consumable);
+    }
+    if(!plan.intent){this.message=plan.reason??plan.label;return;}
+    this.bankedLoad=false;this.issue(plan);
   }
   bossFoodPlan(p) {
     const target=this.itemTarget;
@@ -950,6 +988,7 @@ export class Trainer {
     if(fallback?.intent)return this.issue(fallback);
     const mastery=softReady('masteryConfirm')&&this.planner.masteryPurchase?.(p,this.goal,this.style);
     if(mastery?.intent)return this.issue(mastery);
+    if(this.mode==='mastery')return this.runMastery(p);
     if(this.goal?.enhancementProject&&this.goal.enhancement&&
       p.equipment[this.goal.enhancement.slot]!==this.goal.enhancement.itemId&&!p.enhance) {
       this.served.enhancing=++this.sequence;this.goal=null;this.plan=null;

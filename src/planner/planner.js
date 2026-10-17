@@ -16,6 +16,7 @@ import {planGatheringSurplus} from './gathering-surplus.js';
 import {perkOverview} from './perks.js';
 import {chooseFallback} from './fallback.js';
 import {createInvestments, payback as paybackRule} from './investment.js';
+import {createCollectionMastery} from './collection.js';
 import {HOT_FOLLOW_SKILLS, hotSkillAt, hotWindows} from '../runtime/hot-follow.js';
 import {createAutomationPolicy, normalizeAutomation} from '../runtime/automation-policy.js';
 
@@ -50,6 +51,7 @@ export function createPlanner(data) {
   const base = id => baseId(data,id);
   const plus = id => plusOf(data,id);
   const rarity = id => rarityOf(data,id);
+  const mastery = createCollectionMastery(data);
   function equipmentStats(id) {
     const g=gear.get(base(id));
     if (!g) return null;
@@ -522,7 +524,7 @@ export function createPlanner(data) {
     const job=result?.intent?.t==='setRoute'&&jobs.find(j=>j.id===result.intent.jobId);
     // Supply jobs used to skip all tool checks to prevent recursive upgrades.
     // Prepare one tool independently, then resume the original material plan.
-    if (job&&!goal.developmentFiller&&!goal.upgrade?.priority&&!job.grow&&job.skill!==goal.skill&&Object.values(data.toolSkills).includes(job.skill)) {
+    if (job&&!goal.mastery&&!goal.developmentFiller&&!goal.upgrade?.priority&&!job.grow&&job.skill!==goal.skill&&Object.values(data.toolSkills).includes(job.skill)) {
       goal.toolUpgrade={skill:job.skill,target:level(p.skills[job.skill])+1,toolOnly:true,
         growth:goal.growth,horizon:goal.horizon,specialization:goal.specialization,
         startedTick:goal.startedTick,skipUpgrade:goal.skipUpgrade,budget:{coins:goal.budget?.coins??0,items:{}}};
@@ -542,7 +544,7 @@ export function createPlanner(data) {
     let gearReserve=null;
     // Planned gear's quality materials are kept from every crafting goal
     // (quality.js reserve rules); item targets and upgrades bring their own.
-    const qualityReserve=()=>goal.itemTarget||goal.upgrade?goal.budget?.items:
+    const qualityReserve=()=>goal.itemTarget||goal.upgrade||goal.mastery?goal.budget?.items:
       gearReserve??=mergeHold(goal.quest?goal.budget?.items:{},plannedGearReserve(p,profession));
     const unlocked = j => lv[j.skill]>=j.levelReq;
     const made = id => jobs.filter(j=>j.output.itemId===id);
@@ -564,6 +566,20 @@ export function createPlanner(data) {
     // potion and mastery effects still make this a base-rate estimate.
     function jobEstimate(job) {
       return strategy.estimateWork(p,job,lv);
+    }
+    // 补精通 byproducts (v0.8.5): the fastest unlocked job for this exact
+    // quality of a bonus drop, counting its chance, quality odds, failures and
+    // bank trips. Rough gems, for one, drop at several gathering spots.
+    function masteryBonusSource(id,quantity) {
+      const item=base(id),tier=rarity(id),seed=jobs.some(j=>j.grow&&j.inputs[0]?.itemId===item);
+      const quality=seed||item===100||item===328||made(item).length||monsters.some(m=>m.drop===item);
+      return jobs.filter(j=>j.bonus?.itemId===item&&j.bonus.chance>0&&!j.grow&&unlocked(j)&&siteFor(j)).map(job=>{
+        const e=jobEstimate(job),odds=e.qualities??[1,0,0,0,0];
+        // Native bonus seeds are at least uncommon.
+        const chance=quality?(seed&&tier<2?tier===1?odds[0]+odds[1]:0:odds[tier]):tier===0?1:0;
+        const attempts=quantity/(e.success*job.bonus.chance*chance);
+        return {job,seconds:strategy.routeEstimate(p,job,attempts,{style:profession}).seconds};
+      }).filter(c=>Number.isFinite(c.seconds)).sort((a,b)=>a.seconds-b.seconds||a.job.id-b.job.id)[0];
     }
     function cost(id, trail=[],quantity=1) {
       if (trail.includes(id)) return Infinity;
@@ -605,7 +621,7 @@ export function createPlanner(data) {
         }
       } else if (p.route?.jobId===job.id && p.route.zoneId==null) {
         if((p.workRarity??p.route.rarity??0)!==(job.rarity??0))return action({t:'clearRoute'},'当前批次已结束，切换制作品质');
-        if(goal.itemTarget&&job.output.itemId===goal.targetItemId&&p.route.limit==null)
+        if((goal.itemTarget&&job.output.itemId===goal.targetItemId||goal.mastery&&job.output.itemId===goal.mastery.itemId)&&p.route.limit==null)
           return action({t:'clearRoute'},'切换为目标所需数量','停止原无限路线后，按尚缺成品数量继续');
         return wait(`继续 ${job.name}`);
       }
@@ -619,7 +635,7 @@ export function createPlanner(data) {
       if (['mining','fishing','woodcutting'].includes(job.skill)&&!job.inputs.length&&!data.items[job.output.itemId]?.stackable) {
         const departure=gatheringDeparture(p,job);
         if(departure)return departure;
-        if(!goal.itemTarget||job.output.itemId!==goal.targetItemId)
+        if((!goal.itemTarget||job.output.itemId!==goal.targetItemId)&&(!goal.mastery||job.output.itemId!==goal.mastery.itemId))
           quantity=Math.max(quantity,Math.ceil((packCapacity(p)-packUsed(data,p))/job.output.qty));
       }
       const materialBatch = job.grow ? 1 : quantity;
@@ -632,7 +648,7 @@ export function createPlanner(data) {
         }
       }
       if (job.grow) return farmErrand(p,job,site);
-      const exact=job.rarity>0||goal.quest?.jobId===job.id||goal.upgrade&&job.output.itemId===goal.upgrade.id||
+      const exact=job.rarity>0||goal.mastery&&job.output.itemId===goal.mastery.itemId||goal.quest?.jobId===job.id||goal.upgrade&&job.output.itemId===goal.upgrade.id||
         goal.itemTarget&&job.output.itemId===goal.targetItemId;
       const limit=exact?quantity:0,departure=productionDeparture(p,job,limit);
       if(departure)return departure;
@@ -844,7 +860,7 @@ export function createPlanner(data) {
     function need(id, quantity, trail=[]) {
       if(!autoUsableMaterial(data,id))return blocked(`传说物品 ${name(id)} 留给玩家支配`);
       if (trail.includes(id)) return blocked(`${name(id)} 的供料依赖形成循环`);
-      if(goal.itemTarget) {
+      if(goal.itemTarget||goal.mastery) {
         goal.budget??={coins:0,items:{}};goal.budget.items??={};
         if(id!==data.coinId)goal.budget.items[id]=Math.max(goal.budget.items[id]??0,quantity);
       }
@@ -867,9 +883,13 @@ export function createPlanner(data) {
       }
       const acquisitionGoal=goal.upgrade?.xpRate>0?{...goal,rate:{xp:goal.upgrade.xpRate}}:goal;
       const purchase=api.marketPurchase?.(p,id,Math.max(0,quantity-count(p,id)),acquisitionGoal,profession);
-      if (purchase) return purchase;
+      // 补精通 may wait for random-quality yields (v0.8.3): a rare input is
+      // gathered, stolen or dropped at its ordinary route while quotes run.
+      const gatherQuality=!!goal.mastery&&rarity(id)>0;
+      if (purchase&&!(gatherQuality&&purchase.marketWaiting)) return purchase;
       if (id===data.shardId) return fight(style,id,false);
-      const producers = (id<data.plusScale?made(base(id)):[]).map(j=>craftRecipe(data,j,rarity(id))).filter(Boolean).sort((a,b)=>a.levelReq-b.levelReq);
+      const producers = (id<data.plusScale?made(base(id)):[]).map(j=>gatherQuality&&!j.inputs.length?j:craftRecipe(data,j,rarity(id)))
+        .filter(Boolean).sort((a,b)=>a.levelReq-b.levelReq);
       const available=producers.filter(unlocked).sort((a,b)=>{
         const time=j=>(jobEstimate(j).seconds+j.inputs.reduce((sum,i)=>sum+i.qty*cost(i.itemId,next),0))/jobEstimate(j).commonOutput;
         return time(a)-time(b);
@@ -881,8 +901,8 @@ export function createPlanner(data) {
           goal.budget.items[id]=Math.max(goal.budget.items[id]??0,quantity);
         }
         const result=batch(job,Math.ceil((quantity-count(p,id))/job.output.qty),next);
-        result.reason=`为${goal.itemTarget?`物品目标 ${name(goal.targetItemId)}`:goal.upgrade?`装备 ${name(goal.upgrade.id)}`:`${NAMES[goal.skill]} ${goal.target} 级目标`}补 ${name(id)}：`+
-          `现有 ${count(p,id)}，计划需要 ${quantity}；${result.reason||result.label}`;
+        result.reason=`为${goal.mastery?`补精通 ${fullName(goal.mastery.itemId)}`:goal.itemTarget?`物品目标 ${name(goal.targetItemId)}`:goal.upgrade?`装备 ${name(goal.upgrade.id)}`:`${NAMES[goal.skill]} ${goal.target} 级目标`}补 ${fullName(id)}：`+
+          `现有 ${count(p,id)}，计划需要 ${quantity}；${gatherQuality&&!job.inputs.length?'继续采集，等待同品质产出；攒齐后在本批结束时继续制作；':''}${result.reason||result.label}`;
         return result;
       }
       if (producers.length) {
@@ -890,13 +910,15 @@ export function createPlanner(data) {
         result.reason=`为 ${name(goal.upgrade?.id??id)} 解锁 ${NAMES[producer.skill]} ${lv[producer.skill]}→${producer.levelReq} 级（${name(id)}）；${result.reason||result.label}`;
         return result;
       }
-      if(rarity(id)>0)return blocked(`缺少同品质材料 ${name(id)}；等待库存或合算报价，不为它无限刷随机掉落`);
-      if (monsters.some(m=>m.drop===id||goal.itemTarget&&m.bonus?.itemId===id&&m.bonus.chance>0)) return fight(style,id,false);
-      const source = jobs.filter(j=>j.bonus?.itemId===id&&unlocked(j))
-        .sort((a,b)=>jobTime(a)/a.bonus.chance-jobTime(b)/b.bonus.chance)[0];
+      if(rarity(id)>0&&!gatherQuality)return blocked(`缺少同品质材料 ${name(id)}；等待库存或合算报价，不为它无限刷随机掉落`);
+      const sourceId=gatherQuality?base(id):id;
+      if (monsters.some(m=>m.drop===sourceId||(goal.itemTarget||goal.mastery)&&m.bonus?.itemId===sourceId&&m.bonus.chance>0)) return fight(style,sourceId,false);
+      const source = goal.mastery?masteryBonusSource(id,Math.max(1,quantity-count(p,id)))?.job:
+        jobs.filter(j=>j.bonus?.itemId===sourceId&&unlocked(j))
+          .sort((a,b)=>jobTime(a)/a.bonus.chance-jobTime(b)/b.bonus.chance)[0];
       if (source) return batch(source,50,next);
-      if(goal.itemTarget) {
-        const locked=jobs.filter(j=>j.bonus?.itemId===id&&j.bonus.chance>0).sort((a,b)=>a.levelReq-b.levelReq)[0];
+      if(goal.itemTarget||gatherQuality) {
+        const locked=jobs.filter(j=>j.bonus?.itemId===sourceId&&j.bonus.chance>0).sort((a,b)=>a.levelReq-b.levelReq)[0];
         if(locked)return train(locked.skill,locked.levelReq,next);
       }
       return blocked(id===190 ? '缺少贤者种子：暂无已核实且合算的采购或自给来源，先继续其他技能' :
@@ -913,7 +935,7 @@ export function createPlanner(data) {
       return made(id).some(j=>j.inputs.every(i=>selfSupply(i.itemId,[...trail,id])));
     }
     function upgrade(skill) {
-      if(goal.itemTarget)return null;
+      if(goal.itemTarget||goal.mastery)return null;
       if(goal.developmentFiller)return null;
       if(completedUpgrade||goal.temporary&&!goal.upgrade?.priority)return null;
       const rareCrafts=slot=>{
@@ -1102,7 +1124,7 @@ export function createPlanner(data) {
       if (!safeMonsters.length) return blocked('当前生命／防御不足以稳定战斗，请先检查装备与生命值');
       const choices=safeMonsters.filter(m=>(!fixedMonster||m.id===fixedMonster.id)&&zones.some(z=>z.monsterId===m.id)&&
         (requiredItem===null||requiredItem===data.shardId||m.drop===requiredItem&&(m.dropChance??1)>0||
-          goal.itemTarget&&m.bonus?.itemId===requiredItem&&m.bonus.chance>0)).map(m=>{
+          (goal.itemTarget||goal.mastery)&&m.bonus?.itemId===requiredItem&&m.bonus.chance>0)).map(m=>{
         const estimate=combatEstimate(data,m,{style,level:lv[style],accuracy:stat('accuracy'),
           strength:stat('strength'),defence:stat('defence'),defenceLevel:lv.defence,speed:w.speed??5,twoHanded:w.twoHanded});
         const zone=zones.find(z=>z.monsterId===m.id);
@@ -1235,7 +1257,42 @@ export function createPlanner(data) {
       result.goal=goal;return result;
     }
     let result;
-    if(goal.quest) {
+    if(goal.mastery) {
+      // 补精通: only self-made output counts, so no purchase of the target.
+      // Crafts use the target quality's recipe; its rare inputs are gathered
+      // (need() waits for same-quality yields) when the market has no deal.
+      const {base:targetBase,itemId,rarity:tier,target}=goal.mastery;
+      if(!p.collections)return wait('等待服务器收藏计数');
+      if(mastery.skipped(goal))return blocked('补精通跳过传说品质与种植任务');
+      const remaining=Math.max(0,target-(p.collections[itemId]??0));
+      if(!remaining)return wait('本档精通已完成');
+      const sources=made(targetBase).filter(j=>!j.grow&&sites.some(s=>s.jobIds.includes(j.id)));
+      const source=sources.find(unlocked)??sources[0];
+      if(source&&!unlocked(source))result=train(source.skill,source.levelReq);
+      else if(source) {
+        const recipe=source.inputs.length?craftRecipe(data,source,tier):source;
+        if(!recipe)result=blocked(`${fullName(itemId)} 没有可核对的同品质配方`);
+        else {
+          // A gathered quality comes from random rolls: plan the whole tier
+          // of actions at the expected rate rather than one per item.
+          const perAction=recipe.inputs.length?recipe.output.qty:Math.max(1e-6,jobEstimate(recipe).tierOutput?.[tier]??0);
+          result=batch(recipe,Math.ceil(remaining/perAction));
+          result.reason=`补精通 ${fullName(itemId)}：还差 ${remaining}；${result.reason||result.label}`;
+        }
+      } else if(monsters.some(m=>m.drop===targetBase||m.bonus?.itemId===targetBase))result=fight(style,targetBase,false);
+      else {
+        const bonus=masteryBonusSource(itemId,remaining);
+        if(bonus) {
+          goal.skill=bonus.job.skill;goal.recipeId=bonus.job.id;
+          result=batch(bonus.job,50);
+          result.reason=`补精通 ${fullName(itemId)}：按掉率、品质、速度、失手与存仓往返选择 ${bonus.job.name}；${result.reason||result.label}`;
+        } else {
+          const locked=jobs.filter(j=>j.bonus?.itemId===targetBase&&j.bonus.chance>0&&!j.grow&&!unlocked(j)&&siteFor(j))
+            .sort((a,b)=>a.levelReq-b.levelReq||a.id-b.id)[0];
+          result=locked?train(locked.skill,locked.levelReq):blocked(`暂无已核实的亲自产出来源：${fullName(itemId)}`);
+        }
+      }
+    } else if(goal.quest) {
       const quest=api.questRead(p).find(q=>q.key===goal.quest.key);
       if(!quest||quest.claimed||quest.remaining<=0)return wait('任务已完成或已刷新，重新安排成长');
       const job=jobs.find(j=>j.id===quest.jobId);
@@ -1384,7 +1441,9 @@ export function createPlanner(data) {
     // Watching quotes is read-only: no empty-pack return or route interruption.
     if(goal) {
       const id=goal.craftPreparation?.jobId??goal.fixedRecipeId??goal.recipes?.[goal.skill]??goal.recipeId;
-      const job=jobs.find(j=>j.id===id);
+      const original=jobs.find(j=>j.id===id);
+      // 补精通 crafts watch the inputs at the target quality.
+      const job=goal.mastery&&original?.inputs.length&&!original.grow?craftRecipe(data,original,goal.mastery.rarity)??original:original;
       const inputs=job?job.inputs.map(i=>i.itemId):jobs.filter(j=>j.skill===goal.skill&&!j.grow&&level(p.skills[j.skill])>=j.levelReq)
         .flatMap(j=>j.inputs.map(i=>i.itemId));
       api.watchPurchases?.(p,inputs);
@@ -1521,9 +1580,11 @@ export function createPlanner(data) {
     incomeChoices:specialization.incomeChoices,
     specialistChooseGoal:specialization.chooseGoal,specializationStatus:specialization.status,
     resetSpecialization:specialization.reset,
+    masteryChooseGoal:mastery.chooseGoal,masteryCompleted:mastery.completed,masterySkipped:mastery.skipped,
+    masteryStatus:mastery.status,masteryRuntime:mastery.runtime,resetMastery:mastery.reset,
     runtime(value) {
-      if(value) {({farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote}=value);farmPolicy=value.farmPolicy??null;specialization.runtime(value.specialization);growth.runtime(value.development);housing.runtime(value.housing);investments.runtime(value.investments);}
-      return {farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote,farmPolicy,specialization:specialization.runtime(),development:growth.runtime(),housing:housing.runtime(),investments:investments.runtime()};
+      if(value) {({farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote}=value);farmPolicy=value.farmPolicy??null;specialization.runtime(value.specialization);growth.runtime(value.development);housing.runtime(value.housing);investments.runtime(value.investments);mastery.runtime(value.mastery);}
+      return {farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote,farmPolicy,specialization:specialization.runtime(),development:growth.runtime(),housing:housing.runtime(),investments:investments.runtime(),mastery:mastery.runtime()};
     },
     selectGoal(p,served,deferred,style,mode='balanced',mainTrade='auto',mainJobId=null,mainMonsterId=null) {
       if(mode!=='business'&&mode!=='balanced'&&!(mode==='experience'&&this.profitFloor>0))this.watchMarket?.(p,[]);
