@@ -276,3 +276,17 @@ test('a handed-over round survives a reload', () => {
   assert.equal(again.status().phase, 'native');
   void advance;
 });
+
+test('an assumed outside raid with no sign of it for 2 minutes no longer holds the character idle', () => {
+  const {boss, you, advance} = setup();
+  rise(boss, 1000 + 100000);
+  boss.manualAction({t: 'attackWorldBoss'}, you);
+  const idle = {...you, route: null, held: false, raidHeld: false, queue: [], activity: 'idle', path: null};
+  assert.match(boss.next(idle).reason, /玩家正在参加/);
+  advance(60000);
+  assert.match(boss.next(idle).reason, /玩家正在参加/, 'one quiet minute: still waiting');
+  advance(61000);
+  const after = boss.next(idle, {interruptWalk: true});
+  assert.ok(!after || !/玩家正在参加/.test(after.reason ?? ''), JSON.stringify(after));
+  assert.notEqual(boss.status().phase, 'manual');
+});

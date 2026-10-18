@@ -48,6 +48,8 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
   // A round handed to the game's own join: the helper still applies the
   // participation choice (leave after a confirmed hit) and resumes the work.
   let handed=null;
+  // When an outside raid was first assumed, and the last sign of any raid.
+  let externalSeenAt=null,raidSignalAt=null;
   let tick=0,received=now(),fresh=false,playerId=null,snapshotAt=0,visibleBossId=null,observationSince=now();
   let nextRise=null; // server tick of the next announced spawn (`bossNext`)
   // Rounds are counted explicitly: a new spawn always starts a new round, and
@@ -161,6 +163,7 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
         if(handed&&!handed.overAt)handed.overAt=now();
         if(run)end('Boss 已结束，等待原生恢复原任务');
       }
+      if(['raidHit','raidRejoined','bossStruck'].includes(m.t))raidSignalAt=now();
       if(handed&&(handed.round===round||handed.round==null)&&['raidHit','raidRejoined','bossStruck'].includes(m.t)){
         handed.activityAt=now();if(m.t==='raidHit'&&m.damage>0)handed.hit=true;
       }
@@ -294,6 +297,14 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
       if(now()-since>30000&&!p.held&&!p.raidHeld){handed=null;external=false;externalUntil=null;return null;}
       return wait(handed.leftAt!=null?'已按参战方式离开，等待游戏恢复原任务':'本轮已结束，等待游戏恢复原任务');
     }
+    if(external&&!p.raidHeld) {
+      // An assumed outside raid with no sign of it for 2 minutes (no hits, the
+      // character not in the raid, not walking) is over for this character.
+      externalSeenAt??=now();
+      if(now()-Math.max(externalSeenAt,raidSignalAt??0)>120000&&!p.path?.length&&p.activity!=='walking'){
+        external=false;externalUntil=null;externalSeenAt=null;
+      }
+    } else externalSeenAt=null;
     if(external||p.raidHeld)return wait('玩家正在参加世界 Boss，助手不接管也不收菜打断');
     if(!fresh||!boss||ignored===round)return null;
     // The player's time window and per-round skip chance (one draw per round).
