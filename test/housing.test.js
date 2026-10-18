@@ -141,3 +141,24 @@ test('a command refused before sending is not left waiting to be confirmed', asy
   assert.throws(() => t.issue({intent: {t: 'convertHouse', itemId: 3, qty: 1}, label: 'x'}, true), /受保护/);
   assert.equal(t.pending, null);
 });
+
+test('room upgrades, placing and building pass the page check on what is possible, not on which room comes first', async () => {
+  const {makePlanner, player} = await import('./helpers.js');
+  const {validateIntent} = await import('../src/runtime/intents.js');
+  const planner = makePlanner(), d = planner.data, region = d.houseTravel.region, entrance = d.houseRules.entrance;
+  const cells = [entrance, entrance + 1, entrance + 2];
+  const home = extra => player(planner, {x: region.x + 1, y: region.y + 1, path: null, route: null, activity: 'idle', coins: 0,
+    houseCells: cells, houseFurniture: {post: {cell: entrance + 1, slot: 0}}, house: {post: 12}, housePoints: {stone: 1e9}, houseUpgrades: {},
+    ...extra});
+  const goal = {skill: 'melee'}, check = (p, intent) => validateIntent(d, p, intent, {planner, goal, style: 'melee'});
+  planner.coinRate = () => 0; // the page's own payback cannot be computed
+  assert.equal(check(home(), {t: 'upgradeRoom', room: 'post'}), true, 'points are there: the upgrade is sent');
+  assert.equal(check(home({housePoints: {stone: 0}}), {t: 'upgradeRoom', room: 'post'}), false, 'not enough points');
+  assert.equal(check(home({houseUpgrades: {post: 1e12}}), {t: 'upgradeRoom', room: 'post'}), false, 'already upgrading');
+  assert.equal(check(home(), {t: 'upgradeRoom', room: 'forge'}), false, 'not placed');
+  assert.equal(check(home({x: 0, y: 0}), {t: 'upgradeRoom', room: 'post'}), false, 'away from home');
+  assert.equal(check(home(), {t: 'placeFurniture', room: 'forge', cell: entrance + 2, slot: 0}), true);
+  assert.equal(check(home(), {t: 'placeFurniture', room: 'forge', cell: entrance + 1, slot: 0}), false, 'cell taken');
+  assert.equal(check(home(), {t: 'placeFurniture', room: 'forge', cell: entrance, slot: 0}), false, 'the entrance');
+  assert.equal(check(home(), {t: 'buildRoom', cell: entrance + 3}), false, 'no gold for it');
+});

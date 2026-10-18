@@ -277,9 +277,31 @@ export function createHousing(data,planner) {
     const {donors}=chooseHouseFuel(data,{p,families:[points.family],missing:0,inventory,budget,unitValue:()=>0,refused:refusedFuel});
     return donors.some(d=>d.itemId===intent.itemId&&d.available>=intent.qty);
   }
+  // The other house commands, checked the same way: the page confirms each is
+  // possible and spends nothing reserved; which room comes first is the
+  // planner's decision (a page re-plan could pick another room and refuse a
+  // ready upgrade, as happened to 陪练桩 13).
+  function houseSafe(p,intent,goal,style,mode) {
+    if(!idle(p,goal,mode))return false;
+    const keys=Object.keys(intent).sort().join(),room=rooms.find(r=>r.id===intent.room);
+    if(intent.t==='buildRoom') {
+      const price=cellPrice(p);
+      return keys==='cell,t'&&!p.houseBuild&&frontier(p).includes(intent.cell)&&Number.isSafeInteger(price)&&
+        p.coins>=price+reserves(p,goal,style).coins;
+    }
+    if(!goal||goal.developmentFiller||goal.temporary||goal.quest||!room)return false;
+    if(intent.t==='placeFurniture')return keys==='cell,room,slot,t'&&intent.slot===0&&!p.houseFurniture[room.id]&&
+      p.houseCells.includes(intent.cell)&&intent.cell!==rules.entrance&&intent.cell!==rules.lake&&
+      !Object.values(p.houseFurniture).some(f=>f.cell===intent.cell);
+    if(intent.t==='upgradeRoom') {
+      const needed=pointsFor(p,room.id);
+      return keys==='room,t'&&!!p.houseFurniture[room.id]&&p.houseUpgrades[room.id]==null&&
+        Number.isSafeInteger(needed)&&points(p,room)>=needed;
+    }
+    return false;
+  }
   const validate=(p,intent,goal,style,mode)=>HOUSE_ACTIONS.has(intent.t)&&atHome(data,p)&&!p.route&&!p.path?.length&&
-    p.lastTick>=retryAt&&(intent.t==='convertHouse'?fuelSafe(p,intent,goal,style,mode):
-      JSON.stringify(work(p,goal,style,mode)?.intent)===JSON.stringify(intent));
+    p.lastTick>=retryAt&&(intent.t==='convertHouse'?fuelSafe(p,intent,goal,style,mode):houseSafe(p,intent,goal,style,mode));
   return {plan,status,validate,rejected,refuseFuel,cancel:()=>{visit=null;},
     setEnabled:value=>{enabled=value!==false;},enabled:()=>enabled,
     runtime(value){if(value){({owner,visit,retryAt}=value);review=value.review??[];refusedFuel=value.refusedFuel??{};}
