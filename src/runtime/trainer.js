@@ -263,15 +263,23 @@ export class Trainer {
     this.plan=null;
     return this.getHotFollow();
   }
+  // The game picks the hot window from the wall clock. A snapshot's tick stops
+  // while the helper is paused (no syncs are asked for) or between syncs, so it
+  // is advanced by the time since that snapshot arrived.
+  hotTick(p=this.player) {
+    if(!Number.isFinite(p?.lastTick))return null;
+    const since=p===this.player&&Number.isFinite(this.received)?Math.max(0,this.now()-this.received):0;
+    return p.lastTick+Math.floor(since/this.data.tickMs);
+  }
   hotWindows(count=4) {
-    return hotWindows(this.data,this.player?.lastTick??0,count);
+    return hotWindows(this.data,this.hotTick()??0,count);
   }
   // The game's hot-skill badge is repainted by a page timer, which browsers
   // throttle in background tabs, so it can lag a window change by minutes.
   // Skip hidden tabs, accept the neighbouring window near a change, and stop
   // hot follow only after a mismatch has lasted two minutes.
   setHotDomSkill(skill,hidden=false) {
-    const tick=this.player?.lastTick,local=hotSkillAt(this.data,tick);
+    const tick=this.hotTick(),local=hotSkillAt(this.data,tick);
     if(!skill||!local||hidden) {
       this.hotFollowValidation=null;this.hotMismatchSince=null;
       return;
@@ -309,8 +317,8 @@ export class Trainer {
     return Math.max(0,units*(job.baseTicks??0)*this.data.tickMs/1000);
   }
   hotFollowStatus(p=this.player) {
-    const current=hotSkillAt(this.data,p?.lastTick);
-    const remainingMinutes=current?Math.max(0,(current.end-p.lastTick)*this.data.tickMs/60000):null;
+    const now=this.hotTick(p),current=hotSkillAt(this.data,now);
+    const remainingMinutes=current?Math.max(0,(current.end-now)*this.data.tickMs/60000):null;
     const result={active:false,skill:current?.skill??null,kind:current?.kind??null,mult:current?.mult??null,reason:'未启用',remainingMinutes};
     if(!p||!current)return result;
     if(this.hotFollowValidation){result.reason='热门数据校验不一致';return result;}
@@ -322,7 +330,7 @@ export class Trainer {
     if(this.itemTarget&&this.itemTarget.status!=='completed') {result.reason='物品目标优先';return result;}
     if(p.held||p.raidHeld||p.queue?.length) {result.reason='玩家队列优先';return result;}
     const mainSkill=this.hotMainSkill(),selected=new Set([mainSkill,...this.hotFollow.sides]);
-    const target=hotSkillAt(this.data,p.lastTick+this.hotFollow.leadMinutes*60000/this.data.tickMs)??current;
+    const target=hotSkillAt(this.data,now+this.hotFollow.leadMinutes*60000/this.data.tickMs)??current;
     result.skill=target.skill;
     result.kind=target.kind;
     result.mult=target.mult;
@@ -352,7 +360,7 @@ export class Trainer {
     }
     const status=this.hotFollowStatus(p),mainSkill=this.hotMainSkill();
     if(!status.active||status.skill===mainSkill||p.path?.length||p.activity==='walking'||p.activity==='working')return false;
-    const window=hotSkillAt(this.data,p.lastTick+this.hotFollow.leadMinutes*60000/this.data.tickMs);
+    const window=hotSkillAt(this.data,this.hotTick(p)+this.hotFollow.leadMinutes*60000/this.data.tickMs);
     if(!window)return false;
     if(this.goal?.hot?.start===window.start&&this.goal.hot.skill===window.skill)return false;
     const goal=this.planner.specialistChooseGoal?.(p,this.served,this.deferred,this.style,
