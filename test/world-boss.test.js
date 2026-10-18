@@ -249,3 +249,30 @@ test('a handed-over round in full participation stays until the Boss is gone', (
   boss.observe({tick: 1004, m: [{t: 'bossGone'}]});
   assert.match(boss.next(held).reason, /等待游戏恢复/);
 });
+
+test('right after the handoff the running route does not end it; a stalled join is taken over', () => {
+  const {boss, you, advance} = setup();
+  rise(boss, 1000 + 100000);
+  boss.handOff();
+  const working = {...you, route: {jobId: 61, siteId: 44}};
+  assert.equal(boss.next(working)?.intent, undefined, 'the game has not set the work aside yet');
+  assert.equal(boss.status().phase, 'native', 'still the handed round');
+  const held = {...you, route: null, held: true, raidHeld: true, queue: [{kind: 'job', jobId: 61, siteId: 44}], activity: 'idle', path: null};
+  assert.equal(boss.next(held)?.intent, undefined, 'the game gets 30 s to move');
+  advance(31000);
+  const plan = boss.next(held, {interruptWalk: true});
+  assert.equal(plan?.intent?.t, 'walk', JSON.stringify(plan));
+  assert.equal(boss.ownsRun(), true, 'the helper runs the round itself now');
+  assert.equal(boss.ownsQueue(held), true, 'and keeps the set-aside work to restore');
+});
+
+test('a handed-over round survives a reload', () => {
+  const {boss, advance} = setup();
+  rise(boss, 1000 + 100000);
+  boss.handOff();
+  const saved = boss.save();
+  const again = createWorldBoss(data, () => 1_000_000);
+  again.restore(saved);
+  assert.equal(again.status().phase, 'native');
+  void advance;
+});

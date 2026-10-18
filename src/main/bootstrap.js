@@ -172,7 +172,9 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
     // game's own join does the whole round. Walking ourselves aims at the
     // announced spawn point, which may be stale or unreachable.
     const bossStep=intent.t==='attackWorldBoss'||intent.t==='setAside'&&intent.raid===true||intent.t==='walk'&&trainer.boss.ownsRun();
-    const pill=bossStep&&!trainer.boss.status().visible?nativeBossJoinPill(document):null;
+    // Only in a visible tab: the game's join advances on its screen loop, which
+    // stops while hidden. One handoff per round; a stalled one is taken back.
+    const pill=bossStep&&!document.hidden&&!nativeHandoff&&!trainer.boss.status().visible?nativeBossJoinPill(document):null;
     if(pill){handOffBossJoin(pill);return;}
     // A handed-over round is left through the game's own button, which also
     // restores the work it set aside.

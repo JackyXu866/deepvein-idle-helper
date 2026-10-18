@@ -97,7 +97,7 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
     recordResult(reason);
     if(run)ignored=run.round;
     run=null;external=true;externalUntil=boss?.until??externalUntil;
-    handed={round,name:boss?.name??null,until:boss?.until??null,hit:false,leftAt:null,resumed:false};
+    handed={round,name:boss?.name??null,until:boss?.until??null,at:now(),activityAt:null,hit:false,leftAt:null,resumed:false};
   }
   function cancel(reason='调度暂停或玩家接管，结束本轮自动参与'){
     recordResult(reason);
@@ -161,7 +161,9 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
         if(handed&&!handed.overAt)handed.overAt=now();
         if(run)end('Boss 已结束，等待原生恢复原任务');
       }
-      if(m.t==='raidHit'&&m.damage>0&&handed?.round===round)handed.hit=true;
+      if(handed&&(handed.round===round||handed.round==null)&&['raidHit','raidRejoined','bossStruck'].includes(m.t)){
+        handed.activityAt=now();if(m.t==='raidHit'&&m.damage>0)handed.hit=true;
+      }
       if(m.t==='raidHit'||m.t==='raidRejoined'){
         if(run&&['attacking','fighting'].includes(run.stage)){
           run.stage='fighting';run.lastActivityAt=now();if(m.damage>0)run.hit=true;
@@ -260,11 +262,25 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
         '上一个落脚点没有可走路径，换 Boss 附近另一格前往':'前往 Boss 附近三格内的落脚点');
     }
     if(handed){
-      // Work is back (the game resumed it, or the helper did): the round is done.
-      if(p.route&&!p.held&&!p.raidHeld){handed=null;external=false;externalUntil=null;return null;}
       if(handed.overAt==null&&handed.until!=null&&currentTick()>=handed.until)handed.overAt=now();
       const since=handed.leftAt??handed.overAt;
+      // Work is back after the round (the game resumed it, or the helper did).
+      // Right after the click the game has not set the work aside yet, so a
+      // running route alone says nothing until the round is over or left.
+      if(since!=null&&p.route&&!p.held&&!p.raidHeld){handed=null;external=false;externalUntil=null;return null;}
       if(since==null){
+        // The game's join advances on its screen loop, which stops in a hidden
+        // tab: with no hit and the character standing still for 30 s, the
+        // helper walks over and attacks itself, keeping the set-aside work.
+        const quiet=now()-Math.max(handed.at??0,handed.activityAt??0)>30000;
+        if(!handed.hit&&quiet&&fresh&&boss&&!p.path?.length&&p.activity!=='walking'&&!p.route) {
+          const savedWork=p.held&&p.raidHeld&&p.queue?.length?copy(p.queue):null;
+          run={key:key(boss),round,name:boss.name,until:boss.until,playerId:p.id,stage:'ready',startedAt:now(),startTick:p.lastTick,
+            sentAt:now(),progressAt:now(),position:{x:p.x,y:p.y},origin:{x:p.x,y:p.y},beforeQueue:copy(p.queue??[]),
+            expectedQueue:savedWork,savedConfirmed:!!savedWork,hit:false,attackSent:false,lastActivityAt:null,tookOver:true};
+          handed=null;external=false;externalUntil=null;
+          return next(p,{interruptWalk});
+        }
         if(participation==='tag'&&handed.hit){
           handed.leftAt=now();
           return action({t:'leaveWorldBoss'},'服务器已确认有效伤害，按所选参战方式离开；游戏随后恢复原任务');
@@ -355,7 +371,7 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
       nextIn:nextRise!=null&&nextRise>currentTick()?(nextRise-currentTick())*(data.tickMs??600)/1000:null}),
     // Round numbers restart with the page, so a done round is saved by its key,
     // and only an announced one (with an end time) is ever matched again.
-    save:()=>copy({v:1,participation,boss,run,external,externalUntil,lastDeath,playerId,lastResult,
+    save:()=>copy({v:1,participation,boss,run,handed,external,externalUntil,lastDeath,playerId,lastResult,
       ignoredKey:ignored!==null&&ignored===round&&boss?.until!=null?key(boss):null,policy:policy.save()}),
     restore(value){
       if(value?.v!==1)return;
@@ -363,6 +379,8 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
       policy=createAutomationPolicy({now,random,saved:value.policy});
       boss=null;fresh=false;visibleBossId=null;observationSince=now();
       external=value.external===true;ignored=null;
+      // A handed-over round survives a reload; its round is re-linked on the next hit.
+      handed=value.handed&&typeof value.handed==='object'&&Number.isFinite(value.handed.at)?{...copy(value.handed),round:null}:null;
       const savedKey=typeof value.ignoredKey==='string'?value.ignoredKey:typeof value.ignored==='string'?value.ignored:null;
       restoredIgnoredKey=savedKey&&!savedKey.includes(':entity:')?savedKey:null;
       externalUntil=Number.isFinite(value.externalUntil)?value.externalUntil:null;
