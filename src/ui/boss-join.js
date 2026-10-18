@@ -22,6 +22,14 @@ export function nativeBossLeave(document) {
   return visible(button)?button:null;
 }
 
+// The panel's attack button alone: with the Boss in view it just attacks. The
+// pill and the run buttons start the game's whole join, which walks by itself.
+const ATTACK=/^(Attack|攻击)$/i;
+export function nativeBossAttack(document) {
+  const run=document?.querySelector?.('[data-boss-run]');
+  return visible(run)&&ATTACK.test(run.textContent?.trim()??'')?run:null;
+}
+
 export function nativeBossJoinControl(document) {
   const pill=document?.querySelector?.('[data-boss-pill]'),run=document?.querySelector?.('[data-boss-run]');
   if(visible(pill)&&JOIN.test(pill.querySelector?.('.boss-pill-join')?.textContent?.trim()??''))return pill;

@@ -19,7 +19,7 @@
 // src/version.js
 var SCRIPT_VERSION = "0.9.0";
 var SCRIPT_DISTRIBUTION = "cdn";
-var SCRIPT_BUILT = "10-17 21:48";
+var SCRIPT_BUILT = "10-18 15:42";
 
 // src/data/game-data.json
 var game_data_default = {
@@ -25529,6 +25529,11 @@ function nativeBossLeave(document2) {
   const button = document2?.querySelector?.("[data-boss-leave]");
   return visible(button) ? button : null;
 }
+var ATTACK = /^(Attack|攻击)$/i;
+function nativeBossAttack(document2) {
+  const run = document2?.querySelector?.("[data-boss-run]");
+  return visible(run) && ATTACK.test(run.textContent?.trim() ?? "") ? run : null;
+}
 function nativeBossJoinControl(document2) {
   const pill = document2?.querySelector?.("[data-boss-pill]"), run = document2?.querySelector?.("[data-boss-run]");
   if (visible(pill) && JOIN.test(pill.querySelector?.(".boss-pill-join")?.textContent?.trim() ?? "")) return pill;
@@ -25745,7 +25750,7 @@ function nativeBossJoinControl(document2) {
     list.push({ time: Date.now(), intent: diagnosticIntent(intent) });
     if (list.length > 5) list.shift();
   }
-  const nativeBossJoinButton = () => trainer.boss.status().visible ? nativeBossJoinControl(document) : null;
+  const nativeBossJoinButton = () => trainer.boss.status().visible ? nativeBossAttack(document) : null;
   let nativeHandoff = null;
   function handOffBossJoin(pill) {
     abortNativeBossJoin();
@@ -25841,6 +25846,14 @@ function nativeBossJoinControl(document2) {
                   }
                 }
                 throw new Error("原生界面尚未看到 Boss，已结束远程加入流程");
+              }
+              if (NATIVE_JOIN_FLOW.has(intent2.t) && trainer.active && trainer.player?.id === playerId) {
+                scope.abort();
+                nativeBossClick = null;
+                nativeHandoff = { playerId, until: Date.now() + 20 * 6e4, endedAt: null };
+                trainer.boss.handOff("游戏的加入流程自己接手了赶路／补给，交给游戏完成本轮");
+                trainer.log("世界 Boss：游戏的加入流程自己赶路或补给，改为交给游戏完成本轮，按所选参战方式处理；不暂停");
+                return;
               }
               trainer.pause("原生 Boss 流程执行了其他操作，已交还游戏处理");
               releaseLease();
@@ -26463,6 +26476,18 @@ function nativeBossJoinControl(document2) {
       });
     }
     send(raw) {
+      if (this === socket && nativeBossClick && typeof raw === "string") {
+        let intent;
+        try {
+          intent = JSON.parse(raw);
+        } catch {
+        }
+        if (intent && nativeBossClick.capture(intent, () => {
+          const result = super.send(raw);
+          rememberRequest(intent);
+          return result;
+        })) return;
+      }
       if (this === socket && nativeHandoff && typeof raw === "string") {
         let intent;
         try {
@@ -26476,18 +26501,6 @@ function nativeBossJoinControl(document2) {
           }
           nativeHandoff = null;
         }
-      }
-      if (this === socket && nativeBossClick && typeof raw === "string") {
-        let intent;
-        try {
-          intent = JSON.parse(raw);
-        } catch {
-        }
-        if (intent && nativeBossClick.capture(intent, () => {
-          const result = super.send(raw);
-          rememberRequest(intent);
-          return result;
-        })) return;
       }
       if (this === socket && (trainer.active || trainer.recovery) && typeof raw === "string") {
         try {

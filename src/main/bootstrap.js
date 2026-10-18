@@ -17,7 +17,7 @@ import {CLIENT_ASSET, refreshGameData} from '../data/public-tables.js';
 import {validateIntent} from '../runtime/intents.js';
 import {createUpdateChecker} from '../ui/update-checker.js';
 import {gameLabel, translateGameText} from '../ui/labels-zh.js';
-import {NATIVE_JOIN_FLOW, nativeBossJoinControl, nativeBossJoinPill, nativeBossLeave} from '../ui/boss-join.js';
+import {NATIVE_JOIN_FLOW, nativeBossAttack, nativeBossJoinPill, nativeBossLeave} from '../ui/boss-join.js';
 import {createBossLootChat, createBossLootHistory} from '../ui/boss-loot.js';
 import {applyPlanning, createPlanningClient, guardChange, planningGuard, planningState} from '../worker/planning.js';
 import {PLANNING_STORAGE_KEYS, enhancementStorage, wirePlanner} from '../economy/wiring.js';
@@ -142,9 +142,10 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
     const list=recentRequests[readOnly.has(intent.t)?'queries':'actions'];
     list.push({time:Date.now(),intent:diagnosticIntent(intent)});if(list.length>5)list.shift();
   }
-  // The captured attack step clicks the game's control only with the Boss in
-  // view (the game then just attacks); otherwise the round is handed over.
-  const nativeBossJoinButton=()=>trainer.boss.status().visible?nativeBossJoinControl(document):null;
+  // The captured attack step clicks only the game's attack button, and only with
+  // the Boss in view (the game then just attacks). The 加入 pill starts the
+  // game's whole join, which walks by itself; that is the handoff below.
+  const nativeBossJoinButton=()=>trainer.boss.status().visible?nativeBossAttack(document):null;
   // A round handed to the game's own join: its sends pass through untouched.
   let nativeHandoff=null;
   function handOffBossJoin(pill) {
@@ -214,6 +215,15 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
                   try {send();scope.markSent();}catch(error){trainer.pause(`原生 Boss 加入未完成：${error.message}`);releaseLease();}
                 }
                 throw new Error('原生界面尚未看到 Boss，已结束远程加入流程');
+              }
+              // The game's join walking or taking supplies by itself: hand the
+              // round over to it (its sends pass through) instead of pausing.
+              if(NATIVE_JOIN_FLOW.has(intent.t)&&trainer.active&&trainer.player?.id===playerId) {
+                scope.abort();nativeBossClick=null;
+                nativeHandoff={playerId,until:Date.now()+20*60000,endedAt:null};
+                trainer.boss.handOff('游戏的加入流程自己接手了赶路／补给，交给游戏完成本轮');
+                trainer.log('世界 Boss：游戏的加入流程自己赶路或补给，改为交给游戏完成本轮，按所选参战方式处理；不暂停');
+                return;
               }
               trainer.pause('原生 Boss 流程执行了其他操作，已交还游戏处理');releaseLease();saveRun();
             },
@@ -623,16 +633,17 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
       });
     }
     send(raw) {
+      if(this===socket&&nativeBossClick&&typeof raw==='string') {
+        let intent;try {intent=JSON.parse(raw);}catch{}
+        if(intent&&nativeBossClick.capture(intent,()=>{const result=super.send(raw);rememberRequest(intent);return result;}))return;
+      }
+      // After the capture: a send that just turned the round into a handoff passes too.
       if(this===socket&&nativeHandoff&&typeof raw==='string') {
         let intent;try {intent=JSON.parse(raw);}catch{}
         if(intent&&NATIVE_JOIN_FLOW.has(intent.t)) {
           if(Date.now()<nativeHandoff.until&&trainer.player?.id===nativeHandoff.playerId){rememberRequest(intent);return super.send(raw);}
           nativeHandoff=null;
         }
-      }
-      if(this===socket&&nativeBossClick&&typeof raw==='string') {
-        let intent;try {intent=JSON.parse(raw);}catch{}
-        if(intent&&nativeBossClick.capture(intent,()=>{const result=super.send(raw);rememberRequest(intent);return result;}))return;
       }
       // A manual gameplay action takes precedence over the planner.
       if (this===socket&&(trainer.active||trainer.recovery)&&typeof raw==='string') {

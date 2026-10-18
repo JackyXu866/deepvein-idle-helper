@@ -36,3 +36,10 @@ test('the pill alone is the game\'s full join; its own sends are known', async (
   for (const t of ['setAside', 'joinWorldBoss', 'raidSupply', 'walk', 'attackWorldBoss']) assert.ok(NATIVE_JOIN_FLOW.has(t), t);
   assert.ok(!NATIVE_JOIN_FLOW.has('setRoute'), 'other work is still the player\'s');
 });
+
+test('the captured attack step uses only the attack button, never the full join', async () => {
+  const {nativeBossAttack} = await import('../src/ui/boss-join.js');
+  for (const text of ['攻击', 'Attack']) assert.ok(nativeBossAttack(page({pill: '加入', run: text})), text);
+  assert.equal(nativeBossAttack(page({pill: '加入'})), null, 'the pill would walk by itself');
+  for (const text of ['跑过去', 'Run to it', '前往', '赶过去']) assert.equal(nativeBossAttack(page({run: text})), null, text);
+});
