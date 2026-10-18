@@ -3223,6 +3223,24 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
     render();
   }
   const timer=setInterval(()=>{pump();updates.check();},1000);
+  // Background tabs: Chrome throttles page timers (to about once a minute after
+  // a few minutes hidden), so state checks lapse into a resync, and it may
+  // freeze the page. A worker's timer is not throttled that way and wakes the
+  // page every second while hidden; holding a Web Lock keeps it from being
+  // frozen. Neither stops Memory Saver from discarding the tab.
+  const awake={heartbeat:false,lock:false};
+  let heartbeat=null;
+  try {
+    const url=URL.createObjectURL(new Blob(['setInterval(()=>postMessage(0),1000);'],{type:'text/javascript'}));
+    try {heartbeat=new Worker(url);} finally {URL.revokeObjectURL(url);}
+    heartbeat.onmessage=()=>{if(document.hidden){pump();updates.check();}};
+    awake.heartbeat=true;
+  } catch { /* Page timers alone still run, throttled in the background. */ }
+  try {
+    navigator.locks?.request(`deepvein-helper-awake-${owner}`,()=>{awake.lock=true;return new Promise(()=>{});})
+      .catch(()=>{awake.lock=false;});
+  } catch { /* Without Web Locks the page may still be frozen when hidden. */ }
+  window.deepveinAwake=()=>({...awake,hidden:document.hidden});
   let pageHidden=document.hidden;
   document.addEventListener('visibilitychange',()=>{
     const returned=pageHidden&&!document.hidden;pageHidden=document.hidden;
@@ -3233,5 +3251,5 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
     trainer.nextSync=Math.max(Date.now(),lastSync+2000);
     pump();
   });
-  window.addEventListener('pagehide',()=>{abortNativeBossJoin();saveRun();saveMetrics(true);clearInterval(timer);background?.close();releaseLease();bossLootChat.destroy();integrationCleanup?.();},{once:true});
+  window.addEventListener('pagehide',()=>{abortNativeBossJoin();saveRun();saveMetrics(true);clearInterval(timer);heartbeat?.terminate();background?.close();releaseLease();bossLootChat.destroy();integrationCleanup?.();},{once:true});
 })();

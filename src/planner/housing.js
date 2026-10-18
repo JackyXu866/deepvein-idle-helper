@@ -222,6 +222,13 @@ export function createHousing(data,planner) {
       visit={phase:'enter',portalId:portal.id,resume};
     }
     if(visit.phase==='enter'&&home)visit.phase='work';
+    // Still outside: the goal or the house may have changed on the way (a
+    // reconnect re-plans the goal, a timer started). With nothing left to do
+    // there, the trip is dropped instead of walking in and straight out.
+    if(visit.phase==='enter'&&!home&&p.lastTick>=retryAt&&!work(p,goal,style,mode)) {
+      const resume=visit.resume;visit=null;
+      return resume&&!p.route?action(resume,'恢复房屋维护前的任务','家里已没有要做的事，取消这次回家'):null;
+    }
     if(visit.phase==='work') {
       if(home) {
         if(p.route||p.path?.length)return wait('等待家园内移动完成，再核对建造条件');

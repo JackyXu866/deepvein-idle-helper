@@ -162,3 +162,16 @@ test('room upgrades, placing and building pass the page check on what is possibl
   assert.equal(check(home(), {t: 'placeFurniture', room: 'forge', cell: entrance, slot: 0}), false, 'the entrance');
   assert.equal(check(home(), {t: 'buildRoom', cell: entrance + 3}), false, 'no gold for it');
 });
+
+test('a trip home with nothing left to do is dropped before entering, and the work resumed', async () => {
+  const {makePlanner, player} = await import('./helpers.js');
+  const planner = makePlanner(), d = planner.data;
+  const p = player(planner, {houseCells: [d.houseRules.entrance], houseFurniture: {}, house: {}, housePoints: {}, houseUpgrades: {},
+    path: null, route: null, activity: 'idle', coins: 0});
+  const portal = d.houseTravel.portals[0], resume = {t: 'setRoute', jobId: 1, siteId: 1, limit: 0, onFull: 'bank', rarity: 0};
+  planner.housingRuntime({owner: p.id, visit: {phase: 'enter', portalId: portal.id, resume}, retryAt: 0});
+  const plan = planner.housingPlan(p, {skill: 'melee', developmentFiller: true}, 'melee', 'balanced');
+  assert.deepEqual(plan?.intent, resume, JSON.stringify(plan));
+  assert.match(plan.reason, /取消这次回家/);
+  assert.equal(planner.housingRuntime().visit, null);
+});
