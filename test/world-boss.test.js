@@ -204,7 +204,7 @@ test('the player\'s time window and per-round skip chance gate joining; one draw
 });
 
 test('a round handed to the game\'s own join is waited out, never driven or retried', () => {
-  const {boss, you} = setup();
+  const {boss, you, advance} = setup();
   rise(boss, 1000 + 100000);
   const p = {...you, activity: 'idle', path: null};
   const plan = boss.next(p, {interruptWalk: true});
@@ -212,10 +212,40 @@ test('a round handed to the game\'s own join is waited out, never driven or retr
   assert.equal(boss.ownsRun(), true);
   boss.handOff();
   assert.equal(boss.ownsRun(), false, 'the helper no longer owns the round');
-  assert.equal(boss.status().phase, 'manual');
+  assert.equal(boss.status().phase, 'native');
   const next = boss.next({...p, raidHeld: true, held: true}, {interruptWalk: true});
   assert.equal(next?.intent, undefined, 'no command of its own while the game joins');
-  assert.match(next.reason, /不接管/);
+  assert.match(next.reason, /游戏自己的/);
   boss.observe({tick: 1002, m: [{t: 'bossGone'}]});
-  assert.equal(boss.next(p, {interruptWalk: true}), null, 'over: back to normal');
+  advance(31000);
+  assert.equal(boss.next(p, {interruptWalk: true}), null, 'over and nothing set aside: back to normal');
+});
+
+test('a handed-over round still follows the participation choice and resumes the work', () => {
+  const {boss, you, advance} = setup();
+  boss.setParticipation('tag');
+  rise(boss, 1000 + 100000);
+  boss.handOff();
+  const held = {...you, route: null, held: true, raidHeld: true, queue: [{kind: 'job', jobId: 7, siteId: 3}]};
+  assert.equal(boss.status().phase, 'native', 'shown as the game\'s join, not the player\'s');
+  assert.equal(boss.next(held)?.intent, undefined, 'no hit yet: wait');
+  boss.observe({tick: 1003, m: [{t: 'raidHit', damage: 12}]});
+  assert.deepEqual(boss.next(held)?.intent, {t: 'leaveWorldBoss'}, 'confirmed damage: leave as chosen');
+  assert.equal(boss.next(held)?.intent, undefined, 'left once; the game resumes the work');
+  advance(9000);
+  const left = {...held, raidHeld: false};
+  assert.deepEqual(boss.next(left)?.intent, {t: 'startQueued', index: 0}, 'a slow resume is finished by the helper');
+  assert.equal(boss.next({...you, route: {jobId: 7, siteId: 3}}), null, 'work is back: done');
+  assert.equal(boss.status().phase, 'watching');
+});
+
+test('a handed-over round in full participation stays until the Boss is gone', () => {
+  const {boss, you} = setup();
+  rise(boss, 1000 + 100000);
+  boss.handOff();
+  boss.observe({tick: 1003, m: [{t: 'raidHit', damage: 12}]});
+  const held = {...you, route: null, held: true, raidHeld: true, queue: [{kind: 'job', jobId: 7, siteId: 3}]};
+  assert.equal(boss.next(held)?.intent, undefined, 'full: no leave after the first hit');
+  boss.observe({tick: 1004, m: [{t: 'bossGone'}]});
+  assert.match(boss.next(held).reason, /等待游戏恢复/);
 });

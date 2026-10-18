@@ -14,7 +14,13 @@ export function nativeBossJoinPill(document) {
 
 // What that join sends on its own (client b2/Nv): set the work aside, join,
 // take supplies, walk, attack, deliver, and resume afterwards.
-export const NATIVE_JOIN_FLOW=new Set(['setAside','joinWorldBoss','raidSupply','deliverToBoss','walk','attackWorldBoss','skip','startQueued']);
+export const NATIVE_JOIN_FLOW=new Set(['setAside','joinWorldBoss','raidSupply','deliverToBoss','walk','attackWorldBoss','leaveWorldBoss','skip','startQueued']);
+
+// The game's own leave button, which also restores the set-aside work.
+export function nativeBossLeave(document) {
+  const button=document?.querySelector?.('[data-boss-leave]');
+  return visible(button)?button:null;
+}
 
 export function nativeBossJoinControl(document) {
   const pill=document?.querySelector?.('[data-boss-pill]'),run=document?.querySelector?.('[data-boss-run]');

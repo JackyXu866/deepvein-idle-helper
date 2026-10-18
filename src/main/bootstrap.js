@@ -17,7 +17,7 @@ import {CLIENT_ASSET, refreshGameData} from '../data/public-tables.js';
 import {validateIntent} from '../runtime/intents.js';
 import {createUpdateChecker} from '../ui/update-checker.js';
 import {gameLabel, translateGameText} from '../ui/labels-zh.js';
-import {NATIVE_JOIN_FLOW, nativeBossJoinControl, nativeBossJoinPill} from '../ui/boss-join.js';
+import {NATIVE_JOIN_FLOW, nativeBossJoinControl, nativeBossJoinPill, nativeBossLeave} from '../ui/boss-join.js';
 import {createBossLootChat, createBossLootHistory} from '../ui/boss-loot.js';
 import {applyPlanning, createPlanningClient, guardChange, planningGuard, planningState} from '../worker/planning.js';
 import {PLANNING_STORAGE_KEYS, enhancementStorage, wirePlanner} from '../economy/wiring.js';
@@ -174,6 +174,10 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
     const bossStep=intent.t==='attackWorldBoss'||intent.t==='setAside'&&intent.raid===true||intent.t==='walk'&&trainer.boss.ownsRun();
     const pill=bossStep&&!trainer.boss.status().visible?nativeBossJoinPill(document):null;
     if(pill){handOffBossJoin(pill);return;}
+    // A handed-over round is left through the game's own button, which also
+    // restores the work it set aside.
+    const leave=intent.t==='leaveWorldBoss'&&nativeHandoff?nativeBossLeave(document):null;
+    if(leave){try {leave.click();} catch { /* Falls back to the restore step. */ } return;}
     const send=()=>{
       NativeWebSocket.prototype.send.call(socket,JSON.stringify(intent));rememberRequest(intent);
       if(intent.t==='attackWorldBoss')trainer.boss.nativeJoinSent();
@@ -3105,7 +3109,7 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
     const bossPhase={saving:'确认保留原任务和队列',ready:'准备出发',moving:'正在前往',attacking:'等待参战确认',
       fighting:boss.recentActivity?(boss.hit?'已命中，近期收到参战回报':'近期收到参战回报，等待有效命中'):
         (boss.hit?'曾命中，等待新的参战回报':'等待新的参战回报'),dead:'本轮已阵亡，保留贡献并等待结束',
-      ended:'本轮结束，等待恢复原任务',resuming:'恢复原任务中',manual:'玩家正在参战，助手让行',watching:'等待可参与机会'};
+      ended:'本轮结束，等待恢复原任务',resuming:'恢复原任务中',manual:'玩家正在参战，助手让行',native:boss.hit?'游戏的加入流程参战中，已命中':'已交给游戏的加入流程（补给、赶路、参战），按所选参战方式处理',watching:'等待可参与机会'};
     const lastBoss=boss.lastResult;
     panel.querySelector('[data-boss]').textContent=boss.name?`世界 Boss：${boss.name} · ${boss.participated&&boss.phase==='watching'?'本轮已确认有效伤害并按策略离开，等待结算':
       boss.skipped?'本轮已跳过，可手动重新尝试':boss.policyReason??bossPhase[boss.phase]??'等待状态'}`:

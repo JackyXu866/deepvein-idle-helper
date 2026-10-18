@@ -381,7 +381,7 @@ export class Trainer {
     const p=this.player;
     if(!p||!this.compatible){this.log('尚未同步兼容角色，不能开始物品目标');return false;}
     if(this.pending||this.resolution||p.enhance||p.route?.errand||p.held||p.raidHeld||p.queue?.length||
-      this.boss.ownsRun()||this.boss.status().phase==='manual') {
+      this.boss.ownsRun()||['manual','native'].includes(this.boss.status().phase)) {
       this.log('请等待当前操作、农事或 Boss 结束；物品目标不接管玩家队列或搁置任务');return false;
     }
     if(!this.restoreItemTarget({playerId:p.id,itemId,quantity:amount,baseline:null,required:null,status:'pending'})) {
@@ -817,7 +817,7 @@ export class Trainer {
   bossFoodPlan(p) {
     const target=this.itemTarget;
     const bossStatus=this.boss.status();
-    if(!target||target.status==='completed'||bossStatus.active===false||!bossStatus.name||this.boss.ownsRun()||bossStatus.phase==='manual')return null;
+    if(!target||target.status==='completed'||bossStatus.active===false||!bossStatus.name||this.boss.ownsRun()||['manual','native'].includes(bossStatus.phase))return null;
     const targetId=target.targetItemId??target.itemId,targetBase=this.planner.base(targetId);
     if(!this.data.items[targetBase]?.heals)return null;
     const current=p.foodItemId;

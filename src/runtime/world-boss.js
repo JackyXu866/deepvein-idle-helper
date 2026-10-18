@@ -45,6 +45,9 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
   let settings=normalizeAutomation(),policy=createAutomationPolicy({now,random}),policyReason=null;
   const setParticipation=value=>participation=value==='tag'?'tag':'full';
   let boss=null,run=null,external=false,externalUntil=null,ignored=null,lastDeath=null,lastResult=null;
+  // A round handed to the game's own join: the helper still applies the
+  // participation choice (leave after a confirmed hit) and resumes the work.
+  let handed=null;
   let tick=0,received=now(),fresh=false,playerId=null,snapshotAt=0,visibleBossId=null,observationSince=now();
   let nextRise=null; // server tick of the next announced spawn (`bossNext`)
   // Rounds are counted explicitly: a new spawn always starts a new round, and
@@ -94,6 +97,7 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
     recordResult(reason);
     if(run)ignored=run.round;
     run=null;external=true;externalUntil=boss?.until??externalUntil;
+    handed={round,name:boss?.name??null,until:boss?.until??null,hit:false,leftAt:null,resumed:false};
   }
   function cancel(reason='调度暂停或玩家接管，结束本轮自动参与'){
     recordResult(reason);
@@ -127,7 +131,7 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
       if(m.t==='bossRose'&&point(m)&&typeof m.name==='string'&&Number.isFinite(m.until)){
         const previous=boss;
         const sameRound=previous?.name===m.name&&(previous.until==null||previous.until===m.until);
-        if(!sameRound){visibleBossId=null;round++;}
+        if(!sameRound){visibleBossId=null;round++;if(handed&&!handed.overAt)handed.overAt=now();}
         boss={name:m.name,x:m.x,y:m.y,until:m.until,id:sameRound?previous.id:null};fresh=true;
         const promoted=previous?.name===boss.name&&previous.until==null;
         if(restoredIgnoredKey!==null){if(key(boss)===restoredIgnoredKey)ignored=round;restoredIgnoredKey=null;}
@@ -154,8 +158,10 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
       if(m.t==='bossGone'||m.t==='bossHp'&&m.hpRemaining===0&&boss){
         // The round is over: nothing carries into the next spawn.
         boss=null;fresh=false;external=false;visibleBossId=null;ignored=null;
+        if(handed&&!handed.overAt)handed.overAt=now();
         if(run)end('Boss 已结束，等待原生恢复原任务');
       }
+      if(m.t==='raidHit'&&m.damage>0&&handed?.round===round)handed.hit=true;
       if(m.t==='raidHit'||m.t==='raidRejoined'){
         if(run&&['attacking','fighting'].includes(run.stage)){
           run.stage='fighting';run.lastActivityAt=now();if(m.damage>0)run.hit=true;
@@ -253,6 +259,25 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
       return action({t:'walk',x:tile.x,y:tile.y},(run.walkAttempts??0)?
         '上一个落脚点没有可走路径，换 Boss 附近另一格前往':'前往 Boss 附近三格内的落脚点');
     }
+    if(handed){
+      // Work is back (the game resumed it, or the helper did): the round is done.
+      if(p.route&&!p.held&&!p.raidHeld){handed=null;external=false;externalUntil=null;return null;}
+      if(handed.overAt==null&&handed.until!=null&&currentTick()>=handed.until)handed.overAt=now();
+      const since=handed.leftAt??handed.overAt;
+      if(since==null){
+        if(participation==='tag'&&handed.hit){
+          handed.leftAt=now();
+          return action({t:'leaveWorldBoss'},'服务器已确认有效伤害，按所选参战方式离开；游戏随后恢复原任务');
+        }
+        return wait(handed.hit?'已命中 Boss，按所选参战方式等本轮结束':'已交给游戏自己的“加入”：补给、赶路、参战；按所选参战方式处理');
+      }
+      // The game resumes the set-aside work itself; a slow resume is finished here.
+      if(!handed.resumed&&now()-since>8000&&!p.route&&p.held&&p.queue?.length){
+        handed.resumed=true;return action({t:'startQueued',index:0},'游戏尚未恢复，续跑 Boss 前暂存的原任务；其余队列不变');
+      }
+      if(now()-since>30000&&!p.held&&!p.raidHeld){handed=null;external=false;externalUntil=null;return null;}
+      return wait(handed.leftAt!=null?'已按参战方式离开，等待游戏恢复原任务':'本轮已结束，等待游戏恢复原任务');
+    }
     if(external||p.raidHeld)return wait('玩家正在参加世界 Boss，助手不接管也不收菜打断');
     if(!fresh||!boss||ignored===round)return null;
     // The player's time window and per-round skip chance (one draw per round).
@@ -323,8 +348,8 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
     ownsDeath:value=>lastDeath?.playerId===playerId&&lastDeath.tick===(typeof value==='number'?value:value?.tick),
     status:()=>({participation,name:boss?.name??run?.name??null,active:!!boss&&fresh&&
       (boss.until==null||currentTick()<boss.until),visible:fresh&&visibleBossId!=null&&visibleBossId===boss?.id,
-      phase:run?.stage??(external?'manual':'watching'),skipped:skipped(),participated:participated(),
-      hit:run?.hit??false,recentActivity:recentActivity()===true,lastActivityAt:run?.lastActivityAt??null,
+      phase:run?.stage??(handed?'native':external?'manual':'watching'),skipped:skipped(),participated:participated(),
+      hit:run?.hit??handed?.hit??false,recentActivity:recentActivity()===true,lastActivityAt:run?.lastActivityAt??null,
       owned:!!run,until:boss?.until??run?.until??null,lastResult:copy(lastResult),
       policyReason:!run&&!external&&boss&&fresh?policyReason:null,
       nextIn:nextRise!=null&&nextRise>currentTick()?(nextRise-currentTick())*(data.tickMs??600)/1000:null}),
