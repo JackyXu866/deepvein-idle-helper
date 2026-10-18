@@ -86,7 +86,8 @@ test('crafted gear: only one copy of the highest rarity that could be an upgrade
   // The economy sells the rarity copies through the market-only path.
   const sold = [];
   planner.marketSale = (q, vendor) => { sold.push(vendor); return vendor; };
-  const rareOnly = {...p, bank: {[id + R]: 2, [id + 2 * R]: 1}};
+  // The rare helmet is worn (an unworn better piece would be put on first).
+  const rareOnly = {...p, equipment: {...p.equipment, helmet: id + 2 * R}, bank: {[id + R]: 2, [id + 2 * R]: 1}};
   createEconomy(d, planner, {autoSell: false}).maintenance(rareOnly, {skill: 'smithing', target: 2, budget: {items: {}, coins: 0}}, 'melee', 'balanced');
   assert.ok(sold.some(s => s.intent.itemId === id + R && s.profitSale), JSON.stringify(sold.map(s => s.intent)));
 });

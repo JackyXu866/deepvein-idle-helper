@@ -28,3 +28,14 @@ test('the planned gear for the shield slot is the owned legendary piece', () => 
   const shield = planner.gearTargets(p, 'melee').find(t => t.slot === 'shield');
   assert.equal(shield.upgrade, cobalt + 4 * R);
 });
+
+test('fighting as filler still puts on a better owned piece first (the legendary shield)', () => {
+  const {planner, p, R, cobalt} = warrior();
+  const plan = planner.plan(p, {skill: 'melee', target: 66, developmentFiller: true}, 'melee');
+  const text = JSON.stringify(plan?.intent) + ' ' + plan?.label + ' ' + plan?.reason;
+  assert.ok(plan?.intent?.itemId === cobalt + 4 * R || /已持有更好的/.test(plan?.reason ?? ''), text);
+  // Worn already: nothing more to swap.
+  const worn = {...p, equipment: {...p.equipment, shield: cobalt + 4 * R}, bank: {[cobalt + R]: 9}};
+  const next = planner.plan(worn, {skill: 'melee', target: 66, developmentFiller: true}, 'melee');
+  assert.ok(!/已持有更好的/.test(next?.reason ?? ''), JSON.stringify(next?.intent));
+});

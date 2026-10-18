@@ -951,8 +951,33 @@ export function createPlanner(data) {
       if (jobs.some(j=>j.bonus?.itemId===id) || monsters.some(m=>m.drop===id||m.bonus.itemId===id)) return true;
       return made(id).some(j=>j.inputs.every(i=>selfSupply(i.itemId,[...trail,id])));
     }
+    // A better piece already owned is worn whatever the goal: it costs only the
+    // bank visit, and a legendary piece stays with the player while worn.
+    // Filler and temporary work used to skip gear entirely, so a legendary
+    // shield in the bank was never put on while fighting as filler.
+    function ownedSwap(skill) {
+      const combat=attacks.includes(skill);
+      const slots=combat?['weapon','helmet','body','legs','shield','ring','amulet']:
+        Object.keys(data.toolSkills).filter(slot=>data.toolSkills[slot]===skill);
+      const worn=new Set(Object.values(p.equipment).filter(Number.isFinite));
+      for(const slot of slots) {
+        if(slot==='shield'&&(profession==='melee_twohand'||equipmentStats(p.equipment.weapon??0)?.twoHanded))continue;
+        const current=p.equipment[slot];
+        const fits=id=>{const g=gear.get(base(id));return g?.slot===slot&&canWear(id)&&
+          (slot!=='weapon'||matchesProfessionWeapon(g,profession))&&(!combat||!g.style||g.style===skill);};
+        const best=held(p).filter(id=>!worn.has(id)&&fits(id)).sort((a,b)=>gearScore(b,skill)-gearScore(a,skill)||b-a)[0];
+        if(best==null||current!=null&&fits(current)&&gearScore(best,skill)<=gearScore(current,skill))continue;
+        const result=equip(best);
+        result.reason=`已持有更好的 ${fullName(best)}，换下 ${current!=null?fullName(current):'空位'}：只需一趟仓库，${rarity(best)===4?'传说装备穿上仍归你':'不另外制作或购买'}`;
+        return result;
+      }
+      return null;
+    }
     function upgrade(skill) {
-      if(goal.itemTarget||goal.mastery)return null;
+      if(goal.mastery)return null;
+      const swap=ownedSwap(skill);
+      if(swap)return swap;
+      if(goal.itemTarget)return null;
       if(goal.developmentFiller)return null;
       if(completedUpgrade||goal.temporary&&!goal.upgrade?.priority)return null;
       const rareCrafts=slot=>{
