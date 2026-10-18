@@ -130,6 +130,13 @@ export function createInvestments(data,planner) {
       if(!fits(current))continue;
       const before=rate(p,style,ctx,slot,current);
       if(!(before>0))continue;
+      // Pieces already in the bank or pack, of any quality: wearing keeps a
+      // legendary piece with the player. Nothing is bought or made that is no
+      // better than the best of them.
+      const ownedIds=[...new Set([...Object.keys(p.bank).filter(k=>p.bank[k]>0).map(Number),...p.pack.map(i=>i.itemId)])]
+        .filter(id=>id!==current&&fits(id)&&canWear(data,lv,id)&&rate(p,style,ctx,slot,id)>before)
+        .sort((a,b)=>rate(p,style,ctx,slot,b)-rate(p,style,ctx,slot,a)||a-b);
+      const floor=ownedIds.length?Math.max(before,rate(p,style,ctx,slot,ownedIds[0])):before;
       const add=(kind,id,label,cost,extra={})=>{
         if(!cost)return;
         const after=rate(p,style,ctx,slot,id);
@@ -144,7 +151,7 @@ export function createInvestments(data,planner) {
         for(let to=plusOf(data,current)+1;to<=ENHANCEMENT_BASELINE;to++) {
           const cost=expectedEnhancement(data,planner,p,current,to),target=current%data.plusScale+to*data.plusScale;
           const after=rate(p,style,ctx,slot,target);
-          if(!(after>before)||!Number.isFinite(cost.gold))continue;
+          if(!(after>floor)||!Number.isFinite(cost.gold))continue;
           const gold=cost.gold+cost.shards*shardValue,use=useSeconds(p,target,slot,after);
           const result=payback({gold,coinRate,before,after,useSeconds:use});
           if(!best||result.net>best.net)best={slot,kind:'enhance',id:target,current,toPlus:to,source:null,
@@ -156,14 +163,15 @@ export function createInvestments(data,planner) {
       // A higher quality of the same piece.
       for(let r=rarityOf(data,current)+1;r<=3;r++) {
         const id=baseId(data,current)+r*data.rarityScale;
-        if(!(rate(p,style,ctx,slot,id)>before))continue;
+        if(!(rate(p,style,ctx,slot,id)>floor))continue;
         add('quality',id,`换 ${itemLabel(data,id)}`,acquire(p,id,coinRate));break;
       }
       // Another piece wearable now, in its lowest quality that beats the worn one.
       const others=data.gear.filter(g=>g.itemId!==baseId(data,current)&&fits(g.itemId)&&canWear(data,lv,g.itemId))
-        .map(g=>[0,1,2,3].map(r=>g.itemId+r*data.rarityScale).find(id=>rate(p,style,ctx,slot,id)>before))
+        .map(g=>[0,1,2,3].map(r=>g.itemId+r*data.rarityScale).find(id=>rate(p,style,ctx,slot,id)>floor))
         .filter(id=>id!=null).sort((a,b)=>rate(p,style,ctx,slot,b)-rate(p,style,ctx,slot,a)).slice(0,2);
       for(const id of others)add('tier',id,`换 ${itemLabel(data,id)}`,acquire(p,id,coinRate));
+      if(ownedIds.length)add('owned',ownedIds[0],`换 ${itemLabel(data,ownedIds[0])}`,{gold:0,seconds:0,source:'已持有'});
     }
     for(const row of rows)row.cheapest=row.worth&&!rows.some(o=>o!==row&&o.slot===row.slot&&o.worth&&o.net>row.net);
     return rows.sort((a,b)=>b.net-a.net);

@@ -1365,7 +1365,7 @@ export function createPlanner(data) {
       const better=id=>current==null||!matches(current)||score(id)>score(current);
       const variant=g=>[0,1,2,3].map(r=>g.itemId+r*data.rarityScale).find(better)??null;
       const candidates=[...new Set([...data.gear.filter(g=>matches(g.itemId)).map(variant).filter(id=>id!=null),
-        ...owned.filter(id=>matches(id)&&autoUsableMaterial(data,id)&&better(id))])].filter(id=>id!==current);
+        ...owned.filter(id=>matches(id)&&better(id))])].filter(id=>id!==current);
       const wearable=id=>canWearWith(data,lv,id);
       const available=candidates.filter(wearable).sort((a,b)=>score(b)-score(a)||a-b);
       const future=candidates.filter(id=>!wearable(id)).sort((a,b)=>gearRequirement(a).level-gearRequirement(b).level||score(b)-score(a));
@@ -1375,6 +1375,9 @@ export function createPlanner(data) {
       // materials, the lowest that beats the worn piece, as a target to look for.
       const planned=id=>{
         if(id==null)return null;
+        // A piece already owned (legendary included: wearing keeps it) is the
+        // upgrade itself; nothing is made in its place.
+        if(count(p,id)>0&&rarity(id)===4)return id;
         const maker=jobs.find(j=>j.output.itemId===base(id)&&j.inputs.length&&!j.grow);
         for(let r=3;r>=1;r--) {
           const quality=base(id)+r*data.rarityScale;
