@@ -23,6 +23,7 @@ import {applyPlanning, createPlanningClient, guardChange, planningGuard, plannin
 import {PLANNING_STORAGE_KEYS, enhancementStorage, wirePlanner} from '../economy/wiring.js';
 import {fallbackOwnership} from '../planner/fallback.js';
 import {normalizeAutomation} from '../runtime/automation-policy.js';
+import {keepGameActive} from '../ui/stay-active.js';
 
 // Runs in the page at document-start. Uses the game's existing connection;
 // Never reads credentials or opens a second game connection. Update checks read
@@ -30,6 +31,8 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
 (() => {
   if (window.__deepveinBalancedTrainer) return;
   window.__deepveinBalancedTrainer=true;
+  // The game always sees a visible tab (never "away"); the helper reads the real state.
+  const visibility=keepGameActive(window,document),pageIsHidden=visibility.hidden;
   const planner=createPlanner(GAME_DATA);
   const bossLoot=createBossLootHistory(GAME_DATA,localStorage);
   const bossLootChat=createBossLootChat(document,bossLoot,translateGameText);
@@ -118,7 +121,7 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
   // Game connection opens and closes, with whether the tab was hidden: tells a
   // real drop apart from the game's own "离线期间" summary after a hidden spell.
   const connectionLog=[];
-  const noteConnection=(event,extra={})=>{connectionLog.push({at:new Date().toLocaleTimeString(),event,hidden:document.hidden,...extra});if(connectionLog.length>20)connectionLog.shift();};
+  const noteConnection=(event,extra={})=>{connectionLog.push({at:new Date().toLocaleTimeString(),event,hidden:pageIsHidden(),...extra});if(connectionLog.length>20)connectionLog.shift();};
   const rejectionKey='deepvein-rejections-v1';
   let rejections=[],rejectionsSaved=true;
   function readRejections() {
@@ -179,7 +182,7 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
     const bossStep=intent.t==='attackWorldBoss'||intent.t==='setAside'&&intent.raid===true||intent.t==='walk'&&trainer.boss.ownsRun();
     // Only in a visible tab: the game's join advances on its screen loop, which
     // stops while hidden. One handoff per round; a stalled one is taken back.
-    const pill=bossStep&&!document.hidden&&!nativeHandoff&&!trainer.boss.status().visible?nativeBossJoinPill(document):null;
+    const pill=bossStep&&!pageIsHidden()&&!nativeHandoff&&!trainer.boss.status().visible?nativeBossJoinPill(document):null;
     if(pill){handOffBossJoin(pill);return;}
     // A handed-over round is left through the game's own button, which also
     // restores the work it set aside.
@@ -523,7 +526,7 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
   }
   function syncHotValidation() {
     const glyph=document.querySelector?.('[data-hot-pill] [data-hot-glyph]');
-    trainer.setHotDomSkill(glyph?.dataset?.skill??null,document.visibilityState==='hidden');
+    trainer.setHotDomSkill(glyph?.dataset?.skill??null,pageIsHidden());
   }
   window.getHotFollow=()=>trainer.getHotFollow();
   window.setHotFollow=patch=>{
@@ -3252,17 +3255,17 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
   try {
     const url=URL.createObjectURL(new Blob(['setInterval(()=>postMessage(0),1000);'],{type:'text/javascript'}));
     try {heartbeat=new Worker(url);} finally {URL.revokeObjectURL(url);}
-    heartbeat.onmessage=()=>{if(document.hidden){pump();updates.check();}};
+    heartbeat.onmessage=()=>{if(pageIsHidden()){pump();updates.check();}};
     awake.heartbeat=true;
   } catch { /* Page timers alone still run, throttled in the background. */ }
   try {
     navigator.locks?.request(`deepvein-helper-awake-${owner}`,()=>{awake.lock=true;return new Promise(()=>{});})
       .catch(()=>{awake.lock=false;});
   } catch { /* Without Web Locks the page may still be frozen when hidden. */ }
-  window.deepveinAwake=()=>({...awake,hidden:document.hidden});
-  let pageHidden=document.hidden;
-  document.addEventListener('visibilitychange',()=>{
-    const returned=pageHidden&&!document.hidden;pageHidden=document.hidden;
+  window.deepveinAwake=()=>({...awake,hidden:pageIsHidden(),gameSeesVisible:!document.hidden});
+  let pageHidden=pageIsHidden();
+  visibility.onChange(()=>{
+    const returned=pageHidden&&!pageIsHidden();pageHidden=pageIsHidden();
     if(!returned||(!trainer.active&&!trainer.recovery)||trainer.awaitingWelcome||socket?.readyState!==NativeWebSocket.OPEN)return;
     // Invalidate the old snapshot before pumping; foregrounding is not permission to replay work.
     foregroundSequence=trainer.snapshotSequence;trainer.syncAfter=trainer.snapshotSequence;

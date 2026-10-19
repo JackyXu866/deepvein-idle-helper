@@ -19,7 +19,7 @@
 // src/version.js
 var SCRIPT_VERSION = "0.9.0";
 var SCRIPT_DISTRIBUTION = "github";
-var SCRIPT_BUILT = "10-19 00:05";
+var SCRIPT_BUILT = "10-19 00:28";
 
 // src/data/game-data.json
 var game_data_default = {
@@ -25562,10 +25562,42 @@ function nativeBossJoinControl(document2) {
   return null;
 }
 
+// src/ui/stay-active.js
+function keepGameActive(win = window, doc = document) {
+  const find = (key) => {
+    for (let o = doc; o; o = Object.getPrototypeOf(o)) {
+      const d = Object.getOwnPropertyDescriptor(o, key);
+      if (d) return d;
+    }
+    return null;
+  };
+  const hiddenDesc = find("hidden"), stateDesc = find("visibilityState");
+  const realHidden = () => hiddenDesc?.get ? hiddenDesc.get.call(doc) : false;
+  const realState = () => stateDesc?.get ? stateDesc.get.call(doc) : "visible";
+  const listeners = /* @__PURE__ */ new Set();
+  try {
+    Object.defineProperty(doc, "hidden", { configurable: true, get: () => false });
+    Object.defineProperty(doc, "visibilityState", { configurable: true, get: () => "visible" });
+    win.addEventListener("visibilitychange", (event) => {
+      event.stopImmediatePropagation();
+      for (const fn of listeners) try {
+        fn(event);
+      } catch {
+      }
+    }, true);
+  } catch {
+  }
+  return { hidden: realHidden, state: realState, onChange: (fn) => {
+    listeners.add(fn);
+    return () => listeners.delete(fn);
+  } };
+}
+
 // src/main/bootstrap.js
 (() => {
   if (window.__deepveinBalancedTrainer) return;
   window.__deepveinBalancedTrainer = true;
+  const visibility = keepGameActive(window, document), pageIsHidden = visibility.hidden;
   const planner = createPlanner(GAME_DATA);
   const bossLoot = createBossLootHistory(GAME_DATA, localStorage);
   const bossLootChat = createBossLootChat(document, bossLoot, translateGameText);
@@ -25698,7 +25730,7 @@ function nativeBossJoinControl(document2) {
   const recentRequests = { actions: [], queries: [] };
   const connectionLog = [];
   const noteConnection = (event, extra = {}) => {
-    connectionLog.push({ at: (/* @__PURE__ */ new Date()).toLocaleTimeString(), event, hidden: document.hidden, ...extra });
+    connectionLog.push({ at: (/* @__PURE__ */ new Date()).toLocaleTimeString(), event, hidden: pageIsHidden(), ...extra });
     if (connectionLog.length > 20) connectionLog.shift();
   };
   const rejectionKey = "deepvein-rejections-v1";
@@ -25810,7 +25842,7 @@ function nativeBossJoinControl(document2) {
     if (!validateIntent(GAME_DATA, trainer.player, intent, { planner, goal: trainer.goal, style: trainer.style, mode: trainer.mode, waitingGoals: trainer.waitingGoals })) throw new Error("计划涉及未知或受保护物品，等待重新核对");
     if (!socket || socket.readyState !== NativeWebSocket.OPEN) throw new Error("游戏连接已断开");
     const bossStep = intent.t === "attackWorldBoss" || intent.t === "setAside" && intent.raid === true || intent.t === "walk" && trainer.boss.ownsRun();
-    const pill = bossStep && !document.hidden && !nativeHandoff && !trainer.boss.status().visible ? nativeBossJoinPill(document) : null;
+    const pill = bossStep && !pageIsHidden() && !nativeHandoff && !trainer.boss.status().visible ? nativeBossJoinPill(document) : null;
     if (pill) {
       handOffBossJoin(pill);
       return;
@@ -26329,7 +26361,7 @@ function nativeBossJoinControl(document2) {
   }
   function syncHotValidation() {
     const glyph = document.querySelector?.("[data-hot-pill] [data-hot-glyph]");
-    trainer.setHotDomSkill(glyph?.dataset?.skill ?? null, document.visibilityState === "hidden");
+    trainer.setHotDomSkill(glyph?.dataset?.skill ?? null, pageIsHidden());
   }
   window.getHotFollow = () => trainer.getHotFollow();
   window.setHotFollow = (patch) => {
@@ -29380,7 +29412,7 @@ ${e.gold} 金币 + ${e.shards} 碎片；成功率 ${(e.chance * 100).toFixed(1)}
       URL.revokeObjectURL(url);
     }
     heartbeat.onmessage = () => {
-      if (document.hidden) {
+      if (pageIsHidden()) {
         pump();
         updates.check();
       }
@@ -29398,11 +29430,11 @@ ${e.gold} 金币 + ${e.shards} 碎片；成功率 ${(e.chance * 100).toFixed(1)}
     });
   } catch {
   }
-  window.deepveinAwake = () => ({ ...awake, hidden: document.hidden });
-  let pageHidden = document.hidden;
-  document.addEventListener("visibilitychange", () => {
-    const returned = pageHidden && !document.hidden;
-    pageHidden = document.hidden;
+  window.deepveinAwake = () => ({ ...awake, hidden: pageIsHidden(), gameSeesVisible: !document.hidden });
+  let pageHidden = pageIsHidden();
+  visibility.onChange(() => {
+    const returned = pageHidden && !pageIsHidden();
+    pageHidden = pageIsHidden();
     if (!returned || !trainer.active && !trainer.recovery || trainer.awaitingWelcome || socket?.readyState !== NativeWebSocket.OPEN) return;
     foregroundSequence = trainer.snapshotSequence;
     trainer.syncAfter = trainer.snapshotSequence;
