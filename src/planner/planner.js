@@ -645,6 +645,11 @@ export function createPlanner(data) {
       if (!trail.length) {
         const improvement=upgrade(job.skill);
         if (improvement) return improvement;
+      } else if(!goal.mastery) {
+        // Supply work (food for fights, materials for a craft) skips gear
+        // projects, but a better tool already owned is still put on first.
+        const swap=ownedSwap(job.skill);
+        if(swap)return swap;
       }
       // A project can span many native backpack trips. Truncating its demand
       // here also truncates every upstream recipe and forces repeated swaps.

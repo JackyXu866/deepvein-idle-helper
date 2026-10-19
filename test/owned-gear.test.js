@@ -39,3 +39,11 @@ test('fighting as filler still puts on a better owned piece first (the legendary
   const next = planner.plan(worn, {skill: 'melee', target: 66, developmentFiller: true}, 'melee');
   assert.ok(!/已持有更好的/.test(next?.reason ?? ''), JSON.stringify(next?.intent));
 });
+
+test('supply work puts on a better owned tool first (an axe for the logs a fletching goal needs)', () => {
+  const planner = makePlanner(), d = planner.data, bank = d.banks[0];
+  const p = player(planner, {levels: {fletching: 1, woodcutting: 30}, hp: 100, x: bank.x, y: bank.y, activity: 'idle', path: null,
+    equipment: {axe: 90}, bank: {91: 1}});
+  const plan = planner.plan(p, {skill: 'fletching', target: 5, recipeId: 140, recipes: {fletching: 140}, developmentFiller: true}, 'melee');
+  assert.ok(plan?.intent?.itemId === 91 || /已持有更好的/.test(plan?.reason ?? ''), JSON.stringify([plan?.intent, plan?.label, plan?.reason]));
+});
