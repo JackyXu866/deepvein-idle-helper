@@ -19,7 +19,7 @@
 // src/version.js
 var SCRIPT_VERSION = "0.9.0";
 var SCRIPT_DISTRIBUTION = "github";
-var SCRIPT_BUILT = "10-18 21:07";
+var SCRIPT_BUILT = "10-19 00:05";
 
 // src/data/game-data.json
 var game_data_default = {
@@ -25696,6 +25696,11 @@ function nativeBossJoinControl(document2) {
     "pollPeek"
   ]);
   const recentRequests = { actions: [], queries: [] };
+  const connectionLog = [];
+  const noteConnection = (event, extra = {}) => {
+    connectionLog.push({ at: (/* @__PURE__ */ new Date()).toLocaleTimeString(), event, hidden: document.hidden, ...extra });
+    if (connectionLog.length > 20) connectionLog.shift();
+  };
   const rejectionKey = "deepvein-rejections-v1";
   let rejections = [], rejectionsSaved = true;
   function readRejections() {
@@ -26399,6 +26404,7 @@ function nativeBossJoinControl(document2) {
       // The last commands that actually left for the game (a refused one never appears).
       sent: recentRequests.actions.map((r) => ({ agoMs: now - r.time, ...r.intent })),
       housePoints: p?.housePoints ?? null,
+      connection: connectionLog.slice(),
       boss: trainer.boss.status(),
       history: trainer.history?.map((h) => `${new Date(h.time).toLocaleTimeString()} ${h.message}`) ?? null
     };
@@ -26423,6 +26429,8 @@ function nativeBossJoinControl(document2) {
       if (url.host !== location.host || url.pathname !== "/ws") return;
       if (socket) trainer.connectionLost();
       socket = this;
+      noteConnection("open");
+      this.addEventListener("close", (event) => noteConnection("close", { code: event.code, current: socket === this }));
       bossLoot.connectionOpened();
       this.addEventListener("message", (event) => {
         if (socket !== this || typeof event.data !== "string") return;

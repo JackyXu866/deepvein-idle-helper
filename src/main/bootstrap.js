@@ -115,6 +115,10 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
   const readOnly=new Set(['resync','marketDepth','marketBook','marketBooks','ping','netStats','friends','marketChart',
     'marketStock','marketHistory','inspect','leaderboard','guildInfo','pollPeek']);
   const recentRequests={actions:[],queries:[]};
+  // Game connection opens and closes, with whether the tab was hidden: tells a
+  // real drop apart from the game's own "离线期间" summary after a hidden spell.
+  const connectionLog=[];
+  const noteConnection=(event,extra={})=>{connectionLog.push({at:new Date().toLocaleTimeString(),event,hidden:document.hidden,...extra});if(connectionLog.length>20)connectionLog.shift();};
   const rejectionKey='deepvein-rejections-v1';
   let rejections=[],rejectionsSaved=true;
   function readRejections() {
@@ -554,7 +558,7 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
       plan:trainer.plan&&{label:trainer.plan.label,reason:trainer.plan.reason},
       // The last commands that actually left for the game (a refused one never appears).
       sent:recentRequests.actions.map(r=>({agoMs:now-r.time,...r.intent})),
-      housePoints:p?.housePoints??null,
+      housePoints:p?.housePoints??null,connection:connectionLog.slice(),
       boss:trainer.boss.status(),history:trainer.history?.map(h=>`${new Date(h.time).toLocaleTimeString()} ${h.message}`)??null};
   };
 
@@ -577,6 +581,8 @@ import {normalizeAutomation} from '../runtime/automation-policy.js';
       if (url.host!==location.host||url.pathname!=='/ws') return;
       if (socket) trainer.connectionLost();
       socket=this;
+      noteConnection('open');
+      this.addEventListener('close',event=>noteConnection('close',{code:event.code,current:socket===this}));
       bossLoot.connectionOpened();
       this.addEventListener('message',event=>{
         if (socket!==this||typeof event.data!=='string') return;
