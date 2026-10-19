@@ -290,3 +290,13 @@ test('an assumed outside raid with no sign of it for 2 minutes no longer holds t
   assert.ok(!after || !/玩家正在参加/.test(after.reason ?? ''), JSON.stringify(after));
   assert.notEqual(boss.status().phase, 'manual');
 });
+
+test('a join that waits says why: a harvest errand is not cut short', () => {
+  const {boss, you} = setup();
+  rise(boss, 1000 + 100000);
+  const errand = {...you, route: {jobId: 212, siteId: 74, errand: true}};
+  assert.equal(boss.next(errand, {interruptWalk: true}), null);
+  assert.match(boss.status().joinWait, /收获补种/);
+  assert.equal(boss.next({...you, route: {jobId: 1, siteId: 1}}, {interruptWalk: true})?.intent?.t, 'setAside');
+  assert.equal(boss.status().joinWait ?? null, null, 'cleared once it can go');
+});

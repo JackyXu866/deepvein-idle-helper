@@ -49,7 +49,7 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
   // participation choice (leave after a confirmed hit) and resumes the work.
   let handed=null;
   // When an outside raid was first assumed, and the last sign of any raid.
-  let externalSeenAt=null,raidSignalAt=null;
+  let externalSeenAt=null,raidSignalAt=null,joinWait=null;
   let tick=0,received=now(),fresh=false,playerId=null,snapshotAt=0,visibleBossId=null,observationSince=now();
   let nextRise=null; // server tick of the next announced spawn (`bossNext`)
   // Rounds are counted explicitly: a new spawn always starts a new round, and
@@ -306,17 +306,24 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
       }
     } else externalSeenAt=null;
     if(external||p.raidHeld)return wait('玩家正在参加世界 Boss，助手不接管也不收菜打断');
+    joinWait=null;
     if(!fresh||!boss||ignored===round)return null;
     // The player's time window and per-round skip chance (one draw per round).
     const verdict=policy.boss(key(boss),settings);
     policyReason=verdict==='outside'?`不在设定的参战时段（${settings.bossStart}–${settings.bossEnd}）`:
       verdict==='skip'?`本轮按 ${settings.skipPercent}% 概率跳过`:null;
     if(verdict!=='join')return null;
+    // Why a join waits, for the panel (cleared once it can go).
+    const hold=reason=>{joinWait=reason;return null;};
     const remaining=boss.until==null?null:boss.until-currentTick(),steps=Math.max(0,distance(p,boss)-3);
-    if(remaining!==null&&remaining<Math.max(15,steps*2+10))return null;
-    if(remaining===null&&steps>0)return null;
+    if(remaining!==null&&remaining<Math.max(15,steps*2+10))return hold('本轮剩余时间不够赶到 Boss');
+    if(remaining===null&&steps>0)return hold('等待服务器公布本轮结束时间');
     const walking=!p.route&&(p.path?.length||p.activity==='walking');
-    if(p.route?.errand||p.enhance||p.held||!p.route&&p.queue?.length||walking&&!interruptWalk)return null;
+    if(p.route?.errand)return hold('等收获补种跑完（中途打断会留下没补种的田）');
+    if(p.enhance)return hold('等本次强化结果');
+    if(p.held||!p.route&&p.queue?.length)return hold('游戏队列或搁置任务优先，等它处理完');
+    if(walking&&!interruptWalk)return hold('等玩家自己的行走结束');
+    joinWait=null;
     if(p.route)return action({t:'setAside',raid:true},'临时保留当前任务的剩余份额和原队列，再参加世界 Boss');
     if(distance(p,boss)<=3)return action({t:'attackWorldBoss'},'使用当前装备参加世界 Boss');
     const tile=approachTile(p,boss,0);
@@ -379,6 +386,7 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
       hit:run?.hit??handed?.hit??false,recentActivity:recentActivity()===true,lastActivityAt:run?.lastActivityAt??null,
       owned:!!run,until:boss?.until??run?.until??null,lastResult:copy(lastResult),
       policyReason:!run&&!external&&boss&&fresh?policyReason:null,
+      joinWait:!run&&!external&&!handed&&boss&&fresh?joinWait:null,
       nextIn:nextRise!=null&&nextRise>currentTick()?(nextRise-currentTick())*(data.tickMs??600)/1000:null}),
     // Round numbers restart with the page, so a done round is saved by its key,
     // and only an announced one (with an end time) is ever matched again.
