@@ -451,8 +451,13 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     if(currentId!=null&&ids.includes(planner.base(currentId))&&!bases.includes(planner.base(currentId)))bases.push(planner.base(currentId));
     const candidates=bases.flatMap(id=>variants(id).flatMap(quality=>Array.from({length:6},(_,plus)=>quality+plus*data.plusScale)));
     const books=scan(p,candidates),rate=planner.coinRate?.(p);if(!(rate>0))return null;
-    const horizon=Math.max(7200,goal?.horizon??0),baseline=evaluate(bases[0]);
+    const baseline=evaluate(bases[0]);
     if(!baseline)return null;
+    // Judged over the time the piece will be worn, as the payback check below
+    // and the investment table are. A fixed two hours made a gear purchase
+    // that costs about an hour of gold never come out ahead, so a worthwhile
+    // epic tool the table marked "值得，可做" was never bought.
+    const horizon=Math.max(7200,goal?.horizon??0,baseline.horizon??0);
     const self=planner.acquireEstimate(p,bases[0],1,profession);
     const benchmark=Math.max(baseline.before*horizon,baseline.after*Math.max(0,horizon-self.seconds),
       ...selfOptions.map(option=>evaluate(option.id).after*Math.max(0,horizon-option.seconds)));
