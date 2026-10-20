@@ -1000,7 +1000,7 @@ export function createPlanner(data) {
         ids:data.gear.filter(g=>g.slot===slot&&canWear(g.itemId)&&(!g.style||g.style===skill)&&
           (slot!=='weapon'||matchesProfessionWeapon(g,profession))&&
           gearScore(g.itemId+4*data.rarityScale+5*data.plusScale,skill)>gearScore(p.equipment[slot],skill)).map(g=>g.itemId),
-        score:id=>gearScore(id,skill),evaluate:id=>upgradeReturn(id,slot,skill,true)});
+        score:id=>gearScore(id,skill),evaluate:id=>upgradeReturn(id,slot,skill,true,true)});
       if (goal.upgrade) {
         const {slot}=goal.upgrade;let id=goal.upgrade.id;
         if(count(p,id)<=0) {
@@ -1073,7 +1073,7 @@ export function createPlanner(data) {
       }
       return null;
     }
-    function upgradeReturn(id,slot,skill,owned) {
+    function upgradeReturn(id,slot,skill,owned,workRate=false) {
       const recipe=made(base(id)).sort((a,b)=>a.levelReq-b.levelReq)[0],next={...p,equipment:{...p.equipment,[slot]:id}};
       // Native equipping a two-handed weapon removes the shield.
       if (slot==='weapon'&&equipmentStats(id)?.twoHanded) next.equipment.shield=null;
@@ -1108,8 +1108,15 @@ export function createPlanner(data) {
         const task=jobs.find(j=>j.id===goal.recipes?.[skill])??jobs.filter(j=>j.skill===skill&&unlocked(j)&&!j.grow)
           .sort((a,b)=>jobEstimate(b).xp/jobEstimate(b).seconds-jobEstimate(a).xp/jobEstimate(a).seconds)[0];
         if (!task) return {affordable:false,seconds:cost,payback:Infinity};
-        before=strategy.routeEstimate(p,task,50).rate?.xp??0;
-        after=strategy.routeEstimate(next,task,50).rate?.xp??0;
+        // A bought tool speeds its own action only. The route estimate also
+        // counts gathering the inputs (Shrimp held for a planned batch count as
+        // still to be caught), which diluted a pan's +13.5% to +3.4%, so a
+        // worthwhile epic pan was never bought: market purchases are judged on
+        // the work itself, as the investment table is. A tool to be made keeps
+        // the route estimate, which weighs its own gathering against the gain.
+        const work=state=>{const e=strategy.estimateWork(state,task);return e.seconds>0?e.xp/e.seconds:0;};
+        before=workRate?work(p):strategy.routeEstimate(p,task,50).rate?.xp??0;
+        after=workRate?work(next):strategy.routeEstimate(next,task,50).rate?.xp??0;
       }
       const gain=after-before,payback=gain>0?Math.max(cost,(cost*after-(preparation.xp??0))/gain):Infinity;
       // Judge gear over the time it will actually be worn, not the planner's
