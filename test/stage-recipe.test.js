@@ -1,0 +1,29 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {makePlanner, player} from './helpers.js';
+
+// A cooking stage to 65 being prepared with Shrimp, set up before cooking 60
+// unlocked Lobster (36 XP per cook against 4, about 4x the XP per minute even
+// counting the fishing). 21,901 Shrimp are already in the bank.
+function cook(preparing) {
+  const planner = makePlanner(), d = planner.data, R = d.rarityScale;
+  const p = player(planner, {levels: {cooking: 64, fishing: 66}, coins: 1.7e6, hp: 100, x: d.banks[0].x, y: d.banks[0].y,
+    path: null, activity: 'idle', equipment: {pan: 363 + 2 * R}, bank: {20: 21901, 25: 453}});
+  const goal = {skill: 'cooking', target: 65, growth: true, development: true, stage: 65, budget: {coins: 0, items: {}},
+    craftPreparation: {jobId: preparing, amount: 37622}, recipes: {cooking: preparing}, recipeRarities: {cooking: 0}, recipeLevels: {cooking: 64}};
+  planner.plan(p, goal, 'melee');
+  return goal;
+}
+
+test('a stage prepared with a much weaker recipe switches to the better one', () => {
+  const goal = cook(61); // Cook shrimp
+  assert.equal(goal.recipes.cooking, 66, 'Cook lobster');
+  assert.equal(goal.craftPreparation?.jobId, 66);
+  assert.ok(goal.craftPreparation.amount < 6000, `Lobster cooks for the stage: ${goal.craftPreparation.amount}`);
+});
+
+test('a stage already on the best recipe keeps its preparation', () => {
+  const goal = cook(66);
+  assert.equal(goal.recipes.cooking, 66);
+  assert.equal(goal.craftPreparation?.jobId, 66);
+});

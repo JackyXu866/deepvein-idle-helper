@@ -818,6 +818,30 @@ export function createPlanner(data) {
       goal.recipes ??= {};
       goal.recipeRarities??={};
       goal.recipeLevels??={};
+      // A stage's recipe is chosen over the whole stage: XP per second with the
+      // gathering of every input the stage still lacks. The 20-craft score
+      // above counts stock as free, so 2,000 Shrimp in the bank beat Lobster
+      // although the stage needed 45,000 Shrimp cooks. A preparation already
+      // under way is dropped when another recipe is clearly better (Lobster,
+      // unlocked at cooking 60, gives about 4x the XP per minute even with the
+      // fishing); what was gathered stays in the bank.
+      const stageRates=new Map();
+      const stageRate=j=>{
+        if(stageRates.has(j))return stageRates.get(j);
+        const e=jobEstimate(j),n=stageCrafts(j);
+        const supply=j.inputs.reduce((sum,i)=>{const missing=Math.max(0,i.qty*n-count(p,i.itemId));
+          return sum+(missing>0?missing*cost(i.itemId,trail,missing):0);},0);
+        const value=e.xp>0?e.xp*n/(e.seconds*n+supply):0;
+        stageRates.set(j,value);return value;
+      };
+      const plainBest=stagePlan?choices.filter(j=>!j.rarity&&j.inputs.length&&!j.grow).sort((a,b)=>stageRate(b)-stageRate(a)||a.id-b.id)[0]:null;
+      if(stagePlan&&plainBest&&goal.craftPreparation&&!goal.craftPreparation.rarity&&goal.craftPreparation.jobId!==plainBest.id) {
+        const held=choices.find(j=>j.id===goal.craftPreparation.jobId&&!j.rarity);
+        if(!held||stageRate(plainBest)>=1.5*stageRate(held)) {
+          delete goal.craftPreparation;
+          if(goal.recipes?.[skill]===held?.id)delete goal.recipes[skill];
+        }
+      }
       const preparation=prepareBatch?goal.craftPreparation:null;
       const prepared=choices.find(j=>j.id===preparation?.jobId&&(j.rarity??0)===(preparation.rarity??0));
       const cached=choices.find(j=>j.id===goal.recipes[skill]&&(j.rarity??0)===(goal.recipeRarities[skill]??0))??
@@ -829,8 +853,9 @@ export function createPlanner(data) {
         score(choices[0])>score(cached)*1.1;
       // Stage plan: gather until the owned crafts of every quality cover the
       // stage, then craft them all, the higher qualities first (more XP each).
-      const stageBase=stagePlan?(prepared&&!prepared.rarity?prepared:cached&&!cached.rarity&&!changed?cached:
-        choices.find(j=>!j.rarity&&j.inputs.length&&!j.grow)):null;
+      const stageBase=stagePlan?(prepared&&!prepared.rarity?prepared:
+        cached&&!cached.rarity&&!changed?cached:
+        plainBest):null;
       const stageReady=!!stageBase&&ownedCrafts(stageBase)>=stageCrafts(stageBase);
       if(stageReady)delete goal.craftPreparation;
       const quality=stageReady?choices.filter(j=>j.rarity>0).sort((a,b)=>score(b)-score(a))[0]:null;
