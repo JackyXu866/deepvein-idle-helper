@@ -55,7 +55,7 @@ export function createQuests(data,planner) {
     const held=job&&job.inputs.length&&!job.grow?Math.min(crafts,PAIR_TIERS.filter(t=>t>0)
       .reduce((n,t)=>n+(planner.crafting?.available?.(p,job,t,{},crafts)??0),0)):0;
     const rest=crafts-held;
-    const estimate=rest>0?planner.routeEstimate(p,job??{monsterId:q.monsterId},rest,{style,buyInputs:true}):
+    const estimate=rest>0?planner.routeEstimate(p,job??{monsterId:q.monsterId},rest,{style,buyInputs:true,credit:false}):
       {seconds:0,xp:0,coins:0,budget:{coins:0,items:{}},recipes:{[skill]:job.id},supplyRecipes:{},purchases:{}};
     if(held>0)estimate.seconds+=held*perAction(work),estimate.xp+=held*work.xp;
     const seconds=estimate.seconds,left=(q.expiresAtTick-p.lastTick)*data.tickMs/1000;

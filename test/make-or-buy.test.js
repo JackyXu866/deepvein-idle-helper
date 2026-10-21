@@ -23,8 +23,8 @@ test('making from bought materials is weighed against buying, with a bias for th
   assert.equal(planner.crafting.makeBeatsBuying(p, job.output.itemId, 10, make.seconds / (MAKE_BIAS - .05)), true,
     'buying a little cheaper still loses to making (the XP)');
   assert.equal(planner.crafting.makeBeatsBuying(p, job.output.itemId, 10, make.seconds / 2), false, 'buying at half: buy');
-  const training = planner.crafting.fromBought(p, job.output.itemId, 10, {skill: 'smithing', rate: {xp: 1}});
-  assert.ok(training.seconds < make.seconds, 'the XP counts in full while smithing is the goal');
+  const quest = planner.crafting.fromBought(p, job.output.itemId, 10, {quest: {jobId: job.id}});
+  assert.ok(quest.seconds > make.seconds, 'a quest credits no XP: making costs its full time');
 });
 
 test('a direct purchase is declined when making it from bought materials is no dearer', () => {

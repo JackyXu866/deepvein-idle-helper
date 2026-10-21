@@ -1,5 +1,5 @@
 import {autoUsableMaterial, craftRecipe} from './quality.js';
-import {formulaWork, perAction} from './rates.js';
+import {formulaWork} from './rates.js';
 import {goldToSeconds} from './gold.js';
 import {baseId, distance, packCapacity, packQty, packUsed, rarityOf} from './items.js';
 
@@ -8,31 +8,21 @@ import {baseId, distance, packCapacity, packQty, packUsed, rarityOf} from './ite
 export const MAKE_BIAS=1.15;
 
 export function createCrafting(data,planner) {
-  // Seconds (gold as time) to craft `qty` of `id` from bought materials, one
-  // recipe level down: held inputs at what they would sell for, missing ones
-  // at their market ask, plus the crafting time; the XP counts in full when
-  // that skill is the current goal. Infinity when no recipe or input price.
+  // Seconds to make `qty` of `id` by its cheapest recipe, by the shared input
+  // cost (input-cost.js): inputs from stock at their sale value, bought, or
+  // gathered and made, with the XP of trained skills credited. Infinity when
+  // it cannot be made.
   function fromBought(p,id,qty,goal=null) {
-    const tier=rarityOf(data,id),levels=planner.levels(p),rate=planner.coinRate?.(p)??0;
+    const tier=rarityOf(data,id),levels=planner.levels(p),credit=!goal?.quest&&!goal?.itemTarget;
     let best={seconds:Infinity,job:null};
     for(const original of data.jobs.filter(j=>j.output.itemId===baseId(data,id)&&j.inputs.length&&!j.grow&&levels[j.skill]>=j.levelReq)) {
       const job=craftRecipe(data,original,tier);if(!job)continue;
-      const n=Math.ceil(qty/job.output.qty);
-      let seconds=0;
-      for(const input of job.inputs) {
-        const need=input.qty*n,held=Math.min(need,Math.max(0,planner.count(p,input.itemId))),short=need-held;
-        if(held>0)seconds+=rate>0?goldToSeconds(held*planner.saleValue(p,input.itemId,held),rate):0;
-        if(short>0)seconds+=goldToSeconds(short*(planner.marketBuyPrice?.(p,input.itemId,short)??Infinity),rate);
-      }
-      const e=formulaWork(data,planner,p,job,levels);
-      seconds+=n*perAction(e);
-      if(goal?.skill===job.skill&&goal.rate?.xp>0)seconds-=n*e.xp/goal.rate.xp;
+      const seconds=planner.inputCost.make(p,job,qty,{credit}).effective;
       if(seconds<best.seconds)best={seconds,job:original};
     }
     return best;
   }
-  // Whether making `id` from bought materials beats buying it at
-  // `buySeconds` (its price as time), with the crafting XP weighed in.
+  // Whether making `id` beats buying it at `buySeconds` (its price as time).
   const makeBeatsBuying=(p,id,qty,buySeconds,goal=null)=>fromBought(p,id,qty,goal).seconds<=buySeconds*MAKE_BIAS;
   function estimate(p,id,qty,{reserve={},buy=false,coins=0}={}) {
     const stock={...p.bank},levels=planner.levels(p);

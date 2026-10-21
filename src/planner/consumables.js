@@ -107,27 +107,24 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
   const brewSite=recipe=>data.sites.filter(s=>s.jobIds.includes(recipe.id)).sort((a,b)=>distance(p,a)-distance(p,b))[0];
   const held=id=>Math.max(0,planner.count(p,id)-(budget.items[id]??0));
   // Cost per bottle of each way to cover a shortfall of `qty`: buying the
-  // potion at its ask, or brewing it — held ingredients at what they would sell
-  // for, missing ones at their ask, the brewing and trip time at the gold rate,
-  // less the herblore training time its XP saves while herblore is the goal.
+  // potion at its ask, or brewing it by the shared input cost (input-cost.js)
+  // from held ingredients (at their sale value) and bought ones, with the trip,
+  // as gold at the gold rate; herblore XP is credited while herblore is trained.
   function supplyCosts(itemId,qty,tier=0) {
     const buy=planner.marketAsk?.(p,itemId)??Infinity,base=recipeFor(itemId),site=base&&brewSite(base);
     const recipe=base&&craftRecipe(data,base,tier);
     if(!recipe||!site||planner.levels(p).herblore<recipe.levelReq)return {buy:buy||Infinity,brew:Infinity,missing:[]};
-    let coins=0;const missing=[];
+    const missing=[];
     for(const input of recipe.inputs) {
-      const need=input.qty*qty,use=Math.min(need,held(input.itemId)),short=need-use;
-      if(use>0)coins+=use*planner.saleValue(p,input.itemId,use);
-      if(short>0) {
-        const ask=planner.marketAsk?.(p,input.itemId);
-        coins+=ask>0?short*ask:Infinity;missing.push({itemId:input.itemId,qty:short,ask});
-      }
+      const short=input.qty*qty-Math.min(input.qty*qty,held(input.itemId));
+      if(short>0)missing.push({itemId:input.itemId,qty:short,ask:planner.marketAsk?.(p,input.itemId)});
     }
-    const e=formulaWork(data,planner,p,recipe);
+    const credit=!goal?.quest&&!goal?.itemTarget;
+    const stock=Object.fromEntries(recipe.inputs.map(i=>[i.itemId,held(i.itemId)]));
+    const made=planner.inputCost.make(p,recipe,qty*recipe.output.qty,{style:profession,credit,stock,buyOnly:true});
     const tick=data.tickMs/1000,trip=(distance(p,site)+distance(site,nearestBank(data,site).approach))*tick;
-    const training=goal?.skill==='herblore'&&goal.rate?.xp>0?qty*e.xp/goal.rate.xp:0;
-    const seconds=qty*perAction(e)+trip-training;
-    return {buy:buy||Infinity,brew:(coins+secondsToGold(seconds,coinRate))/qty,missing,training:training>0};
+    const training=made.xp>0;
+    return {buy:buy||Infinity,brew:Number.isFinite(made.effective)?secondsToGold(made.effective+trip,coinRate)/qty:Infinity,missing,training};
   }
   // Brew from held ingredients, only where switching task costs nothing: no
   // route, or the plan replaces it.

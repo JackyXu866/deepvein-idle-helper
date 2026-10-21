@@ -66,6 +66,7 @@ test('swift is kept up on a crafting run too: its worth is the run\'s walking sh
 function priced({potion, values, asks}) {
   const s = brewing();
   s.planner.marketAsk = (_p, id) => id === SWIFT ? potion : asks?.[id] ?? null;
+  s.planner.marketBuyPrice = (_p, id) => asks?.[id] ?? Infinity;
   s.planner.marketUnitValue = (_p, id) => values?.[id] ?? 0;
   const calls = [];
   s.planner.restockPotion = (_p, id, _goal, qty) => { calls.push(['potion', id, qty]); return {intent: {t: 'marketBuy', itemId: id}}; };
@@ -89,12 +90,14 @@ test('when buying the missing ingredient and brewing is cheaper, the ingredient 
   assert.deepEqual(calls[0], ['ingredient', husk, 20]);
 });
 
-test('herblore XP counts while herblore is the goal: brewing wins even with dearer ingredients', () => {
-  const s = brewing(), [sage, husk] = s.recipe.inputs.map(i => i.itemId);
-  const {planner, p, plan, recipe} = priced({potion: 1980, values: {[sage]: 1500, [husk]: 600}});
-  const result = planner.consumable(p, {skill: 'herblore', rate: {xp: 1}, budget: {coins: 0, items: {}}}, 'melee', plan);
-  assert.equal(result?.intent?.jobId, recipe.id, JSON.stringify(result));
-  assert.match(result.reason, /炼药练级/);
+test('herblore XP is credited at herblore\'s best rate, except for a quest', () => {
+  const {planner, p, recipe} = brewing(), [sage, husk] = recipe.inputs.map(i => i.itemId);
+  const stock = {[sage]: 8, [husk]: 8};
+  const trained = planner.inputCost.make(p, recipe, 8, {style: 'melee', stock, buyOnly: true});
+  const quest = planner.inputCost.make(p, recipe, 8, {style: 'melee', stock, buyOnly: true, credit: false});
+  const best = planner.inputCost.skillRate(planner.inputCost.context(p, {style: 'melee'}), 'herblore');
+  assert.ok(trained.xp > 0 && quest.xp === 0);
+  assert.ok(Math.abs(quest.effective - trained.effective - trained.xp / best) < 1e-6, 'credit = XP / best herblore rate');
 });
 
 test('the brew runs to its end before the plan resumes', () => {

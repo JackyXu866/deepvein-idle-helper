@@ -1,6 +1,7 @@
 import {PROFESSIONS, canWear as canWearWith, gearRequirementOf, matchesProfessionWeapon, professionSkill, starterWeapon} from './professions.js';
 import {LEGENDARY, PAIR_TIERS, autoUsableMaterial, rarityPower, craftRecipe, mergeHold, potionSaleWorth, qualityHold, qualityWorth} from './quality.js';
 import {createLevels} from './levels.js';
+import {createInputCost} from './input-cost.js';
 import {combatSafe, combatStats, formulaWork, weaponStyle} from './rates.js';
 import {action, waiting} from './result.js';
 import {RARITY_NAMES, qualityName, baseId, merchantPrice, mountScale, seedVendorPrice, distance, itemLabel, itemName, nearBank as nearBankAt, nearestBank as nearestBankTo, packCapacity, packQty, packUsed, plusOf, qualityPrefix, rarityOf} from './items.js';
@@ -586,22 +587,19 @@ export function createPlanner(data) {
         return {job,seconds:strategy.routeEstimate(p,job,attempts,{style:profession}).seconds};
       }).filter(c=>Number.isFinite(c.seconds)).sort((a,b)=>a.seconds-b.seconds||a.job.id-b.job.id)[0];
     }
-    function cost(id, trail=[],quantity=1) {
-      if (trail.includes(id)) return Infinity;
-      const marketCost=goldToSeconds(api.marketBuyPrice?.(p,id,Math.max(1,Math.ceil(quantity)))??Infinity,api.coinRate(p));
-      const producers = made(id).filter(unlocked);
-      if (producers.length) return Math.min(marketCost,...producers.map(j => {
-        if(j.grow) {
-          if(!allowedCrop(j)&&!farmPlots(p).some(f=>f.job.id===j.id))return Infinity;
-          const seed=hasSeed(p,j)||Object.values(p.plots??{}).some(plot=>base(plot.seedItemId)===j.inputs[0].itemId);
-          return (jobTime(j)+(seed?0:cost(j.inputs[0].itemId,[...trail,id])))/(4+lv.farming/100);
-        }
-        return (jobEstimate(j).seconds+j.inputs.reduce((sum,i)=>sum+i.qty*cost(i.itemId,[...trail,id]),0))/jobEstimate(j).commonOutput;
-      }));
-      if (monsters.some(m=>m.drop===id)) return Math.min(marketCost,60);
-      const bonuses = jobs.filter(j=>unlocked(j)&&j.bonus?.itemId===id);
-      return Math.min(marketCost,bonuses.length ? Math.min(...bonuses.map(j=>jobTime(j)/j.bonus.chance)) : 3600);
-    }
+    // The shared input cost (input-cost.js) for this plan: the profession's
+    // trained skills credit their XP, except for quests and item targets.
+    function inputOptions(trail){return {style:profession,credit:!goal.quest&&!goal.itemTarget,trail,
+      // A crop: one growth per field share, plus its seed unless one is held.
+      grow:(j,seen)=>{
+        if(!allowedCrop(j)&&!farmPlots(p).some(f=>f.job.id===j.id))return Infinity;
+        const seed=hasSeed(p,j)||Object.values(p.plots??{}).some(plot=>base(plot.seedItemId)===j.inputs[0].itemId);
+        return (jobTime(j)+(seed?0:cost(j.inputs[0].itemId,seen)))/(4+lv.farming/100);
+      }};}
+    // Seconds per unit of an input when `quantity` are needed, stock aside.
+    function cost(id,trail=[],quantity=1){return api.inputCost.unitSeconds(p,id,quantity,inputOptions(trail));}
+    // `n` crafts of a recipe, its inputs got the cheapest way (stock at sale value).
+    function recipeCost(j,n,trail=[]){return api.inputCost.recipe(p,j,n,inputOptions(trail));}
     function jobTime(job) {
       const e=jobEstimate(job);
       return e.seconds/e.success + (job.grow??0)/Math.max(1,farmFields(p).length)*data.tickMs/1000;
@@ -763,11 +761,14 @@ export function createPlanner(data) {
       const score = j => {
         if(scores.has(j))return scores.get(j);
         const e=jobEstimate(j),n = Math.min(20,j.rarity?trainingLimit(j):50,Math.ceil(neededXp/(j.grow?j.xp:e.xp)));
-        const ingredients = j.rarity?Math.max(0,api.crafting.estimate({...p,bank:{...p.bank,[j.output.itemId]:0},
-          pack:p.pack.filter(i=>i.itemId!==j.output.itemId)},j.output.itemId,n*j.output.qty,{reserve:qualityReserve()}).seconds-e.seconds*n):
-          j.inputs.reduce((sum,i)=>sum+Math.max(0,i.qty*n-count(p,i.itemId))*cost(i.itemId,trail,Math.max(0,i.qty*n-count(p,i.itemId))),0);
         const travel = distance(p,siteFor(j))*data.tickMs/1000;
-        const value=(j.grow?j.xp:e.xp)*n/((j.grow?jobTime(j):e.seconds)*n+ingredients+travel);
+        let value;
+        if(j.rarity) {
+          const ingredients=Math.max(0,api.crafting.estimate({...p,bank:{...p.bank,[j.output.itemId]:0},
+            pack:p.pack.filter(i=>i.itemId!==j.output.itemId)},j.output.itemId,n*j.output.qty,{reserve:qualityReserve()}).seconds-e.seconds*n);
+          value=e.xp*n/(e.seconds*n+ingredients+travel);
+        } else if(j.grow||!j.inputs.length) value=(j.grow?j.xp:e.xp)*n/((j.grow?jobTime(j):e.seconds)*n+travel);
+        else {const made=recipeCost(j,n,trail);value=made.xp/(made.seconds+travel);}
         scores.set(j,value);return value;
       };
       choices.sort((a,b)=>score(b)-score(a)||a.id-b.id);
@@ -822,10 +823,8 @@ export function createPlanner(data) {
       const stageRates=new Map();
       const stageRate=j=>{
         if(stageRates.has(j))return stageRates.get(j);
-        const e=jobEstimate(j),n=stageCrafts(j);
-        const supply=j.inputs.reduce((sum,i)=>{const missing=Math.max(0,i.qty*n-count(p,i.itemId));
-          return sum+(missing>0?missing*cost(i.itemId,trail,missing):0);},0);
-        const value=e.xp>0?e.xp*n/(e.seconds*n+supply):0;
+        const made=recipeCost(j,stageCrafts(j),trail);
+        const value=made.seconds>0?made.xp/made.seconds:0;
         stageRates.set(j,value);return value;
       };
       const plainBest=stagePlan?choices.filter(j=>!j.rarity&&j.inputs.length&&!j.grow).sort((a,b)=>stageRate(b)-stageRate(a)||a.id-b.id)[0]:null;
@@ -1620,7 +1619,7 @@ export function createPlanner(data) {
   api.enhancementTraining=createEnhancementTraining(data,api);
   const strategy=createStrategy(data,api);
   api.crafting=createCrafting(data,api);
-  Object.assign(api,{chooseGoal:strategy.chooseGoal,routeEstimate:strategy.routeEstimate,combatOptions:strategy.combatOptions,
+  Object.assign(api,{inputCost:createInputCost(data,api),chooseGoal:strategy.chooseGoal,routeEstimate:strategy.routeEstimate,combatOptions:strategy.combatOptions,
     candidates:strategy.candidates,estimateWork:strategy.estimateWork,setMeasurements:strategy.setMeasurements,rateSource:strategy.rateSource,routeMeasurement:strategy.routeMeasurement,
     acquireEstimate:(p,id,qty,style='magic')=>rarity(id)>0?api.crafting.estimate(
       {...p,bank:{...p.bank,[id]:0},pack:p.pack.filter(i=>i.itemId!==id)},id,qty,{buy:true}):

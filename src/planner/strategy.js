@@ -74,7 +74,7 @@ export function createStrategy(data, planner) {
       return (e.seconds+j.inputs.reduce((n,i)=>n+i.qty*supplyCost(p,i.itemId,next),0))/e.commonOutput;
     })):Infinity;
   }
-  function routeEstimate(p,jobOrId,amount=20,{style='magic',ignoreStock=false,includeTravel=true,completeTrips=false,buyInputs=false}={}) {
+  function routeEstimate(p,jobOrId,amount=20,{style='magic',ignoreStock=false,includeTravel=true,completeTrips=false,buyInputs=false,credit=true}={}) {
     const root=typeof jobOrId==='object'?jobOrId:jobs.find(j=>j.id===jobOrId);
     const lv=planner.levels(p), stock={}, budget={}, recipes={}, supplyRecipes={};
     if (!ignoreStock) {
@@ -135,9 +135,11 @@ export function createStrategy(data, planner) {
       if(buyInputs&&id!==root?.output?.itemId&&id!==root?.itemId) {
         const qty=Math.ceil(missing),cost=qty*(planner.marketBuyPrice?.(p,id,qty+(purchases[id]??0))??Infinity);
         const unit=goldToSeconds(cost,planner.coinRate?.(p)??0)/qty,allowance=planner.marketAllowance?.(p)??0;
-        // Crafting it from bought materials (with the XP) beats buying it: fall
-        // through to the recipe, whose inputs get this same choice.
-        const make=Number.isFinite(unit)&&planner.crafting?.makeBeatsBuying({...p,x:position.x,y:position.y,bank:stock,pack:[]},id,qty,unit*qty);
+        // The shared input cost (input-cost.js) prefers making or gathering it,
+        // with the XP of trained skills credited: fall through to the recipe,
+        // whose inputs get this same choice.
+        const make=Number.isFinite(unit)&&!!planner.inputCost&&planner.inputCost.acquire(planner.inputCost.context(
+          {...p,x:position.x,y:position.y},{style,credit,stock:{}}),id,missing).source!=='buy';
         if(!make&&Number.isFinite(unit)&&cost>0&&marketCoins+cost+Math.max(0,-coins-marketCoins)<=allowance) {
           const bank=bankAt(position),to=bank.approach??bank;
           const purchaseSeconds=unit*qty+(includeTravel?distance(position,to)*tick:0);
