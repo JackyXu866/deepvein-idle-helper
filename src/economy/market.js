@@ -4,6 +4,7 @@ import {POTIONS, foodEffects, foodHealing} from '../planner/supplies.js';
 import {inventoryBudget, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
 import {goldToSeconds, maxPrice, payback, secondsToGold} from '../planner/gold.js';
 import {bankTripSeconds, dayTicks as dayTicksOf, playerQueued, distance, itemLabel, itemName, merchantPrice, minListPrice, netProceeds, plusOf, rarityOf, reachableQty, stockQty, tradableBase} from '../planner/items.js';
+import {MARKET_HISTORY_KEY, createMarketHistory} from './market-history.js';
 
 // Price grid (client Nb/Vn/ih/Zm; refusal 'market-price-step'): a price must be
 // a multiple of a step that grows with it: 1 below 100, then 2, 5 or 10 times
@@ -27,7 +28,7 @@ export function priceUp(price) {
 
 // Limit orders can rest after a partial fill. Track only orders we submitted;
 // inventory removed into escrow is not evidence of a sale or realized income.
-export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=false,capacitySales=false,salePricing='list'}={}) {
+export function createMarket(data,planner,{now=Date.now,storage=null,historyStorage=null,autoSell=false,capacitySales=false,salePricing='list'}={}) {
   const key='deepvein-market-v1',ttl=15000,waitMs=4000,coolMs=30000;
   const reviewMs=1800000,recycleMs=7200000;
   const ironmanReason='铁人角色不支持普通玩家市场交易；保留盈余，请手动整理仓库';
@@ -50,6 +51,25 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
   // Planning valuations only; every actual order re-checks the live book.
   let feed=null;
   const feedTtl=900000;
+  // Several days of feed prices and observed trades (market-history.js). Only
+  // the page records and saves it (`historyStorage`, its own key, never the
+  // planning ledger); the Worker reads the copy handed over with the runtime.
+  const history=createMarketHistory({now});
+  let historySavedAt=-Infinity;
+  if(historyStorage)try {history.load(historyStorage.getItem(MARKET_HISTORY_KEY));}catch{}
+  function saveHistory(force=false) {
+    if(!historyStorage||!force&&now()-historySavedAt<300000)return;
+    historySavedAt=now();
+    try {historyStorage.setItem(MARKET_HISTORY_KEY,history.text());}catch{}
+  }
+  // A price more than 20% above both the week's and the last day's average is
+  // a spike: valuations of future output use that ceiling instead (a real bid
+  // is still sold into at its price). Without history the price stands.
+  const spikeMargin=1.2;
+  function steady(id,price,side) {
+    const typical=Math.max(history.averagePrice(id,{side})??0,history.averagePrice(id,{side,hours:24})??0);
+    return typical>0&&price>typical*spikeMargin?Math.floor(typical*spikeMargin):price;
+  }
   let need=null,recentOwned=[],reviewOrderId=null,status=salesEnabled?
     '市场优先；挂售至少 2 小时并重新定价后才回收':'平时出售已关闭，物品留给玩家处理';
   const persist=()=>{
@@ -149,6 +169,8 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
         const ask=[...rows(message.asks)].sort((a,b)=>a.price-b.price)[0];
         tops.set(message.itemId,{itemId:message.itemId,ask:ask?.price??null,askQty:ask?.qty??0,at:now()});
         requests.delete(message.itemId);
+        const book=quotes.get(message.itemId);
+        if(book.tradesKnown&&history.recordTrades(message.itemId,book.trades,frame.tick,data.tickMs))saveHistory();
       } else if(message.t==='marketFilled'&&state&&valid(message.qty)&&Number.isFinite(message.coins)) {
         const signature=JSON.stringify(message),occurrence=fillOccurrences.get(signature)??0;
         fillOccurrences.set(signature,occurrence+1);
@@ -252,7 +274,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       // Price feed: the top bid, only for what its buyers can take after stock.
       const row=feedRow(itemId);
       if(row?.bid&&row.bidQty-quantity(p,itemId)>=qty) {
-        const value=netOf(row.bid,qty);
+        const value=netOf(steady(itemId,row.bid,'bid'),qty);
         if(value>floor*qty&&value>merchant.net)return {net:value,qty,feed:true};
       }
       return merchant;
@@ -262,7 +284,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     let stock=quantity(p,itemId),remaining=qty,net=0,bidValue=null;
     for(const bid of bidsHighFirst(book)) {
       const old=Math.min(stock,bid.qty),take=Math.min(remaining,bid.qty-old);
-      const proceeds=netOf(bid.price,take);
+      const proceeds=netOf(steady(itemId,bid.price,'bid'),take);
       if(take>0&&proceeds<=floor*take)continue;
       stock-=old;remaining-=take;net+=proceeds;
       if(!remaining){bidValue={net,qty};break;}
@@ -272,9 +294,9 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     if(pricing==='list'&&book.tradesKnown===true) {
       const listing=listingQuote(p,book,floor);
       const room=listing?listing.demand.volume-listing.demand.ahead-quantity(p,itemId):0;
-      const best=bidsHighFirst(book)[0]?.price;
-      if(listing&&room>=qty&&listingWorthIt(listing,best)&&netOf(listing.price,qty)>floor*qty&&
-        netOf(listing.price,qty)>(bidValue?.net??0))return {net:netOf(listing.price,qty),qty,listed:true};
+      const best=bidsHighFirst(book)[0]?.price,listed=listing&&netOf(steady(itemId,listing.price,'ask'),qty);
+      if(listing&&room>=qty&&listingWorthIt(listing,best)&&listed>floor*qty&&
+        listed>(bidValue?.net??0))return {net:listed,qty,listed:true};
     }
     return bidValue&&bidValue.net>merchant.net?bidValue:merchant;
   }
@@ -299,7 +321,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const live=quotes.get(id);
     const bid=live&&now()-live.at<ttl?bidsHighFirst(live).find(row=>row.qty>=qty)?.price:
       feedRow(id)?.bidQty>=qty?feedRow(id).bid:null;
-    return Math.max(merchant,bid?netOf(bid,qty)/qty:0);
+    return Math.max(merchant,bid?netOf(steady(id,bid,'bid'),qty)/qty:0);
   }
   // Freshness counts from our fetch; a feed whose own timestamp is far from it
   // (an old cached copy, or a badly wrong clock) is not used.
@@ -313,7 +335,14 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       if(!valid(id)||!row||typeof row!=='object')continue;
       items[id]={ask:price(row.lowestSell),askQty:amount(row.sellQty),bid:price(row.highestBuy),bidQty:amount(row.buyQty)};
     }
-    feed={at,items};return true;
+    feed={at,items};
+    // History keeps tradable ids, ordinary items before their quality and
+    // enhancement variants, sampled at the feed's own time.
+    const kept=Object.entries(items).map(([key,row])=>[Number(key),row]).filter(([id])=>
+      !!data.items[planner.base(id)]&&tradableBase(data,planner.base(id))).sort(([a],[b])=>
+      (a!==planner.base(a))-(b!==planner.base(b))||a-b);
+    if(history.recordFeed(kept,generated))saveHistory(true);
+    return true;
   }
   const feedRow=id=>feed&&now()-feed.at<feedTtl?feed.items[id]??null:null;
   // Top of the book for one id: a fresh live top (under a minute old), else
@@ -764,7 +793,11 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
         label:`滞销普通盈余 · ${itemName(data,id)} × ${safeQty}，系统回收`,
         reason:`最新买单没有更高税后收益；近 2 小时可见有效成交 ${demand.volume}，同价或更低卖量 ${demand.ahead}。只处理已扣除保留量的普通盈余`});
     }
-    const qty=Math.min(safeQty,demand.volume>0?Math.max(1,demand.volume-demand.ahead):100);
+    // Without recent trades, list at most the observed daily turnover (once
+    // trades have been watched for a day), not a blind hundred.
+    const daily=history.dailyVolume(id);
+    const qty=Math.min(safeQty,demand.volume>0?Math.max(1,demand.volume-demand.ahead):
+      daily==null?100:Math.max(1,Math.min(100,Math.floor(daily))));
     if(valid(price)&&price<=1e9&&net(price,qty)>intent.floor*qty) {
       status='市场挂卖；每 30 分钟顺路复核降价，累计至少 2 小时才回收';
       return scoped(atBank(p,{t:'marketSell',itemId:id,qty,price},
@@ -1040,10 +1073,13 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
   const summary=()=>`${status}${buybackSummary()}${feedSummary()}；成交净收入 ${state?.income??0}，采购支出 ${state?.spent??0}，自有挂单 ${Object.keys(state?.owned??{}).length}；近一小时补药承诺 ${potionBudgetSpent()}`+
     (procurement?.enabled?`；按收益／节时采购，无固定金币底线和小时限额；近一小时承诺 ${purchaseSpent()}`:'');
   function runtime(value) {
-    if(value) {({saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status}=value);if(value.pricing)pricing=value.pricing;if('buyback' in value)buyback=value.buyback;if('feed' in value)feed=value.feed;state=playerId===null?null:playerState(playerId);}
-    return {saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status,pricing,buyback,feed};
+    if(value) {({saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status}=value);if(value.pricing)pricing=value.pricing;if('buyback' in value)buyback=value.buyback;if('feed' in value)feed=value.feed;if(value.history)history.adopt(value.history);state=playerId===null?null:playerState(playerId);}
+    return {saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status,pricing,buyback,feed,history:history.state()};
   }
+  // deepveinDebug(): the store's size and age, and each watched sale item at a glance.
+  const historyReport=()=>({...history.summary(),watched:Object.fromEntries(watched.map(id=>[itemName(data,id),history.describe(id)]))});
   return {runtime,receive,next,sale,purchase,restockPotion,restockIngredient,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setSalePricing,setBuyback,setPriceFeed,unitValue,askPrice,priceFeedAge:()=>feed?now()-feed.at:null,
+    averagePrice:history.averagePrice,dailyVolume:history.dailyVolume,priceTrend:history.priceTrend,historyReport,
     configureProcurement,equipmentPurchase,foodPurchase,buffFood,potionDose,marketBuyPrice,surplusValue,watchPurchases:scan,
     purchaseAllowance:(p,goal)=>{select(p);return purchaseAllowance(p,goal);}};
 }

@@ -81,7 +81,7 @@ import {itemLabel, packQty} from '../planner/items.js';
   const enhancementStore=enhancementStorage(localStorage);
   planner.enhancementTraining=createEnhancementTraining(GAME_DATA,planner,enhancementStore);
   let economy=createEconomy(GAME_DATA,planner,{autoSell,capacitySales,sellCrafted});
-  const market=createMarket(GAME_DATA,planner,{now:()=>Date.now(),storage:localStorage,autoSell,capacitySales,salePricing});
+  const market=createMarket(GAME_DATA,planner,{now:()=>Date.now(),storage:localStorage,historyStorage:localStorage,autoSell,capacitySales,salePricing});
   const procurementKey='deepvein-procurement-v1';
   let procurement;
   try {procurement=market.configureProcurement(JSON.parse(localStorage.getItem(procurementKey)||'{}'));}
@@ -570,6 +570,8 @@ import {itemLabel, packQty} from '../planner/items.js';
       housePoints:p?.housePoints??null,connection:connectionLog.slice(),
       // Age of the helper's copy of /api/market/prices.json (refreshed every 5 minutes).
       priceFeedAgeMin:market.priceFeedAge()==null?null:Math.round(market.priceFeedAge()/60000),
+      // Several days of feed prices and observed trades behind sale valuations.
+      marketHistory:market.historyReport(),
       boss:trainer.boss.status(),history:trainer.history?.map(h=>`${new Date(h.time).toLocaleTimeString()} ${h.message}`)??null};
   };
 
