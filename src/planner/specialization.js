@@ -110,7 +110,7 @@ export function createSpecialization(data,planner) {
       focus.reason='指定主业暂时受阻，等待条件恢复；不会自动更换主业';
       planner.watchMarket?.(p,[]);return null;
     }
-    const target=Math.min(planner.thresholds.length-1,data.jobs.filter(j=>j.skill===skill&&j.levelReq>lv[skill])
+    const target=Math.min(planner.maxLevel,data.jobs.filter(j=>j.skill===skill&&j.levelReq>lv[skill])
       .map(j=>j.levelReq).sort((a,b)=>a-b)[0]??lv[skill]+5);
     const recipe=data.jobs.find(j=>j.id===best.recipeId);
     const reason=temporary?'指定主业正在等待材料／条件；临时赚取直接金币，条件恢复后返回主业':
@@ -125,7 +125,7 @@ export function createSpecialization(data,planner) {
     const budget={coins:best.budget?.coins??0,items:{...best.budget?.items}};
     if(!temporary)for(const input of data.jobs.find(j=>j.id===best.recipeId)?.inputs??[])
       budget.items[input.itemId]=Math.max(budget.items[input.itemId]??0,input.qty*batch);
-    return {...best,budget,growth:false,development:false,developmentFiller:false,target:temporary?Math.min(planner.thresholds.length-1,lv[best.skill]+1):target,
+    return {...best,budget,growth:false,development:false,developmentFiller:false,target:temporary?Math.min(planner.maxLevel,lv[best.skill]+1):target,
       stage:target,specialization:true,manualTrade:requested,mainSkill:skill,temporary,
       startedXp:p.skills[best.skill],startedTick:p.lastTick,
       skipUpgrade:temporary||now-focus.progressAt>=600,batch,reason};
@@ -139,7 +139,7 @@ export function createSpecialization(data,planner) {
     planner.watchMarket?.(p,[job.output.itemId],job.output.itemId);
     if(deferred[skill])return null;
     const batch=50,estimate=planner.routeEstimate(p,job,batch,{style,buyInputs:true});
-    const target=Math.min(planner.thresholds.length-1,lv[skill]+1);
+    const target=Math.min(planner.maxLevel,lv[skill]+1);
     const budget={coins:estimate.budget.coins,items:{...estimate.budget.items}};
     for(const input of job.inputs)budget.items[input.itemId]=Math.max(budget.items[input.itemId]??0,input.qty*batch);
     return {skill,recipeId:job.id,fixedRecipeId:job.id,recipes:{...estimate.recipes,[skill]:job.id},
@@ -154,7 +154,7 @@ export function createSpecialization(data,planner) {
     select(p,style,requested,fixed?.id??null,monster?.id??null);
     if(fixed)return fixedGoal(p,deferred,style,requested,fixed);
     if(monster) {
-      const skill=professionSkill(style),target=Math.min(planner.thresholds.length-1,planner.level(p.skills[skill])+1);
+      const skill=professionSkill(style),target=Math.min(planner.maxLevel,planner.level(p.skills[skill])+1);
       const reason=`固定怪物：${monster.name}；检查安全、武器与食物，准备完成后返回此目标，不自动更换怪物`;
       focus??={skill,since:seconds(p)};Object.assign(focus,{target,monsterId:monster.id,reason});
       planner.watchMarket?.(p,[]);
@@ -200,7 +200,7 @@ export function createSpecialization(data,planner) {
     if(focus?.skill!==best.skill)focus={skill:best.skill,since:now,progressAt:now,xp:p.skills[best.skill]};
     const nextLevel=data.jobs.filter(j=>j.skill===best.skill&&j.levelReq>lv[best.skill])
       .map(j=>j.levelReq).sort((a,b)=>a-b)[0];
-    const target=Math.min(planner.thresholds.length-1,nextLevel??lv[best.skill]+5);
+    const target=Math.min(planner.maxLevel,nextLevel??lv[best.skill]+5);
     const reason=`主业持续经营：预计 ${Math.round(best.rate.coins*60)} 金币/分、${Math.round(best.rate.xp*60)} 经验/分；`+
       (best.marketProceeds?'普通盈余按当前买单扣税估算，成交量变化会重评；':'只计直接金币，未售库存不计收入；')+
       '已计重新供料和往返，完成批次后复核';

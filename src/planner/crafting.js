@@ -50,7 +50,7 @@ export function createCrafting(data,planner) {
       const used=Math.min(amount,stock[itemId]??0);stock[itemId]=(stock[itemId]??0)-used;
       const missing=amount-used;if(missing<=0)return 0;
       if(trail.includes(itemId)||itemId>=data.plusScale)return Infinity;
-      const tier=Math.floor(itemId/data.rarityScale),base=planner.base(itemId);
+      const tier=rarityOf(data,itemId),base=planner.base(itemId);
       const job=data.jobs.find(j=>j.output.itemId===base&&j.inputs.length&&!j.grow&&levels[j.skill]>=j.levelReq);
       const recipe=job&&craftRecipe(data,job,tier);
       if(recipe) {

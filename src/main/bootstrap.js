@@ -24,6 +24,7 @@ import {PLANNING_STORAGE_KEYS, enhancementStorage, wirePlanner} from '../economy
 import {fallbackOwnership} from '../planner/fallback.js';
 import {normalizeAutomation} from '../runtime/automation-policy.js';
 import {keepGameActive} from '../ui/stay-active.js';
+import {itemLabel} from '../planner/items.js';
 
 // Runs in the page at document-start. Uses the game's existing connection;
 // Never reads credentials or opens a second game connection. Update checks read
@@ -562,6 +563,8 @@ import {keepGameActive} from '../ui/stay-active.js';
       // The last commands that actually left for the game (a refused one never appears).
       sent:recentRequests.actions.map(r=>({agoMs:now-r.time,...r.intent})),
       housePoints:p?.housePoints??null,connection:connectionLog.slice(),
+      // Age of the helper's copy of /api/market/prices.json (refreshed every 5 minutes).
+      priceFeedAgeMin:market.priceFeedAge()==null?null:Math.round(market.priceFeedAge()/60000),
       boss:trainer.boss.status(),history:trainer.history?.map(h=>`${new Date(h.time).toLocaleTimeString()} ${h.message}`)??null};
   };
 
@@ -3068,8 +3071,7 @@ import {keepGameActive} from '../ui/stay-active.js';
         if(!g)return '';
         const needs=g.requirements.filter(r=>(lv[r.skill]??0)<r.target).map(r=>`${NAMES[r.skill]??r.skill} ${r.target}`);
         // Materials keep their quality: "罕见 钴锭" is not an ordinary cobalt bar.
-        const quality=id=>['','罕见 ','稀有 ','史诗 ','传说 '][Math.floor(id%GAME_DATA.plusScale/GAME_DATA.rarityScale)]??'';
-        const list=items=>Object.entries(items??{}).map(([id,qty])=>`${quality(+id)}${GAME_DATA.items[planner.base(+id)]?.name??id} ×${fmt(qty)}`).join('、');
+        const list=items=>Object.entries(items??{}).map(([id,qty])=>`${itemLabel(GAME_DATA,+id)} ×${fmt(qty)}`).join('、');
         const own=list(g.materials),chain=list(g.chainMaterials);
         const head=`\n${label}：${g.name}（${g.wear.skill==='none'?'无等级门槛':`${NAMES[g.wear.skill]??g.wear.skill} ${g.wear.level}`}）`;
         if(g.owned)return `${head} · 已持有`;

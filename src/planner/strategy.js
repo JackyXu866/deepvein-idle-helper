@@ -3,6 +3,7 @@ import {PAIR_TIERS, autoUsableMaterial, craftRecipe, qualityWorth, setsAt} from 
 import {combatEstimate, workEstimate} from './estimates.js';
 import {buffKey, combatSupplies} from './supplies.js';
 import {distance, merchantPrice, nearestBank, packCapacity, rarityOf} from './items.js';
+import {COMBAT_SKILLS, combatKey, equipmentKey, jobKey, levelsKey, usableSample} from './keys.js';
 
 // A rolling comparison of attainable routes, including their self-supply work.
 // Gold is a constraint from an actual planned expense, never an XP conversion.
@@ -16,15 +17,12 @@ export function createStrategy(data, planner) {
   // The measurement (real or simulated) that applies to this state, or null.
   function usableMeasurement(p,key,lv=planner.levels(p)) {
     const m=measurements[key];
-    const working=m?m.seconds-(m.travelSeconds??0):0;
-    if (!m||m.samples<3||working<60) return null;
+    if (!usableSample(m)) return null;
     // Observed rates already include their buffs. Legacy records describe only
     // an unbuffed snapshot; never carry a temporary bonus into another state.
     if((m.buffKey??buffKey(data,{...p,brews:{}}))!==buffKey(data,p))return null;
-    const equipmentKey=JSON.stringify(Object.keys(p.equipment).sort().map(k=>[k,p.equipment[k]]));
     const job=key.startsWith('job:')&&jobs.find(j=>j.id===Number(key.split(':')[1]));
-    const levelsKey=JSON.stringify((job?[job.skill]:['melee','ranged','magic','defence','hitpoints']).map(s=>[s,lv[s]]));
-    if (m.equipmentKey!==equipmentKey||m.levelsKey!==levelsKey) return null;
+    if (m.equipmentKey!==equipmentKey(p)||m.levelsKey!==levelsKey(job?[job.skill]:COMBAT_SKILLS,s=>lv[s])) return null;
     return m;
   }
   // Where a candidate's rate comes from: 'measured', 'simulated' or 'formula'.
@@ -41,7 +39,7 @@ export function createStrategy(data, planner) {
   }
   function estimateWork(p,j,lv=planner.levels(p)) {
     const slot=Object.keys(data.toolSkills).find(s=>data.toolSkills[s]===j.skill);
-    const key=`job:${j.id}${j.rarity?`:rarity:${j.rarity}`:''}`;
+    const key=jobKey(j.id,j.rarity);
     const luck=(data.toolLuck[rarityOf(data,p.equipment[slot]??0)]??0)+(planner.equipmentStats(p.equipment.amulet)?.luck??0);
     // The engine's measured quality factor also covers brews, house and
     // masteries; it is a sample, so it replaces the exact tool+amulet factor
@@ -61,7 +59,7 @@ export function createStrategy(data, planner) {
     return data.monsters.filter(m=>m.maxHit<lv.hitpoints/3&&
       lv.hitpoints/((10+m.attack)/(20+m.attack+lv.defence+stat('defence'))*(1+m.maxHit)/2)>=6)
       .map(m=>({monster:m,zone:data.zones.find(z=>z.monsterId===m.id),
-        ...calibrated(p,`combat:${m.id}`,combatEstimate(data,m,{style,level:lv[style],
+        ...calibrated(p,combatKey(m.id),combatEstimate(data,m,{style,level:lv[style],
           accuracy:stat('accuracy'),strength:stat('strength'),defence:stat('defence'),
           defenceLevel:lv.defence,speed:w.speed??5,twoHanded:w.twoHanded,
           luck:planner.equipmentStats(p.equipment.amulet)?.luck??0}),lv)}));
@@ -119,7 +117,7 @@ export function createStrategy(data, planner) {
       const choice=available.sort((a,b)=>estimateWork(p,b,lv).xp/estimateWork(p,b,lv).seconds-
         estimateWork(p,a,lv).xp/estimateWork(p,a,lv).seconds)[0];
       if (!choice) return false;
-      const required=Math.max(0,planner.thresholds[target]-(p.skills[skill]??0));
+      const required=planner.xpTo(p,skill,target);
       const n=Math.ceil(required/estimateWork(p,choice,lv).xp);
       if (!work(choice,n,[...trail,marker])) return false;
       unlocks.push({skill,target});lv[skill]=target;return true;

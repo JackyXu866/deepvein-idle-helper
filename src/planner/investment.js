@@ -1,7 +1,7 @@
 import {ENHANCEMENT_BASELINE, enhanceQuote} from './inventory.js';
 import {combatEstimate, workEstimate} from './estimates.js';
 import {canWear, gearRequirementOf, matchesProfessionWeapon, professionSkill} from './professions.js';
-import {autoUsableMaterial, craftRecipe} from './quality.js';
+import {LEGENDARY, autoUsableMaterial, craftRecipe} from './quality.js';
 import {baseId, itemLabel, merchantPrice, plusOf, rarityOf} from './items.js';
 
 // Gold as time. Every spend (enhancing, gear, house points) is converted to the
@@ -93,7 +93,7 @@ export function createInvestments(data,planner) {
     const next=data.gear.filter(o=>o.slot===slot&&(o.style??null)===(g?.style??null)&&o.needs===g?.needs)
       .map(o=>gearRequirementOf(data,o.itemId)).filter(o=>o.skill===r.skill&&o.level>r.level).map(o=>o.level).sort((a,b)=>a-b)[0];
     if(next==null)return USE_CAP_SECONDS;
-    const xp=Math.max(0,(planner.thresholds[Math.min(next,planner.thresholds.length-1)]??0)-(p.skills[r.skill]??0));
+    const xp=planner.xpTo(p,r.skill,next);
     return Math.min(USE_CAP_SECONDS,Math.max(1800,xp/skillRate));
   }
   // Cheapest way to get an item: owned, made (time and bought inputs) or bought.
@@ -161,7 +161,7 @@ export function createInvestments(data,planner) {
         if(best)rows.push(best);
       }
       // A higher quality of the same piece.
-      for(let r=rarityOf(data,current)+1;r<=3;r++) {
+      for(let r=rarityOf(data,current)+1;r<LEGENDARY;r++) {
         const id=baseId(data,current)+r*data.rarityScale;
         if(!(rate(p,style,ctx,slot,id)>floor))continue;
         add('quality',id,`换 ${itemLabel(data,id)}`,acquire(p,id,coinRate));break;

@@ -1,4 +1,4 @@
-import {autoUsableMaterial} from '../planner/quality.js';
+import {LEGENDARY, autoUsableMaterial} from '../planner/quality.js';
 import {reserveWaitingGoals, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
 import {HOUSE_ACTIONS, validHomePortal} from '../planner/housing.js';
 import {nextPerkCost} from '../planner/perks.js';
@@ -14,7 +14,7 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
   if(planner)planner.styleHint=style;
   if(['drink','eat','chooseFood','enhance','marketBuy','marketSell','marketDump','dropItem'].includes(intent.t)&&
     !autoUsableMaterial(data,intent.itemId))return false;
-  if(intent.t==='foodMaxTier')return Number.isInteger(intent.tier)&&intent.tier>=0&&intent.tier<4;
+  if(intent.t==='foodMaxTier')return Number.isInteger(intent.tier)&&intent.tier>=0&&intent.tier<LEGENDARY;
   if(intent.t==='deposit'||intent.t==='depositItem') {
     if(p.route||p.path?.length||['walking','banking'].includes(p.activity)||p.enhance||
       !nearBank(data,p))return false;
@@ -40,7 +40,7 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
   if(intent.t==='drink') {
     const carried=packQty(p,intent.itemId);
     const atBank=nearBank(data,p);
-    const base=intent.itemId%data.rarityScale;
+    const base=baseId(data,intent.itemId);
     return Number.isInteger(intent.itemId)&&intent.itemId>=220&&intent.itemId<data.rarityScale*5&&base>=220&&base<=227&&
       data.jobs.some(j=>j.skill==='herblore'&&j.output.itemId===base)&&
       Number.isInteger(intent.qty)&&intent.qty>=1&&intent.qty<=20&&
@@ -107,11 +107,11 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
   if(intent.t==='setRoute') {
     const job=data.jobs.find(j=>j.id===intent.jobId),site=data.sites.find(s=>s.id===intent.siteId);
     return !!job&&!!site&&site.jobIds.includes(job.id)&&Number.isInteger(intent.limit)&&intent.limit>=0&&
-      (intent.rarity===undefined||Number.isInteger(intent.rarity)&&intent.rarity>=0&&intent.rarity<4);
+      (intent.rarity===undefined||Number.isInteger(intent.rarity)&&intent.rarity>=0&&intent.rarity<LEGENDARY);
   }
   if(intent.t==='fight')return data.zones.some(z=>z.id===intent.zoneId)&&Number.isInteger(intent.limit)&&intent.limit>=0;
   if(intent.t==='eat')return Number.isInteger(intent.itemId)&&intent.itemId>=0&&intent.itemId<data.plusScale&&
-    data.items[intent.itemId%data.rarityScale]?.heals>0&&intent.qty===1&&
+    data.items[baseId(data,intent.itemId)]?.heals>0&&intent.qty===1&&
     (intent.shelf===undefined||typeof intent.shelf==='boolean');
   if(['wear','equipFromBank','enhance','marketDump'].includes(intent.t)) {
     const base=baseId(data,intent.itemId);

@@ -1,11 +1,12 @@
 import {MASTERY_TRACKS, spentPoints} from '../engine/mastery-rules.js';
 import {NAMES} from './planner.js';
 import {RARITY_NAMES} from './quality.js';
+import {combatKey, jobKey} from './keys.js';
 
 const MODE_LAYERS = {balanced: '自主发展计划', experience: '经验优先', business: '主业经营', assist: '只收菜＋蹭世界 Boss'};
 const BOSS_PHASES = new Set(['ready', 'saving', 'moving', 'attacking', 'fighting', 'dead', 'ended', 'resuming']);
 
-const keyOf = c => c.monsterId != null ? `combat:${c.monsterId}` : `job:${c.recipeId}${c.rarity ? `:rarity:${c.rarity}` : ''}`;
+const keyOf = c => c.monsterId != null ? combatKey(c.monsterId) : jobKey(c.recipeId, c.rarity);
 
 // Best XP/hour for each gold/hour floor: the Pareto frontier of the
 // candidates, as a short list of suggestions (at most `limit`, spread out).

@@ -1,5 +1,7 @@
 // Expected base rates from the reviewed client. House, potion, mastery, event
 // and guild modifiers are omitted; these estimates are not measured XP/hour.
+import {rarityOdds} from './quality.js';
+
 export function workEstimate(data, job, skillLevel, options={}) {
   const speed=(1+Math.max(0,skillLevel-job.levelReq)*data.xp.speedPerLevelAboveRequirement)*
     (1+(options.toolBonus??0))*(1+.005*(options.quick??0));
@@ -12,9 +14,7 @@ export function workEstimate(data, job, skillLevel, options={}) {
   // One roll against every threshold, scaled by (1+luck)×bonuses (client Lu).
   // rarityFactor, measured by the engine, is that whole product: tool and
   // amulet luck plus brews, house, masteries. Without it: tool and amulet only.
-  const luck=options.rarityFactor??1+(options.luck??0), c=data.rarityChance;
-  const cumulative=[1,...['uncommon','rare','epic','legendary'].map(k=>Math.min(1,c[k]*luck)),0];
-  const rolled=cumulative.slice(0,5).map((n,i)=>n-cumulative[i+1]);
+  const rolled=rarityOdds(data,options.rarityFactor??1+(options.luck??0));
   const probabilities=randomRarity?rolled:[1,0,0,0,0];
   const xp=success*probabilities.reduce((sum,p,i)=>sum+p*Math.round(job.xp*data.rarityXp[i]),0);
   return {seconds:ticks*data.tickMs/1000,success,burn,caught,xp,
@@ -65,10 +65,10 @@ export function combatEstimate(data, monster, stats) {
 // Valuing them is the caller's job: protected and unsellable items earn nothing.
 export function combatDrops(data,monster,luck=0,shards=0) {
   const drops={},add=(id,qty)=>{if(id!=null&&qty>0)drops[id]=(drops[id]??0)+qty;};
-  const c=data.rarityChance,cumulative=[1,...['uncommon','rare','epic','legendary'].map(k=>Math.min(1,c[k]*(1+luck))),0];
+  const odds=rarityOdds(data,1+luck);
   const dropChance=Math.max(0,Math.min(1,monster.dropChance??1));
   if(monster.drop!=null)for(let tier=0;tier<5;tier++)
-    add(monster.drop+tier*data.rarityScale,dropChance*(cumulative[tier]-cumulative[tier+1]));
+    add(monster.drop+tier*data.rarityScale,dropChance*odds[tier]);
   if(monster.bonus)add(monster.bonus.itemId,Math.min(1,monster.bonus.chance*(1+luck)));
   add(data.shardId,shards);
   return drops;

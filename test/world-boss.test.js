@@ -214,7 +214,7 @@ test('a round handed to the game\'s own join is waited out, never driven or retr
   assert.equal(boss.ownsRun(), false, 'the helper no longer owns the round');
   assert.equal(boss.status().phase, 'native');
   const next = boss.next({...p, raidHeld: true, held: true}, {interruptWalk: true});
-  assert.equal(next?.intent, undefined, 'no command of its own while the game joins');
+  assert.equal(next?.intent ?? null, null, 'no command of its own while the game joins');
   assert.match(next.reason, /游戏自己的/);
   boss.observe({tick: 1002, m: [{t: 'bossGone'}]});
   advance(31000);
@@ -228,10 +228,10 @@ test('a handed-over round still follows the participation choice and resumes the
   boss.handOff();
   const held = {...you, route: null, held: true, raidHeld: true, queue: [{kind: 'job', jobId: 7, siteId: 3}]};
   assert.equal(boss.status().phase, 'native', 'shown as the game\'s join, not the player\'s');
-  assert.equal(boss.next(held)?.intent, undefined, 'no hit yet: wait');
+  assert.equal(boss.next(held)?.intent ?? null, null, 'no hit yet: wait');
   boss.observe({tick: 1003, m: [{t: 'raidHit', damage: 12}]});
   assert.deepEqual(boss.next(held)?.intent, {t: 'leaveWorldBoss'}, 'confirmed damage: leave as chosen');
-  assert.equal(boss.next(held)?.intent, undefined, 'left once; the game resumes the work');
+  assert.equal(boss.next(held)?.intent ?? null, null, 'left once; the game resumes the work');
   advance(9000);
   const left = {...held, raidHeld: false};
   assert.deepEqual(boss.next(left)?.intent, {t: 'startQueued', index: 0}, 'a slow resume is finished by the helper');
@@ -245,7 +245,7 @@ test('a handed-over round in full participation stays until the Boss is gone', (
   boss.handOff();
   boss.observe({tick: 1003, m: [{t: 'raidHit', damage: 12}]});
   const held = {...you, route: null, held: true, raidHeld: true, queue: [{kind: 'job', jobId: 7, siteId: 3}]};
-  assert.equal(boss.next(held)?.intent, undefined, 'full: no leave after the first hit');
+  assert.equal(boss.next(held)?.intent ?? null, null, 'full: no leave after the first hit');
   boss.observe({tick: 1004, m: [{t: 'bossGone'}]});
   assert.match(boss.next(held).reason, /等待游戏恢复/);
 });
@@ -255,10 +255,10 @@ test('right after the handoff the running route does not end it; a stalled join 
   rise(boss, 1000 + 100000);
   boss.handOff();
   const working = {...you, route: {jobId: 61, siteId: 44}};
-  assert.equal(boss.next(working)?.intent, undefined, 'the game has not set the work aside yet');
+  assert.equal(boss.next(working)?.intent ?? null, null, 'the game has not set the work aside yet');
   assert.equal(boss.status().phase, 'native', 'still the handed round');
   const held = {...you, route: null, held: true, raidHeld: true, queue: [{kind: 'job', jobId: 61, siteId: 44}], activity: 'idle', path: null};
-  assert.equal(boss.next(held)?.intent, undefined, 'the game gets 30 s to move');
+  assert.equal(boss.next(held)?.intent ?? null, null, 'the game gets 30 s to move');
   advance(31000);
   const plan = boss.next(held, {interruptWalk: true});
   assert.equal(plan?.intent?.t, 'walk', JSON.stringify(plan));

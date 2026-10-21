@@ -1,5 +1,5 @@
 import {PROFESSIONS, professionSkill} from '../planner/professions.js';
-import {autoUsableMaterial} from '../planner/quality.js';
+import {LEGENDARY, autoUsableMaterial} from '../planner/quality.js';
 import {bankedGatheringLoad, finishTaskReason} from '../planner/crafting.js';
 import {POTIONS, POTION_TICKS, foodEffects} from '../planner/supplies.js';
 import {inventoryBudget, reserveWaitingGoals} from '../planner/inventory.js';
@@ -10,7 +10,7 @@ import {Telemetry} from './telemetry.js';
 import {hotSkillAt, hotWindows, normalizeHotFollow} from './hot-follow.js';
 import {createWorldBoss} from './world-boss.js';
 import {fallbackKey, fallbackOwnership} from '../planner/fallback.js';
-import {distance, nearestBank, stockQty} from '../planner/items.js';
+import {baseId, distance, itemName, nearestBank, rarityOf, stockQty} from '../planner/items.js';
 
 // State-dependent refusals in the reviewed client sr() message table. Unknown
 // codes remain a stop, not an invitation to replay a command.
@@ -96,8 +96,7 @@ export function acknowledged(before, p, intent, data=null) {
     case 'foodMaxTier': return p.foodMaxTier===intent.tier;
     case 'carryFood': return p.foodPerTrip===intent.count;
     case 'drink': {
-      const scale=data?.rarityScale??1000;
-      const kind=intent.itemId<scale*5?POTIONS.find(v=>v.itemId===intent.itemId%scale)?.kind:null,qty=intent.qty??1;
+      const kind=data&&intent.itemId<data.plusScale?POTIONS.find(v=>v.itemId===baseId(data,intent.itemId))?.kind:null,qty=intent.qty??1;
       return !!kind&&Number.isInteger(qty)&&qty>0&&quantity(before,intent.itemId)-quantity(p,intent.itemId)>=qty&&
         (p.brews?.[kind]??0)>p.lastTick&&
         p.brews[kind]>=Math.max(before.lastTick,before.brews?.[kind]??0)+qty*POTION_TICKS;
@@ -411,7 +410,7 @@ export class Trainer {
       Object.values(this.player.equipment).filter(id=>id===g.itemId).length+listed:0;
     const completed=g.status==='completed';
     const gained=completed?g.quantity:g.baseline==null?0:Math.max(0,owned-g.baseline);
-    return {...g,name:this.data.items[g.itemId]?.name??String(g.itemId),mode:this.mode,
+    return {...g,name:itemName(this.data,g.itemId),mode:this.mode,
       gained,remaining:Math.max(0,g.quantity-gained),completed};
   }
   manualAction(intent) {
@@ -768,7 +767,7 @@ export class Trainer {
           {intent:{t:'walk',...bank.approach},label:'目标数量已够，返回仓库'});return true;
       }
       g.status='completed';this.goal=null;this.plan=null;this.bankedLoad=false;
-      this.log(`物品目标完成：额外获得 ${this.data.items[g.itemId]?.name??g.itemId} ×${g.quantity}，恢复原挂机策略`);return true;
+      this.log(`物品目标完成：额外获得 ${itemName(this.data,g.itemId)} ×${g.quantity}，恢复原挂机策略`);return true;
     }
     if(this.watchProgress(p))return true;
     const seedTarget=this.data.jobs.some(j=>j.grow&&j.inputs.some(i=>i.itemId===g.itemId));
@@ -830,7 +829,7 @@ export class Trainer {
     if(!this.data.items[targetBase]?.heals)return null;
     const current=p.foodItemId;
     if(current>0&&autoUsableMaterial(this.data,current)&&this.planner.base(current)!==targetBase)return null;
-    const rarity=id=>Math.floor(id%this.data.plusScale/this.data.rarityScale);
+    const rarity=id=>rarityOf(this.data,id);
     const candidates=p.pack.filter(item=>item.qty>0&&autoUsableMaterial(this.data,item.itemId)&&this.data.items[this.planner.base(item.itemId)]?.heals&&
       this.planner.base(item.itemId)!==targetBase&&rarity(item.itemId)<=(p.foodMaxTier??1))
       .sort((a,b)=>(this.data.items[this.planner.base(b.itemId)]?.heals??0)-
@@ -839,7 +838,7 @@ export class Trainer {
     if(replacement===undefined)return {blocked:true,reason:'本场 Boss 跳过：唯一可用食物是目标物品'};
     if(current===replacement)return null;
     return {intent:{t:'chooseFood',itemId:replacement},label:'保护物品目标，切换 Boss 战斗食物',
-      reason:`目标物品是食物，先选择背包中的非目标食物 ${this.data.items[this.planner.base(replacement)]?.name??replacement}`};
+      reason:`目标物品是食物，先选择背包中的非目标食物 ${itemName(this.data,this.planner.base(replacement))}`};
   }
   combatFoodPlan(p) {
     // Native explicit food selection bypasses the rarity ceiling. Confirm both
@@ -988,7 +987,7 @@ export class Trainer {
     const p=this.player,now=this.now();
     const currentJob=this.data.jobs.find(job=>job.id===p.route?.jobId);
     if(this.mode!=='assist'&&this.goal&&!p.held&&!p.raidHeld&&!p.queue?.length&&
-      currentJob?.inputs.length&&!currentJob.grow&&(p.workRarity??p.route.rarity??0)===4)
+      currentJob?.inputs.length&&!currentJob.grow&&(p.workRarity??p.route.rarity??0)===LEGENDARY)
       return this.issue({intent:{t:'clearRoute'},label:'停止旧传说制作并保留材料',
         reason:'恢复的制作任务仍会消耗传说材料，先停止，再按普通至史诗材料重新规划'});
     if(this.mode!=='assist'&&this.goal&&p.route?.zoneId!=null&&!p.held&&!p.raidHeld&&!p.queue?.length&&this.combatFoodPlan(p))

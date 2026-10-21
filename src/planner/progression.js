@@ -2,6 +2,7 @@ import {professionSkill} from './professions.js';
 import {workEstimate} from './estimates.js';
 import {planEnhancement} from './enhancement.js';
 import {NAMES} from './planner.js';
+import {itemName} from './items.js';
 
 // Skills train within this many levels of the lowest trainable skill.
 export const BAND=10;
@@ -44,7 +45,7 @@ export function combatNeed(data,planner,p,style,itemId) {
   const monsters=data.monsters.filter(m=>m.drop===itemId).sort((a,b)=>a.level-b.level);
   const safe=(q,m)=>(planner.combatOptions?.(q,style)??[]).some(o=>o.monster.id===m.id);
   if(!monsters.length||monsters.some(m=>safe(p,m)))return null;
-  const skill=professionSkill(style),T=planner.thresholds,max=T.length-1;
+  const skill=professionSkill(style),T=planner.thresholds,max=planner.maxLevel;
   const at=level=>({...p,skills:{...p.skills,[skill]:Math.max(p.skills[skill],T[level]),
     defence:Math.max(p.skills.defence,T[level]),hitpoints:Math.max(p.skills.hitpoints,T[level])}});
   for(const monster of monsters) {
@@ -91,7 +92,7 @@ export function createProgression(data,planner) {
     select(p,style);
     const lv=planner.levels(p),skills=skillsFor(p,style),eligible=skills.filter(s=>!deferred[s]);
     const lowestLevel=eligible.length?Math.min(...eligible.map(s=>lv[s])):null;
-    const top=lowestLevel===null?null:Math.min(planner.thresholds.length-1,lowestLevel+BAND);
+    const top=lowestLevel===null?null:Math.min(planner.maxLevel,lowestLevel+BAND);
     const improvement=deferred.enhancing?null:planEnhancement(data,planner,p,style);
     return {lowestLevel,top,completed,project:focus,alternatives,
       ahead:eligible.filter(s=>lv[s]>=top).map(skill=>({skill,level:lv[skill]})),
@@ -105,7 +106,7 @@ export function createProgression(data,planner) {
     if(focus){parked[focus.skill]=focus;focus=null;}
     const resume=Object.values(parked).find(g=>!deferred[g.skill]&&planner.level(p.skills[g.skill])<g.target);
     if(resume){focus=resume;focus.progressTick=p.lastTick;delete parked[resume.skill];return focus;}
-    const lv=planner.levels(p),skills=skillsFor(p,style),maxLevel=planner.thresholds.length-1;
+    const lv=planner.levels(p),skills=skillsFor(p,style),maxLevel=planner.maxLevel;
     const candidates=[...planner.candidates(p,style,deferred),...planner.candidates(p,style,deferred,{stockedBatch:true})],choices=[];
     const open=skills.filter(s=>!deferred[s]&&lv[s]<maxLevel);
     if(!open.length)return null;
@@ -132,7 +133,7 @@ export function createProgression(data,planner) {
       const checkpoint=(Math.floor(lv[skill]/5)+1)*5;
       const target=Math.max(lv[skill]+1,Math.min(skill==='farming'?farmLevel:maxLevel,cap,next<=lv[skill]+10?next:checkpoint));
       const xpRate=best.mainXpRate??best.rate.xp;
-      const seconds=!best.unpriced&&xpRate>0?(planner.thresholds[target]-p.skills[skill])/xpRate:Infinity;
+      const seconds=!best.unpriced&&xpRate>0?planner.xpTo(p,skill,target)/xpRate:Infinity;
       const unlocked=unlocks.filter(j=>j.levelReq<=target);
       const useful=unlocked.filter(j=>data.gear.some(g=>g.itemId===j.output.itemId)||
         data.jobs.some(other=>other.skill!==skill&&other.inputs.some(i=>i.itemId===j.output.itemId))).length;
@@ -175,7 +176,7 @@ export function createProgression(data,planner) {
       if(feed) {
         feed.target=Math.max(feed.target,supplier.level);
         const source=supplier.monsterId!=null?`${data.monsters.find(m=>m.id===supplier.monsterId)?.name} 掉落的`:'';
-        purpose=`先补 ${NAMES[best.skill]??best.skill} 下一档所需的原料技能（${source}${data.items[supplier.itemId]?.name??supplier.itemId} 需 ${NAMES[supplier.skill]??supplier.skill} ${supplier.level} 级）`;
+        purpose=`先补 ${NAMES[best.skill]??best.skill} 下一档所需的原料技能（${source}${itemName(data,supplier.itemId)} 需 ${NAMES[supplier.skill]??supplier.skill} ${supplier.level} 级）`;
         best=feed;
       }
     }
@@ -201,7 +202,7 @@ export function createProgression(data,planner) {
   function runtime(value) {
     if(value) {
       const valid=g=>g?.development===true&&data.skills.includes(g.skill)&&
-        Number.isInteger(g.target)&&g.target>1&&g.target<planner.thresholds.length;
+        Number.isInteger(g.target)&&g.target>1&&g.target<=planner.maxLevel;
       owner=value.owner;profession=value.profession;
       focus=valid(value.focus)?value.focus:null;
       parked=Object.fromEntries(Object.entries(value.parked??{}).filter(([skill,g])=>valid(g)&&g.skill===skill));

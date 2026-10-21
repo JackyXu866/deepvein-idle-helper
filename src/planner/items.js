@@ -5,11 +5,22 @@
 export const baseId=(data,id)=>id%data.plusScale%data.rarityScale;
 export const rarityOf=(data,id)=>Math.floor(id%data.plusScale/data.rarityScale);
 export const plusOf=(data,id)=>Math.floor(id/data.plusScale);
+// Ids built from parts: the same base at another quality, the same item at
+// another +N, and the item without its enhancement.
+export const withRarity=(data,id,tier)=>baseId(data,id)+tier*data.rarityScale;
+export const withPlus=(data,id,plus)=>id%data.plusScale+plus*data.plusScale;
+export const unenhanced=(data,id)=>id%data.plusScale;
+export const isEnhanced=(data,id)=>id>=data.plusScale;
 export const RARITY_NAMES=['','罕见','稀有','史诗','传说'];
+// A quality's name; common is "普通" where a name is needed.
+export const qualityName=tier=>RARITY_NAMES[tier]||'普通';
 export const qualityPrefix=(data,id)=>RARITY_NAMES[rarityOf(data,id)]?`${RARITY_NAMES[rarityOf(data,id)]} `:'';
+// Name of the base item; a product without an item row is named after its job.
+export const itemName=(data,id)=>data.items[baseId(data,id)]?.name??
+  data.jobs.find(j=>j.output.itemId===baseId(data,id))?.name??`物品 ${id}`;
 // Display name with quality and enhancement, e.g. "史诗 Steel blade +2".
-export const itemLabel=(data,id,name=data.items[baseId(data,id)]?.name??`物品 ${id}`)=>
-  `${qualityPrefix(data,id)}${name}${id>=data.plusScale?` +${plusOf(data,id)}`:''}`;
+export const itemLabel=(data,id,name=itemName(data,id))=>
+  `${qualityPrefix(data,id)}${name}${isEnhanced(data,id)?` +${plusOf(data,id)}`:''}`;
 // The same base in each quality from `from` to `to` (inclusive).
 export const qualityIds=(data,id,from=0,to=data.rarityMultipliers.length-1)=>
   Array.from({length:to-from+1},(_,i)=>baseId(data,id)+(from+i)*data.rarityScale);
@@ -51,4 +62,10 @@ export const tradableBase=(data,base)=>base!==data.coinId&&![294,295,296,297].in
 export const merchantPrice=(data,id)=>Math.max(1,Math.floor((data.items[baseId(data,id)]?.value??0)*.4));
 export const netProceeds=(price,qty,taxBp)=>price*qty-Math.floor(price*qty*taxBp/10000);
 export const minListPrice=(floor,taxBp)=>Math.floor(floor/(1-taxBp/10000))+1;
+// Time: a tick lasts data.tickMs.
 export const dayTicks=data=>86400000/data.tickMs;
+export const dayIndex=(data,tick)=>Math.floor(tick/dayTicks(data));
+export const ticksToSeconds=(data,ticks)=>ticks*data.tickMs/1000;
+export const secondsToTicks=(data,seconds)=>Math.ceil(seconds*1000/data.tickMs);
+export const msToTicks=(data,ms)=>Math.ceil(ms/data.tickMs);
+export const ticksToMinutes=(data,ticks)=>ticks*data.tickMs/60000;

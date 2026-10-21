@@ -4,13 +4,13 @@
 // collections count personal production only: stock, market buys and World
 // Boss loot do not count.
 import {professionSkill} from './professions.js';
-import {LEGENDARY, PAIR_TIERS, RARITY_NAMES} from './quality.js';
+import {LEGENDARY, PAIR_TIERS} from './quality.js';
+import {itemName, qualityName} from './items.js';
 
 export const MASTERY_STEPS=[1,10,100,1000,10000,100000,1000000,10000000];
 export const MASTERY_REWARDS=[1,1,3,10,35,120,420,1500];
 export const MASTERY_QUALITY=[1,3,10,30];
 export const ROUND_SIZE=6;
-const qualityName=tier=>RARITY_NAMES[tier]||'普通';
 
 // Legendary is the player's; crops are left to the farming rules (v0.8.4).
 export const skipMastery=(data,base,rarity=0)=>rarity>=LEGENDARY||data.jobs.some(j=>j.grow&&j.output.itemId===base);
@@ -42,7 +42,7 @@ export function masteryCandidates(data,p) {
 export function createCollectionMastery(data) {
   let owner=null,queue=[];
   const count=(p,target)=>p.collections?.[target.itemId]??0;
-  const name=target=>`${qualityName(target.rarity)} ${data.items[target.base]?.name??target.base}`;
+  const name=target=>`${qualityName(target.rarity)} ${itemName(data,target.base)}`;
   function chooseGoal(p,style='magic') {
     if(owner!==p.id){owner=p.id;queue=[];}
     if(!p.collections)return null;

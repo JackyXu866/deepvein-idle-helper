@@ -5,13 +5,19 @@ import {COAL_ID, RARITY_NAMES, baseId, qualityIds, qualityPrefix, rarityOf} from
 export {RARITY_NAMES, qualityIds, qualityPrefix, rarityOf};
 
 export const LEGENDARY=4;
+// Chance of each quality (common first) when a roll's odds are scaled by
+// actor (luck, brews, house...): each rarer tier is a subset of the last.
+export function rarityOdds(data,factor=1) {
+  const at=[1,...['uncommon','rare','epic','legendary'].map(k=>Math.min(1,(data.rarityChance[k]??0)*factor)),0];
+  return at.slice(0,5).map((v,i)=>Math.max(0,v-at[i+1]));
+}
 // Qualities a plan may combine, rarest first: rarer sets give more XP and are
 // worth more. Legendary stays with the player.
 export const PAIR_TIERS=[3,2,1,0];
 
 // Legendary stock is player-controlled and is never used automatically.
 export function autoUsableMaterial(data,itemId) {
-  return Math.floor((itemId%data.plusScale)/data.rarityScale)<data.rarityMultipliers.length-1;
+  return rarityOf(data,itemId)<LEGENDARY;
 }
 
 // The qualities of one item the helper may use (legendary excluded).

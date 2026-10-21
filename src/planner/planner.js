@@ -1,6 +1,8 @@
 import {PROFESSIONS, canWear as canWearWith, gearRequirementOf, matchesProfessionWeapon, professionSkill, starterWeapon} from './professions.js';
-import {PAIR_TIERS, autoUsableMaterial, craftRecipe, mergeHold, potionSaleWorth, qualityHold, qualityWorth} from './quality.js';
-import {RARITY_NAMES, baseId, distance, itemLabel, nearBank as nearBankAt, nearestBank as nearestBankTo, packCapacity, packQty, packUsed, plusOf, qualityPrefix, rarityOf} from './items.js';
+import {LEGENDARY, PAIR_TIERS, autoUsableMaterial, craftRecipe, mergeHold, potionSaleWorth, qualityHold, qualityWorth} from './quality.js';
+import {createLevels} from './levels.js';
+import {action, waiting} from './result.js';
+import {RARITY_NAMES, qualityName, baseId, distance, itemLabel, itemName, nearBank as nearBankAt, nearestBank as nearestBankTo, packCapacity, packQty, packUsed, plusOf, qualityPrefix, rarityOf} from './items.js';
 import {createCrafting, finishTaskReason} from './crafting.js';
 import {combatEstimate, workEstimate} from './estimates.js';
 import {combatSupplies} from './supplies.js';
@@ -31,23 +33,9 @@ export function createPlanner(data) {
   let consumableReason=null;
   const attacks = ['melee','ranged','magic'];
   const gear = new Map(data.gear.map(g => [g.itemId,g]));
-  const thresholds = [0,0];
-  const x = data.xp;
-  for (let level = 2; level <= x.journeyLevel; level++) {
-    thresholds[level] = Math.round(x.baseXp * (x.growth ** (level-1)-1) / (x.growth-1));
-  }
-  let total = thresholds.at(-1), step = total*x.beyondStep;
-  while (total+step <= Number.MAX_SAFE_INTEGER) {
-    total += step; thresholds.push(Math.round(total)); step *= x.beyondGrowth;
-  }
-  const level = xp => {
-    let lo = 1, hi = thresholds.length-1;
-    while (lo < hi) {
-      const mid = Math.ceil((lo+hi)/2);
-      if (thresholds[mid] <= xp) lo = mid; else hi = mid-1;
-    }
-    return lo;
-  };
+  const levelCurve = createLevels(data);
+  const {thresholds, maxLevel, level, levels, xpTo} = levelCurve;
+
   const base = id => baseId(data,id);
   const plus = id => plusOf(data,id);
   const rarity = id => rarityOf(data,id);
@@ -61,9 +49,8 @@ export function createPlanner(data) {
       defence:Math.round(Math.round((g.defence??0)*tier)*scale),bonus:(g.bonus??0)*tier*scale,
       luck:(g.luck??0)*tier*scale};
   }
-  const name = id => data.items[base(id)]?.name ?? jobs.find(j=>j.output.itemId===base(id))?.name ?? `物品 ${id}`;
+  const name = id => itemName(data,id);
   const fullName = id => itemLabel(data,id,name(id));
-  const levels = p => Object.fromEntries(data.skills.map(s=>[s,level(p.skills[s])]));
   // Count exact quality IDs; raw materials of different qualities are not interchangeable.
   // Overflow is excluded here: it cannot be withdrawn until storage frees up.
   const count = (p,id) => id===data.coinId ? p.coins : (p.bank[id]??0)+packQty(p,id);
@@ -80,8 +67,7 @@ export function createPlanner(data) {
     if (g.slot==='weapon') return (g.accuracy+2*g.strength)/(g.speed??4)*(g.twoHanded?1.3:1);
     return (same?1:-1)*(g.accuracy+2*g.strength)+g.defence*.5+(g.luck??0);
   }
-  const action = (intent,label,reason='') => ({intent,label,reason});
-  const wait = reason => ({intent:null,label:'等待当前任务',reason});
+    const wait = reason => waiting('等待当前任务',reason);
   const blocked = reason => ({intent:null,label:'需要处理',reason,blocked:true});
   function itemTargetChoices() {
     const choices=new Map();
@@ -330,7 +316,7 @@ export function createPlanner(data) {
     // short, and which rare herbs are still waiting for matching drops.
     if(stock?.herblore) {
       const herb=selected.output.itemId,drop=stock.herblore.drops.map(id=>name(id)).join('、');
-      const short=stock.herblore.tiers.filter(t=>t.short>0).map(t=>`${RARITY_NAMES[t.t]||'普通'} ${t.short}`).join('、');
+      const short=stock.herblore.tiers.filter(t=>t.short>0).map(t=>`${qualityName(t.t)} ${t.short}`).join('、');
       const waiting=[1,2,3].map(t=>({t,n:count(p,herb+t*data.rarityScale)}))
         .filter(w=>w.n>0&&!stock.herblore.tiers.some(x=>x.t===w.t)).map(w=>`${RARITY_NAMES[w.t]}${name(herb)} ${w.n}（等${RARITY_NAMES[w.t]}${drop}）`);
       farmTargetReason+=`${short?`；按配对品质缺 ${short}`:''}${waiting.length?`；${waiting.join('、')}`:''}`;
@@ -517,7 +503,7 @@ export function createPlanner(data) {
     const eligible=trainedSkills(style).filter(s=>!['defence','hitpoints'].includes(s)&&!deferred[s]&&
       (s!=='farming'||lv.farming<Math.max(...data.farmUnlocks)));
     if (!eligible.length) return null;
-    const stage = Math.min(thresholds.length-1, (Math.floor(Math.min(...eligible.map(s=>lv[s]))/5)+1)*5);
+    const stage = Math.min(maxLevel, (Math.floor(Math.min(...eligible.map(s=>lv[s]))/5)+1)*5);
     const candidates = eligible.filter(s=>lv[s]<stage);
     candidates.sort((a,b)=>lv[a]-lv[b] || (served[a]??0)-(served[b]??0) || data.skills.indexOf(a)-data.skills.indexOf(b));
     const skill = candidates[0];
@@ -696,8 +682,7 @@ export function createPlanner(data) {
       const prepareBatch=(goal.growth||goal.manualTrade||goal.batch>0)&&!goal.quest&&!goal.upgrade&&skill===goal.skill&&!trail.length;
       const fixed=skill===goal.mainSkill&&!trail.length?goal.fixedRecipeId:null;
       const batchLimits=new Map();
-      const levelBatch=job=>Math.max(1,Math.ceil((thresholds[Math.min(lv[skill]+1,thresholds.length-1)]-
-        thresholds[Math.min(lv[skill],thresholds.length-2)])/jobEstimate(job).xp));
+      const levelBatch=job=>Math.max(1,Math.ceil(levelCurve.levelSpan(lv[skill])/jobEstimate(job).xp));
       // A development project plans ahead: it prepares every material for the
       // whole stage (to its target level) before crafting, rather than one
       // level at a time. Business and fixed trades keep their time-bounded batches.
@@ -716,7 +701,7 @@ export function createPlanner(data) {
       // so owned crafts of all qualities together reaching this number makes
       // the stage certain: one total, no separate common target.
       const stageCrafts=job=>Math.max(1,Math.ceil(Math.max(1,
-        thresholds[Math.min(goal.target??lv[skill]+1,thresholds.length-1)]-p.skills[skill])/jobEstimate(job).xp));
+        xpTo(p,skill,goal.target??lv[skill]+1))/jobEstimate(job).xp));
       // Commons to hold so that the total reaches the stage (quality crafts
       // already owned, including drops found while gathering, count).
       const stageBatch=job=>Math.max(1,stageCrafts(job)-ownedCrafts(job)+craftsAt(job,0));
@@ -771,7 +756,7 @@ export function createPlanner(data) {
         .flatMap(job=>!goal.itemTarget&&!goal.quest&&!goal.upgrade&&job.inputs.length&&!job.grow?
           [job,...[1,2,3,4].map(tier=>craftRecipe(data,job,tier)).filter(j=>j&&trainingLimit(j)>0&&qualityWorth(data,api,p,job,j.rarity).ok)]:[job])
         .filter(j=>fixed!=null||trainingLimit(j)>0);
-      const neededXp = Math.max(1,thresholds[target]-p.skills[skill]);
+      const neededXp = Math.max(1,xpTo(p,skill,target));
       const scores=new Map();
       const score = j => {
         if(scores.has(j))return scores.get(j);
@@ -883,7 +868,7 @@ export function createPlanner(data) {
       else if(prepareBatch&&job.inputs.length&&!job.grow) {
         const available=job.inputs.map(i=>Math.floor(count(p,i.itemId)/i.qty));
         if(available.every(n=>n>0)) amount=Math.min(amount,...available);
-        else amount=Math.min(amount,Math.ceil((thresholds[lv[skill]+1]-p.skills[skill])/jobEstimate(job).xp));
+        else amount=Math.min(amount,Math.ceil(xpTo(p,skill,lv[skill]+1)/jobEstimate(job).xp));
         // Stackable products also need a useful supply batch; a few leftover
         // herbs must not turn every monster-material trip into two potions.
         if(!available.every(n=>n>0)&&(data.items[base(job.output.itemId)]?.stackable||job.inputs.some(i=>!data.items[base(i.itemId)]?.stackable))) {
@@ -1008,7 +993,7 @@ export function createPlanner(data) {
         const best=held(p).filter(id=>!worn.has(id)&&fits(id)).sort((a,b)=>gearScore(b,skill)-gearScore(a,skill)||b-a)[0];
         if(best==null||current!=null&&fits(current)&&gearScore(best,skill)<=gearScore(current,skill))continue;
         const result=equip(best);
-        result.reason=`已持有更好的 ${fullName(best)}，换下 ${current!=null?fullName(current):'空位'}：只需一趟仓库，${rarity(best)===4?'传说装备穿上仍归你':'不另外制作或购买'}`;
+        result.reason=`已持有更好的 ${fullName(best)}，换下 ${current!=null?fullName(current):'空位'}：只需一趟仓库，${rarity(best)===LEGENDARY?'传说装备穿上仍归你':'不另外制作或购买'}`;
         return result;
       }
       return null;
@@ -1185,7 +1170,7 @@ export function createPlanner(data) {
         .map(r=>r.level).sort((a,b)=>a-b)[0];
       if(nextLevel==null)return DAY;
       if(requirement.skill!==skill||!(xpRate>0))return DAY;
-      const xp=Math.max(0,(thresholds[Math.min(nextLevel,thresholds.length-1)]??0)-(p.skills[skill]??0));
+      const xp=xpTo(p,skill,nextLevel);
       return Math.min(DAY,Math.max(1800,xp/xpRate));
     }
     function fight(style, requiredItem=null, prepareGear=true) {
@@ -1461,7 +1446,7 @@ export function createPlanner(data) {
         if(id==null)return null;
         // A piece already owned (legendary included: wearing keeps it) is the
         // upgrade itself; nothing is made in its place.
-        if(count(p,id)>0&&rarity(id)===4)return id;
+        if(count(p,id)>0&&rarity(id)===LEGENDARY)return id;
         const maker=jobs.find(j=>j.output.itemId===base(id)&&j.inputs.length&&!j.grow);
         for(let r=3;r>=1;r--) {
           const quality=base(id)+r*data.rarityScale;
@@ -1650,7 +1635,7 @@ export function createPlanner(data) {
     else if(farmTargetReason)reason=`${farmTargetReason} · ${best.name}：${reason}`;
     return {...status,crop:best.name,reason};
   }
-  const api={level,levels,thresholds,trainedSkills,balancedChooseGoal,plan:planAtBoundary,planItemTarget,itemTargetChoices,count,base,nearBank,carriedBatch,equipmentStats,farmPlots,farmFields,farmFieldCount,harvest,harvestOnly,professionUpgrade,equipmentStatus,gearTargets,plannedQualityGear,plannedGearReserve,farmStatus,
+  const api={level,levels,thresholds,maxLevel,xpTo,trainedSkills,balancedChooseGoal,plan:planAtBoundary,planItemTarget,itemTargetChoices,count,base,nearBank,carriedBatch,equipmentStats,farmPlots,farmFields,farmFieldCount,harvest,harvestOnly,professionUpgrade,equipmentStatus,gearTargets,plannedQualityGear,plannedGearReserve,farmStatus,
     hotFollowSkills:HOT_FOLLOW_SKILLS.slice(),hotSkillAt:tick=>hotSkillAt(data,tick),hotWindows:(tick,count=4)=>hotWindows(data,tick,count),
     setFarmingPreference,farmingPreference,
     taskBoundary:p=>!finishTaskReason(data,p)};

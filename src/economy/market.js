@@ -1,9 +1,10 @@
 import {autoUsableMaterial, usableQualities} from '../planner/quality.js';
 import {workEstimate} from '../planner/estimates.js';
+import {action, waiting} from '../planner/result.js';
 import {POTIONS, foodEffects, foodHealing} from '../planner/supplies.js';
 import {inventoryBudget, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
 import {PAYBACK_MARGIN, payback} from '../planner/investment.js';
-import {baseId, dayTicks as dayTicksOf, distance, itemLabel, merchantPrice, minListPrice, netProceeds, plusOf, qualityIds, rarityOf, stockQty, tradableBase} from '../planner/items.js';
+import {baseId, dayTicks as dayTicksOf, distance, itemLabel, itemName, merchantPrice, minListPrice, netProceeds, plusOf, qualityIds, rarityOf, stockQty, tradableBase} from '../planner/items.js';
 
 // Price grid (client Nb/Vn/ih/Zm; refusal 'market-price-step'): a price must be
 // a multiple of a step that grows with it: 1 below 100, then 2, 5 or 10 times
@@ -59,8 +60,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
   const quantity=stockQty;
   const valid=n=>Number.isSafeInteger(n)&&n>0;
   const tradable=id=>valid(id)&&id===planner.base(id)&&!!data.items[id]&&tradableBase(data,id);
-  const action=(intent,label,reason='')=>({intent,label,reason});
-  const wait=reason=>({...action(null,'市场比价',reason),marketWaiting:true});
+    const wait=reason=>waiting('市场比价',reason,{marketWaiting:true});
   const defer=reason=>{status=reason;return {...action(null,'市场出售待处理',reason),marketDeferred:true};};
   const natural=p=>!p.route||p.route.phase==='toBank';
   const matching=(order,intent)=>order.itemId===intent.itemId&&
@@ -506,7 +506,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
   }
   function potionStatus(p,itemId,goal=null,desiredQty=1) {
     select(p);
-    const name=data.items[planner.base(itemId)]?.name??String(itemId);
+    const name=itemName(data,planner.base(itemId));
     if(!procurement?.enabled)return {key:'procurement-off',message:`药水未喝：${name}库存不足，按收益采购已关闭`};
     if(p.ironman)return {key:'procurement-off',message:`药水未喝：${name}库存不足，铁人角色不采购市场药水`};
     if(!planner.nearBank(p)||p.route||p.path?.length||p.held||p.raidHeld||p.queue?.length)
@@ -723,24 +723,24 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
         status='城镇回购：挂单等待下次回购，成交前不降价';
         const hours=Math.max(0,Math.ceil((bb.nextTick-p.lastTick)*data.tickMs/3600000));
         return {...scoped(atBank(p,{t:'marketSell',itemId:id,qty:safeQty,price},
-          `城镇回购挂单 · ${data.items[id].name} × ${safeQty}，单价 ${price}`,false)),
+          `城镇回购挂单 · ${itemName(data,id)} × ${safeQty}，单价 ${price}`,false)),
           buyback:{holdUntilTick:bb.nextTick+Math.ceil(3600000/data.tickMs)},
           reason:`上次回购买入 ${bb.qty} 件，均价约商人价 ${bb.ratio.toFixed(2)} 倍；按不超过 1.5 倍（${bb.cap}）挂单，约 ${hours} 小时后回购，之后未成交转商人`};
       }
     }
     if(previous?.buyback&&!bid) {
       status='城镇回购未成交，按商人价出售';
-      return scoped({...vendorPlan,intent:{...intent,qty:safeQty},label:`回购未成交 · ${data.items[id].name} × ${safeQty}，卖给商人`,
+      return scoped({...vendorPlan,intent:{...intent,qty:safeQty},label:`回购未成交 · ${itemName(data,id)} × ${safeQty}，卖给商人`,
         reason:'上次回购没有买下本批挂单，按商人价出售剩余盈余'});
     }
     if(bid&&safeQty>0&&!preferListing) {
       status=pricing==='list'?'卖盘价没有明显更高或近期成交不足，直接成交买单':'优先成交税后高于系统回收的买单';
       return scoped(atBank(p,{t:'marketSell',itemId:id,qty:Math.min(safeQty,bid.qty),price:bid.price},
-        `市场出售 · ${data.items[id].name}，单价 ${bid.price}`));
+        `市场出售 · ${itemName(data,id)}，单价 ${bid.price}`));
     }
     if(previous?.listedMs>=recycleMs&&previous.rounds>=2) {
       status='本批挂售已满 2 小时并重新定价，剩余物品转系统回收';
-      return scoped({...vendorPlan,intent:{...intent,qty:safeQty},label:`长期未售出 · ${data.items[id].name} × ${safeQty}，系统回收`,
+      return scoped({...vendorPlan,intent:{...intent,qty:safeQty},label:`长期未售出 · ${itemName(data,id)} × ${safeQty}，系统回收`,
         reason:`累计挂售 ${Math.floor(previous.listedMs/60000)} 分钟、${previous.rounds} 轮；最新买单无更高税后收益，仅回收本批剩余盈余`});
     }
     const listing=listingQuote(p,book,intent.floor,previous);
@@ -751,7 +751,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       net(listing.price,1)>intent.floor;
     if(profitSale&&!marketable) {
       status='收益工作产出：市场无更好成交，按商人价出售';
-      return scoped({...vendorPlan,intent:{...intent,qty:safeQty},label:`出售给商人 · ${data.items[id].name} × ${safeQty}`,
+      return scoped({...vendorPlan,intent:{...intent,qty:safeQty},label:`出售给商人 · ${itemName(data,id)} × ${safeQty}`,
         reason:`没有高于商人价（${intent.floor}/件）的买单，近 2 小时也没有足以消化挂单的成交；收益规划即按商人价估算`});
     }
     if(!listing)return defer('没有税后高于回收价的合法挂售价，保留物品');
@@ -759,14 +759,14 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     if(capacitySale&&inventoryBudget(data,planner,p,goal).freeSlots<=0&&demand.illiquid) {
       status='满仓普通盈余：近期可见成交不足以覆盖排队卖量，转系统回收';
       return scoped({...vendorPlan,intent:{...intent,qty:safeQty},illiquidSale:true,
-        label:`滞销普通盈余 · ${data.items[id].name} × ${safeQty}，系统回收`,
+        label:`滞销普通盈余 · ${itemName(data,id)} × ${safeQty}，系统回收`,
         reason:`最新买单没有更高税后收益；近 2 小时可见有效成交 ${demand.volume}，同价或更低卖量 ${demand.ahead}。只处理已扣除保留量的普通盈余`});
     }
     const qty=Math.min(safeQty,demand.volume>0?Math.max(1,demand.volume-demand.ahead):100);
     if(valid(price)&&price<=1e9&&net(price,qty)>intent.floor*qty) {
       status='市场挂卖；每 30 分钟顺路复核降价，累计至少 2 小时才回收';
       return scoped(atBank(p,{t:'marketSell',itemId:id,qty,price},
-        `${previous?'市场重新定价':'市场挂卖'} · ${data.items[id].name} × ${qty}，单价 ${price}`,false));
+        `${previous?'市场重新定价':'市场挂卖'} · ${itemName(data,id)} × ${qty}，单价 ${price}`,false));
     }
     return defer('没有税后高于回收价的合法挂售价，保留物品');
   }
@@ -814,7 +814,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     if(Number.isFinite(self.seconds)&&!(seconds+(xpRate>0?(self.xp??0)/xpRate:0)<self.seconds))return null;
     status=`按当前缺口采购，预计筹币及往返 ${Math.ceil(seconds)} 秒`;
     return atBank(p,{t:'marketBuy',itemId,qty:amount,price:ask.price},
-      `按需采购 · ${data.items[itemId].name} × ${amount}`,true);
+      `按需采购 · ${itemName(data,itemId)} × ${amount}`,true);
   }
   function potionBudgetSpent() {
     if(!state)return 0;
@@ -849,7 +849,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     if(!ask||ask.price>potionCap(itemId,itemId,worth)||ask.price+spent>limit)return null;
     const qty=Math.min(missing,ask.qty,Math.floor((limit-spent)/ask.price));
     if(!valid(qty))return null;
-    return {...action({t:'marketBuy',itemId,qty,price:ask.price},`顺路补药 · ${data.items[itemId].name} × ${qty}`,
+    return {...action({t:'marketBuy',itemId,qty,price:ask.price},`顺路补药 · ${itemName(data,itemId)} × ${qty}`,
       `每瓶 ${ask.price} 金币，本批 ${qty*ask.price}；近一小时已承诺 ${spent}，当前额度 ${limit}；保留任务预算与 1000 金币`),
       consumablePurchase:true,potionRestock:{desiredQty,coins,reserve,worth}};
   }

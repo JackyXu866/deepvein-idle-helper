@@ -1,4 +1,5 @@
 import {buffKey} from '../planner/supplies.js';
+import {COMBAT_SKILLS, combatKey, equipmentKey as equipmentKeyOf, jobKey, levelsKey as levelsKeyOf, routeKey, usableSample} from '../planner/keys.js';
 
 // Lives in the planning Worker. The engine is the game's own simulation code,
 // extracted from the public client (see extract.js); it scores candidate
@@ -7,7 +8,6 @@ import {buffKey} from '../planner/supplies.js';
 let current = {id: null, ok: false, api: null, error: null};
 const cache = new Map(); // calibration key -> simulated rate record
 const CACHE_LIMIT = 600;
-const COMBAT_SKILLS = ['melee', 'ranged', 'magic', 'defence', 'hitpoints'];
 
 export function loadEngine({id, factory}) {
   try {
@@ -75,8 +75,7 @@ export function simulate(api, you, activity, {hours = 1, seed = 1, foodItemId = 
   if (zone) stock[food] = plenty;
   for (const input of activity.inputs ?? []) stock[input.itemId] = plenty * input.qty;
   const p = {
-    equipment: Object.fromEntries(api.equipmentSlots.map(k => [k, null])), masteries: {}, house: {}, houseFurniture: {},
-    perks: {meals: 0, quick: 0, rest: 0, pockets: 0, hands: 0}, guildBonus: 0, bankOrder: [], bankLocked: [], tunics: [], guide: {},
+    masteries: {}, house: {}, houseFurniture: {}, guildBonus: 0, bankOrder: [], bankLocked: [], tunics: [], guide: {},
     housePoints: {}, houseCells: [], houseBuild: null, houseUpgrades: {}, streak: {}, tally: {items: {}, monsters: {}, coinsEarned: 0},
     collection: {}, collections: {}, forgeLog: {}, achievements: {}, titles: [], coins: 0, bankSlotsBought: 0,
     foodMaxTier: 4, foodPerTrip: -1, eatAt: .5, ironman: false, brewTier: {},
@@ -135,21 +134,21 @@ export function engineRates(data, planner, p, {budgetMs = 500, now = () => perfo
   if (!current.ok || !p?.skills || !p.equipment) return {};
   const api = current.api, began = now(), out = {};
   const levels = planner.levels(p);
-  const equipmentKey = JSON.stringify(Object.keys(p.equipment).sort().map(k => [k, p.equipment[k]]));
+  const equipmentKey = equipmentKeyOf(p);
   const buffs = buffKey(data, p);
   const account = JSON.stringify([p.perks ?? {}, p.masteries ?? {}, p.house ?? {}, Object.keys(p.houseFurniture ?? {}).sort(), p.guildBonus ?? 0]);
   const tasks = [
     ...data.monsters.filter(m => data.zones.some(z => z.monsterId === m.id)).map(m =>
-      ({key: `combat:${m.id}`, skills: COMBAT_SKILLS, activity: {monsterId: m.id}})),
+      ({key: combatKey(m.id), skills: COMBAT_SKILLS, activity: {monsterId: m.id}})),
     ...data.jobs.filter(j => !j.grow && !j.rarity && j.levelReq <= levels[j.skill] && data.sites.some(s => s.jobIds.includes(j.id)))
-      .map(j => ({key: `job:${j.id}`, skills: [j.skill], activity: {jobId: j.id, skill: j.skill, inputs: j.inputs}})),
+      .map(j => ({key: jobKey(j.id), skills: [j.skill], activity: {jobId: j.id, skill: j.skill, inputs: j.inputs}})),
   ];
   // The current route first: it is what the planner compares everything to.
-  const currentKey = p.route?.zoneId != null ? `combat:${data.zones.find(z => z.id === p.route.zoneId)?.monsterId}` :
-    p.route?.jobId != null ? `job:${p.route.jobId}` : null;
+  // Only common jobs are simulated, so the route's own key without its quality.
+  const currentKey = routeKey(data, p.route);
   tasks.sort((a, b) => Number(b.key === currentKey) - Number(a.key === currentKey));
   for (const task of tasks) {
-    const levelsKey = JSON.stringify(task.skills.map(s => [s, levels[s]]));
+    const levelsKey = levelsKeyOf(task.skills, s => levels[s]);
     const cacheKey = JSON.stringify([current.id, task.key, equipmentKey, levelsKey, buffs, account]);
     let record = cache.get(cacheKey);
     if (!record) {
@@ -181,7 +180,7 @@ export function engineRates(data, planner, p, {budgetMs = 500, now = () => perfo
 export function mergeRates(simulated, measured = {}) {
   const out = {...simulated};
   for (const [key, m] of Object.entries(measured ?? {})) {
-    if (!(m && m.samples >= 3 && m.seconds - (m.travelSeconds ?? 0) >= 60)) continue;
+    if (!usableSample(m)) continue;
     // Telemetry does not count qualities: keep the simulated factor for the same gear.
     const sim = simulated?.[key];
     out[key] = m.rarityFactor == null && sim?.rarityFactor && sim.equipmentKey === m.equipmentKey && sim.buffKey === m.buffKey ?

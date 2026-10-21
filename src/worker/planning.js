@@ -6,6 +6,7 @@ import {normalizeHotFollow} from '../runtime/hot-follow.js';
 import {Trainer} from '../runtime/trainer.js';
 import {engineApi, engineRates, engineReady, engineStatus, loadEngine, mergeRates} from '../engine/runtime.js';
 import {chooseMastery} from '../engine/mastery.js';
+import {same} from '../runtime/util.js';
 import {planView} from '../planner/plan-view.js';
 import {PLANNING_STORAGE_KEYS, enhancementStorage, wirePlanner} from '../economy/wiring.js';
 
@@ -36,7 +37,6 @@ const GUARD_PARTS=['调度状态','待确认操作','重连恢复','初始同步
 // Names what changed between two guards, so a discarded result can say why.
 export function guardChange(before,after) {
   if(before===after)return null;
-  const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
   const differs=(a,b)=>Object.keys({...a,...b}).find(key=>!same(a?.[key],b?.[key]));
   try {
     const a=JSON.parse(before),b=JSON.parse(after),i=a.findIndex((part,k)=>!same(part,b[k]));

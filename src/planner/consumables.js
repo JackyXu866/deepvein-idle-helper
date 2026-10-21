@@ -4,7 +4,8 @@ import {expectedAttacks, workEstimate} from './estimates.js';
 import {POTIONS, brewPower, foodEffects, potionRefillQty} from './supplies.js';
 import {inventoryBudget} from './inventory.js';
 import {MAKE_BIAS} from './crafting.js';
-import {baseId, baseStride, distance, nearestBank, packCapacity, packUsed, rarityOf} from './items.js';
+import {baseId, baseStride, itemName, distance, nearestBank, packCapacity, packUsed, rarityOf} from './items.js';
+import {routeKey} from './keys.js';
 
 export function swiftPotion(data,planner,p,plan,window,drinkQty) {
   const itemId=225,next=plan?.intent,route=next??p.route;
@@ -139,7 +140,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
     if(!(n>=1)||!site)return null;
     const quality=tier?`${RARITY_NAMES[tier]}`:'';
     return {intent:{t:'setRoute',siteId:site.id,jobId:base.id,onFull:'bank',limit:n,...(tier?{rarity:tier}:{})},label:`自制${quality}${label} × ${n}`,
-      reason:`药水不足，用库存的${quality}${base.inputs.map(i=>data.items[i.itemId]?.name).join('、')}自制${why?`（${why}）`:''}；做完继续原任务`,
+      reason:`药水不足，用库存的${quality}${base.inputs.map(i=>itemName(data,i.itemId)).join('、')}自制${why?`（${why}）`:''}；做完继续原任务`,
       potionBrew:{jobId:base.id}};
   };
   // Missing ingredients are bought at the same safe boundary as potions.
@@ -166,7 +167,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
         reason:`${action.reason}；药效剩余不超过 6 小时，使用 ${qty} 瓶，目标约 20 小时（库存不足则先补现货）`};
     }
     for(const {itemId,desired,worth,label}of missing) {
-      const name=label??data.items[itemId]?.name,needed=Math.min(20,desired-surplus(itemId));
+      const name=label??itemName(data,itemId),needed=Math.min(20,desired-surplus(itemId));
       // Every quality competes per unit of effect (a 1.3x bottle lasts as long
       // but does 1.3x): buying any quality at its ask, or brewing any quality
       // the held matched sets make. What held sets make is weighed (and
@@ -190,7 +191,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
       }
       const refill=restock(itemId,desired,uncovered,worth);if(refill)return refill;
       const status=planner.potionStatus?.(p,itemId,goal,desired);
-      report(status?.key??'stock',status?.message??`药水未喝：${data.items[itemId]?.name??itemId}库存不足，当前无法安全补货`);
+      report(status?.key??'stock',status?.message??`药水未喝：${itemName(data,itemId)}库存不足，当前无法安全补货`);
     }
     return null;
   };
@@ -202,7 +203,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
   // not only the walking in the next ten minutes.
   function walkingShare() {
     if(!route||route.errand||job?.grow)return 0;
-    const key=route.zoneId!=null?`combat:${data.zones.find(z=>z.id===route.zoneId)?.monsterId}`:route.jobId!=null?`job:${route.jobId}`:null;
+    const key=routeKey(data,route,p.workRarity??route.rarity??0);
     const m=key&&planner.routeMeasurement?.(p,key);
     if(m?.seconds>0&&Number.isFinite(m.travelSeconds))return Math.max(0,Math.min(1,m.travelSeconds/m.seconds));
     const site=job&&data.sites.find(s=>s.id===route.siteId);

@@ -1,5 +1,6 @@
 import {professionSkill} from './professions.js';
 import {autoUsableMaterial} from './quality.js';
+import {action as step} from './result.js';
 import {inventoryBudget, reviewInventory, saleProtectionReason} from './inventory.js';
 import {COAL_ID, baseId, itemLabel, merchantPrice, plusOf, rarityOf} from './items.js';
 import {payback} from './investment.js';
@@ -123,7 +124,7 @@ export function createHousing(data,planner) {
       ...(c%rules.grid?[c-1]:[]),...(c%rules.grid<rules.grid-1?[c+1]:[])]))]
       .filter(c=>c>=0&&c<rules.grid**2&&c!==rules.lake&&!p.houseCells.includes(c)).sort((a,b)=>a-b);
   }
-  const action=(intent,label,reason)=>({intent,label,reason,housing:true});
+  const action=(intent,label,reason)=>step(intent,label,reason,{housing:true});
   const idle=(p,goal,mode)=>enabled&&known(p)&&mode!=='assist'&&!goal?.itemTarget&&!p.held&&!p.raidHeld&&!p.queue?.length&&!p.enhance;
   // What home spending must leave alone: the plans' coins and materials.
   function reserves(p,goal,style) {

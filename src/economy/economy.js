@@ -1,6 +1,7 @@
 import {professionSkill} from '../planner/professions.js';
 import {finishTaskReason} from '../planner/crafting.js';
 import {workEstimate} from '../planner/estimates.js';
+import {action} from '../planner/result.js';
 import {enhanceQuote, inventoryBudget, reviewInventory} from '../planner/inventory.js';
 import {planEnhancement} from '../planner/enhancement.js';
 import {distance, merchantPrice, nearestBank, packCapacity, packQty, packUsed} from '../planner/items.js';
@@ -15,8 +16,7 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
   planner.pendingEquipmentPlan=(p,style)=>p.id===lastPlayer&&style===lastStyle?investmentGoal:null;
   const budget=(p,goal)=>inventoryBudget(data,planner,p,goal);
   const review=(p,goal,style='magic')=>reviewInventory(data,planner,p,goal,style);
-  const action=(intent,label,reason='',extra={})=>({intent,label,reason,...extra});
-  const value=id=>merchantPrice(data,id);
+    const value=id=>merchantPrice(data,id);
   const bankFor=p=>nearestBank(data,p);
   const atBank=(p,intent,label,reason,extra={})=>planner.nearBank(p)?action(intent,label,reason,extra):
     action({t:'walk',...bankFor(p).approach},'整理库存 · 前往仓库',reason||label,extra);

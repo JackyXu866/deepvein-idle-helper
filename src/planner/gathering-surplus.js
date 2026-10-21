@@ -20,7 +20,7 @@ export function planGatheringSurplus(data,planner,p,goal,style,mode,waitingGoals
   const capacity=packCapacity(p);
   const free=capacity-packUsed(data,p),carried=packQty(p,id);
   const xp=planner.estimateWork(p,job).xp;
-  const remaining=Math.min(route.limit??Infinity,Math.ceil((planner.thresholds[goal.target]-p.skills[job.skill])/xp));
+  const remaining=Math.min(route.limit??Infinity,Math.ceil(planner.xpTo(p,job.skill,goal.target)/xp));
   // Act in sizeable batches before fullness; never redirect an existing trip.
   if(free>Math.ceil(capacity/2)||!(remaining*job.output.qty>free))return null;
   let reserve=50;

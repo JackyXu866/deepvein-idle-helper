@@ -1,13 +1,13 @@
 import {buffKey} from '../planner/supplies.js';
+import {COMBAT_SKILLS, equipmentKey, levelsKey, routeKey} from '../planner/keys.js';
+import {baseId} from '../planner/items.js';
 import {BOSS_LOOT_RECEIPT, BOSS_LOOT_SENDERS} from '../ui/boss-loot.js';
 
 export function measurementKeys(data,p,level) {
   const job=data.jobs.find(j=>j.id===p.route?.jobId),zone=data.zones.find(z=>z.id===p.route?.zoneId);
-  const tier=p.workRarity??p.route?.rarity??0;
-  const routeKey=p.route?.errand?null:zone?`combat:${zone.monsterId}`:job&&!job.grow?`job:${job.id}${tier?`:rarity:${tier}`:''}`:null;
-  const skills=zone?['melee','ranged','magic','defence','hitpoints']:job?[job.skill]:[];
-  return {routeKey,equipmentKey:JSON.stringify(Object.keys(p.equipment).sort().map(k=>[k,p.equipment[k]])),
-    levelsKey:JSON.stringify(skills.map(s=>[s,level(p.skills[s])])),buffKey:buffKey(data,p)};
+  const skills=zone?COMBAT_SKILLS:job?[job.skill]:[];
+  return {routeKey:routeKey(data,p.route,p.workRarity??p.route?.rarity??0),equipmentKey:equipmentKey(p),
+    levelsKey:levelsKey(skills,s=>level(p.skills[s])),buffKey:buffKey(data,p)};
 }
 
 export class Telemetry {
@@ -29,7 +29,7 @@ export class Telemetry {
     }
     this.playerId=p.id;
     const keys=measurementKeys(this.data,p,this.level);
-    const base=id=>id%this.data.plusScale%this.data.rarityScale;
+    const base=id=>baseId(this.data,id);
     const foodUnits=Object.entries(p.bank).reduce((n,[id,qty])=>n+(this.data.items[base(+id)]?.heals?qty:0),0)+
       p.pack.reduce((n,i)=>n+(this.data.items[base(i.itemId)]?.heals?i.qty:0),0);
     const current={...keys,id:p.id,at:now,skills:{...p.skills},coins:p.coins,

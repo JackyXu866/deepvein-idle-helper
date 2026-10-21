@@ -1,4 +1,4 @@
-import {autoUsableMaterial} from './quality.js';
+import {autoUsableMaterial, rarityOdds} from './quality.js';
 import {baseId, distance, packCapacity, rarityOf} from './items.js';
 
 // Reviewed client index-O0haAaUW.js: Ah/g1 (potions), j4/Rt (quality
@@ -141,9 +141,7 @@ export function combatSupplies(data,planner,p,estimate,options={}) {
   // its meals before planning another batch, rather than leaving after one bite.
   const continuing=p.route?.zoneId!=null&&p.route.zoneId===zone?.id&&currentFood>0;
   const quantity=stock(foodItemId),needFood=!continuing&&quantity<carry?Math.max(0,reserve-quantity):0;
-  const cumulative=[1,...['uncommon','rare','epic','legendary'].map(k=>
-    Math.min(1,(data.rarityChance[k]??0)*(options.rarityMultiplier??1))),0];
-  const probabilities=cumulative.slice(0,5).map((v,i)=>Math.max(0,v-cumulative[i+1]));
+  const probabilities=rarityOdds(data,options.rarityMultiplier??1);
   const distinct=(chance,n)=>1-(1-Math.min(1,chance))**n;
   const drop=monster?.drop!=null?data.items[monster.drop]:null;
   const dropChance=Math.max(0,Math.min(1,monster?.dropChance??1));
