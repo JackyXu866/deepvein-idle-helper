@@ -1,4 +1,5 @@
 import {matchesProfessionWeapon, professionSkill} from './professions.js';
+import {outscores} from './strategy.js';
 import {reviewInventory} from './inventory.js';
 import {packCapacity} from './items.js';
 import {marketQuality} from './quality.js';
@@ -101,7 +102,7 @@ export function createSpecialization(data,planner) {
         .sort((a,b)=>(b.mainXpRate??b.rate.xp)-(a.mainXpRate??a.rate.xp));
       best=earning[0]??candidates[0];
       const current=candidates.find(c=>c.recipeId!=null&&c.recipeId===focus.recipeId||c.monsterId!=null&&c.monsterId===focus.monsterId);
-      if(!earning.length&&current&&(current.mainXpRate??current.rate.xp)>=(best.mainXpRate??best.rate.xp)*.95)best=current;
+      if(!earning.length&&current&&!outscores(best.mainXpRate??best.rate.xp,current.mainXpRate??current.rate.xp))best=current;
       // A chosen profession remains valid even before its materials or starter
       // weapon are unlocked. Existing planning resolves that explicit dependency.
       best??=planner.growthChooseGoal(p,served,excluded,style);
@@ -192,7 +193,7 @@ export function createSpecialization(data,planner) {
     const choices=incomeChoices(p,candidates,style);
     let best=choices[0];
     const current=choices.find(c=>c.skill===focus?.skill);
-    if(current&&(now-focus.since<1800||best.rate.coins<current.rate.coins*1.2))best=current;
+    if(current&&(now-focus.since<1800||!outscores(best.rate.coins,current.rate.coins)))best=current;
     if(!best) {
       focus=null;
       return null;

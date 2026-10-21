@@ -7,6 +7,12 @@ import {buffKey, combatSupplies} from './supplies.js';
 import {baseId, distance, nearestBank, packCapacity, packQty, seedVendorPrice} from './items.js';
 import {COMBAT_SKILLS, combatKey, equipmentKey, jobKey, levelsKey, usableSample} from './keys.js';
 
+// One rule for leaving the current task: another must do more than 10%
+// better on the same (day-averaged) rates. Estimates move a little from plan
+// to plan; a smaller gain is not worth the swap.
+export const SWITCH_MARGIN=1.1;
+export const outscores=(candidate,current)=>candidate>current*SWITCH_MARGIN;
+
 // A rolling comparison of attainable routes, including their self-supply work.
 // Gold is a constraint from an actual planned expense, never an XP conversion.
 export function createStrategy(data, planner) {
@@ -358,9 +364,9 @@ export function createStrategy(data, planner) {
     if (!choices.length) return null;
     let best=choices[0];
     const current=choices.find(c=>c.recipeId===p.route?.jobId||c.monsterId&&data.zones.find(z=>z.id===p.route?.zoneId)?.monsterId===c.monsterId);
-    // The model already charges travel; retain an active route within 5% to
-    // absorb stochastic estimates without endless switching.
-    if (current&&current.rate.xp>=best.rate.xp*.95) best=current;
+    // The model already charges travel; an active route stays unless another
+    // is clearly better (SWITCH_MARGIN).
+    if (current&&!outscores(best.rate.xp,current.rate.xp)) best=current;
     const goal={...best,reason:`${note?note+'；':''}滚动 ${horizon/60} 分钟：采购／自备后的总经验约 ${(best.rate.xp*60).toFixed(0)}/分，`+
       `${note?'收益':'直接金币'}约 ${(best.rate.coins*60).toFixed(1)}/分${note?'':'（盈余出售另计）'}；已计供料与旅行`};
     const investment=planner.investmentBudget?.(p,goal,style);

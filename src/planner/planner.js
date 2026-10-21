@@ -8,7 +8,7 @@ import {RARITY_NAMES, qualityName, bankTripSeconds, baseId, merchantPrice, mount
 import {createCrafting, finishTaskReason} from './crafting.js';
 import {combatEstimate} from './estimates.js';
 import {combatSupplies, foodEligible} from './supplies.js';
-import {createStrategy} from './strategy.js';
+import {createStrategy, outscores} from './strategy.js';
 import {POTION_FLOOR, farmingStocks, herbloreNeeds} from './farming.js';
 import {createEnhancementTraining, planEnhancement} from './enhancement.js';
 import {planConsumable} from './consumables.js';
@@ -841,7 +841,7 @@ export function createPlanner(data) {
       const betterQuality=choices[0]?.rarity>0&&score(choices[0])>score(cached??choices[0]);
       const betterSupply=cached?.inputs.length&&choices[0].inputs.some(i=>count(p,i.itemId)<i.qty*20&&
         Number.isFinite(api.marketBuyPrice?.(p,i.itemId,Math.max(1,i.qty*20-count(p,i.itemId)))??Infinity))&&
-        score(choices[0])>score(cached)*1.1;
+        outscores(score(choices[0]),score(cached));
       // Stage plan: gather until the owned crafts of every quality cover the
       // stage, then craft them all, the higher qualities first (more XP each).
       // The saved recipe too gives way to one clearly better over the stage
@@ -853,7 +853,10 @@ export function createPlanner(data) {
       const stageReady=!!stageBase&&ownedCrafts(stageBase)>=stageCrafts(stageBase);
       if(stageReady)delete goal.craftPreparation;
       const quality=stageReady?choices.filter(j=>j.rarity>0).sort((a,b)=>score(b)-score(a))[0]:null;
-      const job=quality??stageBase??prepared??(betterQuality||betterSupply||changed&&!goal.specialization?choices[0]:(cached??choices[0]));
+      // A level-up re-weighs the recipes; the saved one stays unless another is
+      // clearly better (it used to flip to whichever scored highest that minute).
+      const levelled=changed&&!goal.specialization&&(!cached||outscores(score(choices[0]),score(cached)));
+      const job=quality??stageBase??prepared??(betterQuality||betterSupply||levelled?choices[0]:(cached??choices[0]));
       goal.recipeLevels[skill]=lv[skill];
       goal.recipes[skill]=job.id;
       goal.recipeRarities[skill]=job.rarity??0;
@@ -1199,7 +1202,7 @@ export function createPlanner(data) {
       const planned=requiredItem===null?choices.find(c=>c.monsterId===(goal.fixedMonsterId??goal.monsterId)):undefined;
       if(fixedMonster&&!planned)return blocked(`固定怪物 ${fixedMonster.name} 目前无法安全持续补给；等待食物或装备条件，不自动更换怪物`);
       if(goal.quest&&requiredItem===null&&!planned)return blocked('任务目标怪物目前无法安全有效击杀，先继续成长');
-      const selected=planned??(current&&current.score>=choices[0]?.score*.9?current:choices[0]);
+      const selected=planned??(current&&!outscores(choices[0]?.score,current.score)?current:choices[0]);
       if (!selected) return blocked('所需材料的怪物目前过强，先提升其他战斗技能');
       const supplies=selected.supplies;
       const marketFood=api.marketFood?.(p,goal,supplies);
