@@ -3,7 +3,7 @@ import {LEGENDARY, PAIR_TIERS, autoUsableMaterial, rarityPower, craftRecipe, mer
 import {createLevels} from './levels.js';
 import {combatSafe, combatStats, formulaWork, weaponStyle} from './rates.js';
 import {action, waiting} from './result.js';
-import {RARITY_NAMES, qualityName, baseId, merchantPrice, seedVendorPrice, distance, itemLabel, itemName, nearBank as nearBankAt, nearestBank as nearestBankTo, packCapacity, packQty, packUsed, plusOf, qualityPrefix, rarityOf} from './items.js';
+import {RARITY_NAMES, qualityName, baseId, merchantPrice, mountScale, seedVendorPrice, distance, itemLabel, itemName, nearBank as nearBankAt, nearestBank as nearestBankTo, packCapacity, packQty, packUsed, plusOf, qualityPrefix, rarityOf} from './items.js';
 import {createCrafting, finishTaskReason} from './crafting.js';
 import {combatEstimate} from './estimates.js';
 import {combatSupplies} from './supplies.js';
@@ -18,7 +18,8 @@ import {createHousing} from './housing.js';
 import {planGatheringSurplus} from './gathering-surplus.js';
 import {perkOverview} from './perks.js';
 import {chooseFallback} from './fallback.js';
-import {USE_CAP_SECONDS, createInvestments} from './investment.js';
+import {createInvestments} from './investment.js';
+import {fitsSlot, slotsFor, useSeconds} from './gear.js';
 import {goldToSeconds, payback as paybackRule} from './gold.js';
 import {createCollectionMastery} from './collection.js';
 import {HOT_FOLLOW_SKILLS, hotSkillAt, hotWindows} from '../runtime/hot-follow.js';
@@ -48,7 +49,8 @@ export function createPlanner(data) {
     const tier=rarityPower(data,id), scale=1+data.enhanceScale*plus(id);
     return {...g,itemId:id,accuracy:Math.round(Math.round((g.accuracy??0)*tier)*scale),
       strength:Math.round(Math.round((g.strength??0)*tier)*scale),
-      defence:Math.round(Math.round((g.defence??0)*tier)*scale),bonus:(g.bonus??0)*tier*scale,
+      defence:Math.round(Math.round((g.defence??0)*tier)*scale),
+      bonus:(g.bonus??0)*(g.slot==='mount'?mountScale(data,id):tier*scale),
       luck:(g.luck??0)*tier*scale};
   }
   const name = id => itemName(data,id);
@@ -975,20 +977,16 @@ export function createPlanner(data) {
       if (jobs.some(j=>j.bonus?.itemId===id) || monsters.some(m=>m.drop===id||m.bonus.itemId===id)) return true;
       return made(id).some(j=>j.inputs.every(i=>selfSupply(i.itemId,[...trail,id])));
     }
+    const gearSlots=skill=>slotsFor(data,skill,{combat:attacks.includes(skill),profession,weapon:equipmentStats(p.equipment.weapon??0)});
     // A better piece already owned is worn whatever the goal: it costs only the
     // bank visit, and a legendary piece stays with the player while worn.
     // Filler and temporary work used to skip gear entirely, so a legendary
     // shield in the bank was never put on while fighting as filler.
     function ownedSwap(skill) {
-      const combat=attacks.includes(skill);
-      const slots=combat?['weapon','helmet','body','legs','shield','ring','amulet']:
-        Object.keys(data.toolSkills).filter(slot=>data.toolSkills[slot]===skill);
       const worn=new Set(Object.values(p.equipment).filter(Number.isFinite));
-      for(const slot of slots) {
-        if(slot==='shield'&&(profession==='melee_twohand'||equipmentStats(p.equipment.weapon??0)?.twoHanded))continue;
+      for(const slot of gearSlots(skill)) {
         const current=p.equipment[slot];
-        const fits=id=>{const g=gear.get(base(id));return g?.slot===slot&&canWear(id)&&
-          (slot!=='weapon'||matchesProfessionWeapon(g,profession))&&(!combat||!g.style||g.style===skill);};
+        const fits=id=>canWear(id)&&fitsSlot(gear.get(base(id)),slot,skill,profession);
         const best=held(p).filter(id=>!worn.has(id)&&fits(id)).sort((a,b)=>gearScore(b,skill)-gearScore(a,skill)||b-a)[0];
         if(best==null||current!=null&&fits(current)&&gearScore(best,skill)<=gearScore(current,skill))continue;
         const result=equip(best);
@@ -1005,8 +1003,7 @@ export function createPlanner(data) {
       if(goal.developmentFiller)return null;
       if(completedUpgrade||goal.temporary&&!goal.upgrade?.priority)return null;
       const rareCrafts=slot=>{
-        const ids=data.gear.filter(g=>g.slot===slot&&canWear(g.itemId)&&(!g.style||g.style===skill)&&
-          (slot!=='weapon'||matchesProfessionWeapon(g,profession))).flatMap(g=>[1,2,3,4].map(t=>g.itemId+t*data.rarityScale))
+        const ids=data.gear.filter(g=>fitsSlot(g,slot,skill,profession)&&canWear(g.itemId)).flatMap(g=>[1,2,3,4].map(t=>g.itemId+t*data.rarityScale))
           .filter(id=>gearScore(id,skill)>gearScore(p.equipment[slot],skill)&&
             api.crafting.ingredients(id).some(material=>rarity(material)===rarity(id)&&count(p,material)>0));
         api.watchPurchases?.(p,ids.flatMap(id=>api.crafting.ingredients(id)));
@@ -1016,8 +1013,7 @@ export function createPlanner(data) {
       const shop=slot=>api.marketEquipment?.(p,goal,profession,{
         currentId:p.equipment[slot],
         selfOptions:rareCrafts(slot).map(id=>({id,seconds:api.crafting.estimate(p,id,1,{reserve:goal.budget?.items,coins:goal.budget?.coins,buy:true}).seconds})),
-        ids:data.gear.filter(g=>g.slot===slot&&canWear(g.itemId)&&(!g.style||g.style===skill)&&
-          (slot!=='weapon'||matchesProfessionWeapon(g,profession))&&
+        ids:data.gear.filter(g=>fitsSlot(g,slot,skill,profession)&&canWear(g.itemId)&&
           gearScore(g.itemId+4*data.rarityScale+5*data.plusScale,skill)>gearScore(p.equipment[slot],skill)).map(g=>g.itemId),
         score:id=>gearScore(id,skill),evaluate:id=>upgradeReturn(id,slot,skill,true,true)});
       if (goal.upgrade) {
@@ -1028,8 +1024,7 @@ export function createPlanner(data) {
           if(better!=null)goal.upgrade.id=id=better;
         }
         const current=p.equipment[slot],worn=equipmentStats(current);
-        const suitable=worn&&worn.slot===slot&&(!worn.style||worn.style===skill)&&
-          (slot!=='weapon'||matchesProfessionWeapon(worn,profession));
+        const suitable=fitsSlot(worn,slot,skill,profession);
         if (current===id||suitable&&gearScore(current,skill)>=gearScore(id,skill)) {
           delete goal.upgrade;completedUpgrade=true;return null;
         }
@@ -1047,16 +1042,8 @@ export function createPlanner(data) {
           return result;
         }
       }
-      const combat=attacks.includes(skill);
-      const slots=combat?['weapon','helmet','body','legs','shield','ring','amulet']:
-        Object.keys(data.toolSkills).filter(slot=>data.toolSkills[slot]===skill);
-      for (const ownedOnly of goal.growth?[true,false]:[false]) for (const slot of slots) {
-        if (slot==='shield'&&(profession==='melee_twohand'||equipmentStats(p.equipment.weapon??0)?.twoHanded)) continue;
-        const matches=id=>{
-          const g=gear.get(base(id));
-          return g?.slot===slot&&canWear(id)&&
-            (slot!=='weapon'||matchesProfessionWeapon(g,profession))&&(!g.style||g.style===skill);
-        };
+      for (const ownedOnly of goal.growth?[true,false]:[false]) for (const slot of gearSlots(skill)) {
+        const matches=id=>canWear(id)&&fitsSlot(gear.get(base(id)),slot,skill,profession);
         const owned=held(p).filter(matches);
         const craftable=ownedOnly?[]:[...data.gear.filter(g=>matches(g.itemId)&&made(g.itemId).length&&selfSupply(g.itemId)).map(g=>g.itemId),...rareCrafts(slot)];
         const current=p.equipment[slot];
@@ -1106,11 +1093,11 @@ export function createPlanner(data) {
       const stageReady=Number.isFinite(owned?0:preparation.seconds)&&(stageUpgrade||!(preparation.unlocks?.length));
       const bank=nearestBank(p),equipmentTrip=nearBank(p)||p.pack.some(i=>i.itemId===id)?0:2*distance(p,bank)*data.tickMs/1000;
       const cost=(owned?0:preparation.seconds)+equipmentTrip+data.tickMs/1000;
-      let before=0,after=0;
-      if (attacks.includes(skill)) {
+      // Both sides of the swap by the game formula: a measurement exists only
+      // for the worn set and carries potions and house bonuses.
+      let before=0,after=0,enabling=false;
+      if (attacks.includes(skill)) strategy.byFormula(()=>{
         const oldOptions=strategy.combatOptions(p,profession),newOptions=strategy.combatOptions(next,profession);
-        // A missing profession weapon is an enabling investment, not a return
-        // percentage against an unrelated combat style.
         for (const c of oldOptions) {
           const old=strategy.routeEstimate(p,{monsterId:c.monster.id},20,{style:profession});
           before=Math.max(before,c.xp*20/old.seconds);
@@ -1121,9 +1108,9 @@ export function createPlanner(data) {
           // more cooking XP for eating more food would reward weaker gear.
           after=Math.max(after,c.xp*20/upgraded.seconds);
         }
-        if (!oldOptions.length&&newOptions.length) return {affordable:goal.growth||stageUpgrade?stageReady:Number.isFinite(cost)&&cost<=horizon,
-          seconds:cost,payback:cost,before,after,horizon};
-      } else {
+        enabling=!oldOptions.length&&newOptions.length>0;
+      });
+      else {
         const task=jobs.find(j=>j.id===goal.recipes?.[skill])??jobs.filter(j=>j.skill===skill&&unlocked(j)&&!j.grow)
           .sort((a,b)=>jobEstimate(b).xp/jobEstimate(b).seconds-jobEstimate(a).xp/jobEstimate(a).seconds)[0];
         if (!task) return {affordable:false,seconds:cost,payback:Infinity};
@@ -1133,38 +1120,29 @@ export function createPlanner(data) {
         // worthwhile epic pan was never bought: market purchases are judged on
         // the work itself, as the investment table is. A tool to be made keeps
         // the route estimate, which weighs its own gathering against the gain.
-        // Both sides by the game formula, as the investment table does: a
-        // measurement exists only for the worn tool and carries potions and
-        // house bonuses, so measured-before against formula-after hid the gain.
         const work=state=>{const e=formulaWork(data,api,state,task,lv);return e.seconds>0?e.xp/e.seconds:0;};
-        before=workRate?work(p):strategy.routeEstimate(p,task,50).rate?.xp??0;
-        after=workRate?work(next):strategy.routeEstimate(next,task,50).rate?.xp??0;
+        strategy.byFormula(()=>{
+          before=workRate?work(p):strategy.routeEstimate(p,task,50).rate?.xp??0;
+          after=workRate?work(next):strategy.routeEstimate(next,task,50).rate?.xp??0;
+        });
       }
-      const gain=after-before,payback=gain>0?Math.max(cost,(cost*after-(preparation.xp??0))/gain):Infinity;
+      // A missing profession weapon is an enabling investment, not a return
+      // percentage against an unrelated combat style.
+      if (enabling) return {affordable:goal.growth||stageUpgrade?stageReady:Number.isFinite(cost)&&cost<=horizon,
+        seconds:cost,payback:cost,before,after,horizon};
+      const gain=after-before;
       // Judge gear over the time it will actually be worn, not the planner's
       // 30-minute rolling window.
-      const wear=Math.max(horizon,wearHorizon(id,slot,skill,after));
+      const wear=Math.max(horizon,useSeconds(data,api,p,id,slot,after,skill));
       // Shared payback rule (investment.js): time saved over the wear period
       // must beat the preparation time, less the XP that preparation earns.
-      const worth=paybackRule({seconds:cost,credit:after>0?(preparation.xp??0)/after:0,before,after,useSeconds:wear}).worth;
+      const {worth,paid}=paybackRule({seconds:cost,credit:after>0?(preparation.xp??0)/after:0,before,after,useSeconds:wear});
+      // Play time until the saving repays the preparation (shown in minutes).
+      const payback=gain>0?Math.max(cost,paid/(1-before/after)):Infinity;
       return {affordable:goal.growth||stageUpgrade?stageReady&&gain>0:worth&&cost<=wear,
         seconds:cost,payback,before,after,horizon:wear};
     }
-    // Seconds until this piece is outgrown: the time spent levelling to the
-    // next wear tier in the same slot at the current rate, clamped to
-    // [30 min, 7 days] like the investment table (useSeconds). Unknown rates
-    // or the top tier use the full seven days. It used to stop at one day, so
-    // a tool worn for days was judged on its first day only.
-    function wearHorizon(id,slot,skill,xpRate) {
-      const DAY=USE_CAP_SECONDS,requirement=gearRequirement(id);
-      const nextLevel=data.gear.filter(g=>g.slot===slot&&(!g.style||g.style===equipmentStats(id)?.style))
-        .map(g=>gearRequirement(g.itemId)).filter(r=>r.skill===requirement.skill&&r.level>requirement.level)
-        .map(r=>r.level).sort((a,b)=>a-b)[0];
-      if(nextLevel==null)return DAY;
-      if(requirement.skill!==skill||!(xpRate>0))return DAY;
-      const xp=xpTo(p,skill,nextLevel);
-      return Math.min(DAY,Math.max(1800,xp/xpRate));
-    }
+
     function fight(style, requiredItem=null, prepareGear=true) {
       const fixedMonster=requiredItem===null&&goal.fixedMonsterId!=null?monsters.find(m=>m.id===goal.fixedMonsterId):null;
       if(requiredItem===null&&goal.fixedMonsterId!=null) {

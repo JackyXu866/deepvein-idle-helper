@@ -1,4 +1,5 @@
-import {canWear, gearRequirementOf, matchesProfessionWeapon, professionSkill, statsDominate} from './professions.js';
+import {canWear, gearRequirementOf, professionSkill, statsDominate} from './professions.js';
+import {fitsSlot, shieldless} from './gear.js';
 import {POTION_SALE_RATIO, autoUsableMaterial, craftRecipe, marketPotion, marketQuality} from './quality.js';
 import {cropReserve, herbloreNeeds} from './farming.js';
 import {COAL_ID, baseId, foodCarry, itemLabel, merchantPrice, plusOf, rarityOf, tradableBase} from './items.js';
@@ -126,9 +127,7 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
   const lockedVariants=new Set([...locked].filter(Number.isFinite).map(id=>id%data.plusScale));
   const requirement=g=>gearRequirementOf(data,g.itemId).level;
   const wearable=g=>canWear(data,lv,g.itemId);
-  const relevant=g=>Object.hasOwn(data.toolSkills,g.slot)||(!g.style||g.style===combatSkill)&&
-    (g.slot!=='weapon'||matchesProfessionWeapon(g,style))&&
-    (g.slot!=='shield'||style!=='melee_twohand');
+  const relevant=g=>fitsSlot(g,g.slot,combatSkill,style)&&(g.slot!=='shield'||!shieldless(style));
   const heldGear=[...stock.values()].filter(row=>row.bank+row.pack+row.worn>0)
     .map(row=>planner.equipmentStats(row.itemId)).filter(Boolean);
   const selfSource=(id,trail=[])=>!trail.includes(id)&&(id===data.coinId||data.jobs.some(j=>

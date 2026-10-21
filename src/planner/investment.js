@@ -1,15 +1,15 @@
 import {ENHANCEMENT_BASELINE, enhanceQuote} from './inventory.js';
 import {combatEstimate} from './estimates.js';
 import {combatStats as sharedCombatStats, formulaWork} from './rates.js';
-import {canWear, gearRequirementOf, matchesProfessionWeapon, professionSkill} from './professions.js';
+import {canWear, professionSkill} from './professions.js';
 import {LEGENDARY, autoUsableMaterial, craftRecipe} from './quality.js';
 import {baseId, itemLabel, plusOf, rarityOf} from './items.js';
 import {goldToSeconds, payback} from './gold.js';
+import {COMBAT_SLOTS, fitsSlot, shieldless, useSeconds as sharedUseSeconds} from './gear.js';
+export {USE_CAP_SECONDS} from './gear.js';
 
 // A funding stretch on the best gold job lasts at most this long.
 export const FUNDING_CAP_SECONDS=3600;
-// An item is valued for at most 30 days of use (until outgrown, if sooner).
-export const USE_CAP_SECONDS=30*86400;
 const FUNDING_RETRY_SECONDS=6*3600,CACHE_SECONDS=60;
 
 // Expected gold and shards to take an item from its current +N to `toPlus`.
@@ -26,8 +26,6 @@ export function expectedEnhancement(data,planner,p,itemId,toPlus) {
   }
   return {gold:gold-fromGold,shards:shards-fromShards};
 }
-
-const COMBAT_SLOTS=['weapon','helmet','body','legs','shield','ring','amulet'];
 
 export function createInvestments(data,planner) {
   let cache=null,fundingDeferred={};
@@ -60,17 +58,7 @@ export function createInvestments(data,planner) {
     const e=combatEstimate(data,ctx.monster,combatStats(p,equipment,style));
     return e.mainXp/e.seconds;
   }
-  // Seconds until the piece is outgrown: XP to the next wear tier in its line
-  // at its own rate, within [30 min, a week].
-  function useSeconds(p,id,slot,skillRate) {
-    const r=gearRequirementOf(data,id),g=planner.equipmentStats(id);
-    if(!r||r.skill==='none'||!(skillRate>0))return USE_CAP_SECONDS;
-    const next=data.gear.filter(o=>o.slot===slot&&(o.style??null)===(g?.style??null)&&o.needs===g?.needs)
-      .map(o=>gearRequirementOf(data,o.itemId)).filter(o=>o.skill===r.skill&&o.level>r.level).map(o=>o.level).sort((a,b)=>a-b)[0];
-    if(next==null)return USE_CAP_SECONDS;
-    const xp=planner.xpTo(p,r.skill,next);
-    return Math.min(USE_CAP_SECONDS,Math.max(1800,xp/skillRate));
-  }
+
   // Cheapest way to get an item: owned, made (time and bought inputs) or bought.
   function acquire(p,id,coinRate) {
     if(planner.count(p,id)>0)return {gold:0,seconds:0,source:'已持有'};
@@ -89,7 +77,7 @@ export function createInvestments(data,planner) {
     return options.sort((a,b)=>cost(a)-cost(b))[0]??null;
   }
   function slotsFor(p,style) {
-    const twoHanded=style==='melee_twohand'||planner.equipmentStats(p.equipment.weapon)?.twoHanded;
+    const twoHanded=shieldless(style,planner.equipmentStats(p.equipment.weapon));
     return [...COMBAT_SLOTS.filter(s=>s!=='shield'||!twoHanded),
       ...Object.keys(data.toolSkills).filter(s=>s!=='hoe'&&planner.trainedSkills(style).includes(data.toolSkills[s]))];
   }
@@ -100,8 +88,8 @@ export function createInvestments(data,planner) {
     for(const slot of slotsFor(p,style)) {
       const current=p.equipment[slot],worn=planner.equipmentStats(current);
       if(!worn||slot==='mount')continue;
-      const fits=id=>{const g=planner.equipmentStats(id);return !!g&&g.slot===slot&&(data.toolSkills[slot]||
-        (!g.style||g.style===ctx.skill)&&(slot!=='weapon'||matchesProfessionWeapon(g,style)));};
+      const useSkill=data.toolSkills[slot]??ctx.skill,useSeconds=(id,rate)=>sharedUseSeconds(data,planner,p,id,slot,rate,useSkill);
+      const fits=id=>fitsSlot(planner.equipmentStats(id),slot,useSkill,style);
       if(!fits(current))continue;
       const before=rate(p,style,ctx,slot,current);
       if(!(before>0))continue;
@@ -116,7 +104,7 @@ export function createInvestments(data,planner) {
         if(!cost)return;
         const after=rate(p,style,ctx,slot,id);
         if(!(after>before))return;
-        const use=useSeconds(p,id,slot,after),result=payback({gold:cost.gold,seconds:cost.seconds,coinRate,before,after,useSeconds:use});
+        const use=useSeconds(id,after),result=payback({gold:cost.gold,seconds:cost.seconds,coinRate,before,after,useSeconds:use});
         rows.push({slot,kind,id,label,current,source:cost.source??null,gold:Math.round(cost.gold),seconds:cost.seconds,
           gain:after/before-1,useSeconds:use,...result,...extra});
       };
@@ -127,7 +115,7 @@ export function createInvestments(data,planner) {
           const cost=expectedEnhancement(data,planner,p,current,to),target=current%data.plusScale+to*data.plusScale;
           const after=rate(p,style,ctx,slot,target);
           if(!(after>floor)||!Number.isFinite(cost.gold))continue;
-          const gold=cost.gold+cost.shards*shardValue,use=useSeconds(p,target,slot,after);
+          const gold=cost.gold+cost.shards*shardValue,use=useSeconds(target,after);
           const result=payback({gold,coinRate,before,after,useSeconds:use});
           if(!best||result.net>best.net)best={slot,kind:'enhance',id:target,current,toPlus:to,source:null,
             label:`强化 ${itemLabel(data,current)} → +${to}`,gold:Math.round(gold),coins:Math.round(cost.gold),shards:Math.ceil(cost.shards),

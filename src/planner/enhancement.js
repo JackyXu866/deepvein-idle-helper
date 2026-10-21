@@ -1,4 +1,5 @@
-import {gearRequirementOf, matchesProfessionWeapon, professionSkill, statsDominate} from './professions.js';
+import {gearRequirementOf, professionSkill, statsDominate} from './professions.js';
+import {fitsSlot, shieldless} from './gear.js';
 import {autoUsableMaterial} from './quality.js';
 import {ENHANCEMENT_BASELINE, enhanceQuote} from './inventory.js';
 import {itemLabel, plusOf} from './items.js';
@@ -63,10 +64,8 @@ export function createEnhancementTraining(data,planner,{read=()=>null,write=()=>
 export function planEnhancement(data,planner,p,style='magic',goal=null) {
   if(p.enhance)return {intent:null,label:'等待本次强化结果',reason:'已有强化进行中，确认结果后再规划'};
   const lv=planner.levels(p),combatSkill=professionSkill(style);
-  const relevant=g=>g&&g.slot!=='hoe'&&(data.toolSkills[g.slot]||
-    g.slot!=='mount'&&(!g.style||g.style===combatSkill)&&
-    (g.slot!=='weapon'||matchesProfessionWeapon(g,style))&&
-    (g.slot!=='shield'||style!=='melee_twohand'));
+  const relevant=g=>!!g&&g.slot!=='hoe'&&g.slot!=='mount'&&fitsSlot(g,g.slot,combatSkill,style)&&
+    (g.slot!=='shield'||!shieldless(style));
   const recipe=id=>data.jobs.find(j=>j.output.itemId===planner.base(id));
   // Wearable now or at the very next level.
   const nearlyWearable=id=>{const r=gearRequirementOf(data,id);return r.skill==='none'||r.level<=(lv[r.skill]??0)+1;};

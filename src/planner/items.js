@@ -42,11 +42,14 @@ export const foodCarry=(p,capacity=packCapacity(p))=>
 export const distance=(a,b)=>Math.max(Math.abs(a.x-b.x),Math.abs(a.y-b.y));
 export const nearestBank=(data,point)=>[...data.banks].sort((a,b)=>distance(point,a)-distance(point,b))[0];
 export const nearBank=(data,p)=>data.banks.some(b=>distance(p,b)<=1);
-// Walking stride (x1000 per tick) before potions: the mount's bonus, scaled by
-// its own quality and +N table, and the move mastery. Rounded by callers.
+// A mount's bonus scales by its own quality and +N table, not the other gear's.
+const MOUNT_QUALITY=[1,1.5,2.25,3.5,5],MOUNT_PER_PLUS=.15;
+export const mountScale=(data,id)=>(MOUNT_QUALITY[rarityOf(data,id)]??1)*(1+MOUNT_PER_PLUS*plusOf(data,id));
+// Walking stride (x1000 per tick) before potions: the mount's scaled bonus and
+// the move mastery. Rounded by callers.
 export function baseStride(data,p) {
   const mount=p.equipment?.mount??0,g=data.gear.find(g=>g.itemId===baseId(data,mount)&&g.slot==='mount');
-  const bonus=(g?.bonus??0)*([1,1.5,2.25,3.5,5][rarityOf(data,mount)]??1)*(1+.15*plusOf(data,mount));
+  const bonus=(g?.bonus??0)*mountScale(data,mount);
   return (1000+Math.round(bonus*1000))*(1+.005*(p.masteries?.move??0));
 }
 

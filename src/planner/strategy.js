@@ -29,8 +29,17 @@ export function createStrategy(data, planner) {
   }
   // Where a candidate's rate comes from: 'measured', 'simulated' or 'formula'.
   const rateSource=(p,key)=>{const m=usableMeasurement(p,key);return !m?'formula':m.simulated?'simulated':'measured';};
+  // While set, every estimate is the game formula alone (see byFormula).
+  let formulaOnly=false;
+  // Runs `fn` with estimates by the formula alone: both sides of a gear swap
+  // are then judged alike, since a measurement only exists for the worn set
+  // (and carries potions and house bonuses the formula leaves out).
+  function byFormula(fn) {
+    const was=formulaOnly;formulaOnly=true;
+    try{return fn();}finally{formulaOnly=was;}
+  }
   function calibrated(p,key,e,lv) {
-    const m=usableMeasurement(p,key,lv);
+    const m=formulaOnly?null:usableMeasurement(p,key,lv);
     if (!m) return e;
     const working=m.seconds-(m.travelSeconds??0);
     // Remove observed travel before adding this candidate's separate travel
@@ -44,7 +53,7 @@ export function createStrategy(data, planner) {
     // The engine's measured quality factor also covers brews, house and
     // masteries; it is a sample, so it replaces the exact tool+amulet factor
     // only when clearly higher.
-    const measured=usableMeasurement(p,key,lv)?.rarityFactor;
+    const measured=formulaOnly?null:usableMeasurement(p,key,lv)?.rarityFactor;
     return calibrated(p,key,workEstimate(data,j,lv[j.skill],{...inputs,
       rarityFactor:measured>(1+inputs.luck)*1.15?measured:undefined}),lv);
   }
@@ -326,6 +335,6 @@ export function createStrategy(data, planner) {
     }
     return goal;
   }
-  return {chooseGoal,candidates,routeEstimate,estimateWork,combatOptions,setMeasurements,supplyCost,horizon,rateSource,
+  return {chooseGoal,candidates,routeEstimate,estimateWork,combatOptions,byFormula,setMeasurements,supplyCost,horizon,rateSource,
     routeMeasurement:(p,key)=>usableMeasurement(p,key)};
 }
