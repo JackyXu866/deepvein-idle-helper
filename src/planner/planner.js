@@ -640,6 +640,13 @@ export function createPlanner(data) {
         if((p.workRarity??p.route.rarity??0)!==(job.rarity??0))return action({t:'clearRoute'},'当前批次已结束，切换制作品质');
         if((goal.itemTarget&&job.output.itemId===goal.targetItemId||goal.mastery&&job.output.itemId===goal.mastery.itemId)&&p.route.limit==null)
           return action({t:'clearRoute'},'切换为目标所需数量','停止原无限路线后，按尚缺成品数量继续');
+        // Planning reaches here at task boundaries only (a load banked), so the
+        // worn tools are reviewed there even when the same work goes on: a
+        // day-long stage of cooking would otherwise never reconsider the pan.
+        const review=trail.length?(goal.mastery?null:ownedSwap(job.skill)):upgrade(job.skill);
+        // A purchase waiting for its live ask holds this boundary for the few
+        // seconds the quote takes; the next boundary would be a whole load later.
+        if(review?.intent||review?.marketWaiting)return review;
         return wait(`继续 ${job.name}`);
       }
       if (!trail.length) {

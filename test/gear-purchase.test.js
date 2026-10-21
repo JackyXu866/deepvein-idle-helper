@@ -65,3 +65,28 @@ test('end to end: a cooking goal still in preparation buys the epic pan the tabl
   const text = JSON.stringify([plan?.intent, plan?.label, plan?.reason]);
   assert.ok(plan?.intent?.t === 'marketBuy' && plan.intent.itemId === 363 + 3 * R || /实时卖盘/.test(plan?.reason ?? ''), text);
 });
+
+test('the epic pan is bought at a task boundary even while the same cooking work continues', async () => {
+  const {createEconomy} = await import('../src/economy/economy.js');
+  const {wirePlanner} = await import('../src/economy/wiring.js');
+  const planner = makePlanner(), d = planner.data, R = d.rarityScale, clock = 1_000_000_000;
+  const market = createMarket(d, planner, {now: () => clock});
+  const economy = createEconomy(d, planner, {});
+  wirePlanner(planner, market, () => economy, () => false);
+  market.configureProcurement({enabled: true});
+  planner.coinRate = () => 67000 / 3600;
+  const cook = d.jobs.find(j => j.id === 61), bank = d.banks[0], site = d.sites.find(s => s.jobIds.includes(61));
+  const p = player(planner, {lastTick: 100000, coins: 1_700_000, levels: {cooking: 64, fishing: 66}, hp: 100, x: bank.x, y: bank.y,
+    path: null, activity: 'idle', equipment: {pan: 363 + 2 * R}, bank: {[cook.inputs[0].itemId]: 30000},
+    route: {jobId: 61, siteId: site.id, zoneId: null, phase: 'toBank', limit: null, onFull: 'bank'}}); // a load done, on the bank trip
+  market.receive({tick: 100000, m: [{t: 'welcome', you: p, orders: []}]});
+  const items = {};
+  for (const base of [361, 362, 363, 364]) for (let r = 0; r <= 4; r++) for (let plus = 0; plus <= 5; plus++) items[base + r * R + plus * d.plusScale] = {sellQty: 0};
+  items[363 + 3 * R] = {lowestSell: 67000, sellQty: 1};
+  market.setPriceFeed({generatedAt: new Date(clock).toISOString(), items}, clock);
+  const goal = {skill: 'cooking', target: 65, recipes: {cooking: 61}, recipeRarities: {cooking: 0}, recipeLevels: {cooking: 64},
+    budget: {coins: 0, items: {}}, development: true};
+  const plan = planner.plan(p, goal, 'melee', true);
+  const text = JSON.stringify([plan?.intent, plan?.label, plan?.reason]);
+  assert.ok(plan?.intent?.t === 'marketBuy' && plan.intent.itemId === 363 + 3 * R || /实时卖盘/.test(plan?.reason ?? ''), text);
+});
