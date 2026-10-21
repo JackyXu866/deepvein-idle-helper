@@ -860,8 +860,11 @@ export function createPlanner(data) {
         score(choices[0])>score(cached)*1.1;
       // Stage plan: gather until the owned crafts of every quality cover the
       // stage, then craft them all, the higher qualities first (more XP each).
+      // The saved recipe too gives way to one clearly better over the stage
+      // (Shrimp, chosen earlier, kept while 9,946 Lobsters sat in the bank).
+      const cachedWeak=cached&&plainBest&&cached.id!==plainBest.id&&stageRate(plainBest)>=1.5*stageRate(cached);
       const stageBase=stagePlan?(prepared&&!prepared.rarity?prepared:
-        cached&&!cached.rarity&&!changed?cached:
+        cached&&!cached.rarity&&!changed&&!cachedWeak?cached:
         plainBest):null;
       const stageReady=!!stageBase&&ownedCrafts(stageBase)>=stageCrafts(stageBase);
       if(stageReady)delete goal.craftPreparation;

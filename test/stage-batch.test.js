@@ -16,8 +16,10 @@ function smith(ore, extra = {}) {
   const p = player(planner, {levels: {smithing: 20, mining: 30}, x: bank.x, y: bank.y, bank: {[copper]: ore, [tin]: ore, ...quality},
     equipment: top,
     coins: 0, hp: 100, activity: 'idle', path: null, held: false, route: null});
+  // Pinned to Bronze bar: these tests are about the stage itself, while a saved
+  // recipe would otherwise give way to a clearly better one (stage-recipe.test.js).
   const goal = {skill: 'smithing', target: 25, development: true, growth: true, recipeId: bar.id, recipes: {smithing: bar.id},
-    budget: {coins: 0, items: {}}};
+    mainSkill: 'smithing', fixedRecipeId: bar.id, budget: {coins: 0, items: {}}};
   return {planner, d, p, goal, bar};
 }
 

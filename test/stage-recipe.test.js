@@ -27,3 +27,14 @@ test('a stage already on the best recipe keeps its preparation', () => {
   assert.equal(goal.recipes.cooking, 66);
   assert.equal(goal.craftPreparation?.jobId, 66);
 });
+
+test('a saved recipe gives way when a clearly better one is already in stock (9,946 Lobster)', () => {
+  const planner = makePlanner(), d = planner.data, R = d.rarityScale;
+  const tuna = d.jobs.find(j => j.name === 'Cook tuna');
+  const p = player(planner, {levels: {cooking: 63, fishing: 66}, coins: 1.7e6, hp: 100, x: d.banks[0].x, y: d.banks[0].y,
+    path: null, activity: 'idle', equipment: {pan: 363 + 2 * R}, bank: {20: 32768, 25: 9946, [tuna.inputs[0].itemId]: 12639}});
+  const goal = {skill: 'cooking', target: 65, growth: true, development: true, stage: 65, budget: {coins: 0, items: {}},
+    recipes: {cooking: 61}, recipeRarities: {cooking: 0}, recipeLevels: {cooking: 63}};
+  const plan = planner.plan(p, goal, 'melee');
+  assert.equal(goal.recipes.cooking, 66, JSON.stringify([plan?.intent, plan?.reason]));
+});
