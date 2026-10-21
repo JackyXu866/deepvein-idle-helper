@@ -1,8 +1,8 @@
 import {professionSkill} from './professions.js';
 import {autoUsableMaterial} from './quality.js';
 import {action as step} from './result.js';
-import {inventoryBudget, reviewInventory, saleProtectionReason} from './inventory.js';
-import {COAL_ID, baseId, itemLabel, plusOf, rarityOf} from './items.js';
+import {combinedBudget, reviewInventory, saleProtectionReason} from './inventory.js';
+import {COAL_ID, baseId, itemLabel, playerQueued, plusOf, rarityOf} from './items.js';
 import {payback} from './gold.js';
 import {USE_CAP_SECONDS} from './gear.js';
 
@@ -22,7 +22,7 @@ export function atHome(data,p) {
 }
 export function validHomePortal(data,p,intent) {
   const travel=data?.houseTravel;
-  if(!travel||p.route||p.path?.length||p.held||p.raidHeld||p.queue?.length||p.enhance)return false;
+  if(!travel||p.route||p.path?.length||playerQueued(p)||p.enhance)return false;
   return intent.dir==='in'?!atHome(data,p)&&travel.portals.some(s=>houseDistance(p,s)<=1):
     intent.dir==='out'&&atHome(data,p)&&houseDistance(p,travel.exit)<=1;
 }
@@ -132,14 +132,9 @@ export function createHousing(data,planner) {
     // The quality hold in the budget is by profession: the planner and the
     // page's check must use the same one (housing can run before any plan()).
     planner.styleHint=style;
-    const budget=inventoryBudget(data,planner,p,goal);
     // Maintenance can hold a separate equipment project while the main goal
     // remains unchanged. Its supplies must survive home spending too.
-    const investment=planner.pendingEquipmentPlan?.(p,style);
-    if(investment) {
-      const reserved=inventoryBudget(data,planner,p,investment);budget.coins+=reserved.coins;
-      for(const [id,qty]of Object.entries(reserved.items))budget.items[id]=Math.max(budget.items[id]??0,qty);
-    }
+    const budget=combinedBudget(data,planner,p,[goal??{},planner.pendingEquipmentPlan?.(p,style)]);
     return budget;
   }
   function work(p,goal,style='magic',mode='balanced') {
@@ -205,7 +200,7 @@ export function createHousing(data,planner) {
   }
   function plan(p,goal,style='magic',mode='balanced',bankedLoad=false) {
     if(owner!==p.id){owner=p.id;visit=null;retryAt=0;review=[];}
-    if(!known(p)||!data.houseTravel||mode==='assist'||goal?.itemTarget||p.held||p.raidHeld||p.queue?.length||p.enhance||p.route?.errand)return null;
+    if(!known(p)||!data.houseTravel||mode==='assist'||goal?.itemTarget||playerQueued(p)||p.enhance||p.route?.errand)return null;
     const home=atHome(data,p),wait=reason=>action(null,'房屋维护',reason);
     if(!enabled) {
       if(!visit)return null;

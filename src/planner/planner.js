@@ -4,10 +4,10 @@ import {createLevels} from './levels.js';
 import {createInputCost} from './input-cost.js';
 import {combatSafe, combatStats, formulaWork, weaponStyle} from './rates.js';
 import {action, waiting} from './result.js';
-import {RARITY_NAMES, qualityName, baseId, merchantPrice, mountScale, seedVendorPrice, distance, itemLabel, itemName, nearBank as nearBankAt, nearestBank as nearestBankTo, packCapacity, packQty, packUsed, plusOf, qualityPrefix, rarityOf} from './items.js';
+import {RARITY_NAMES, qualityName, bankTripSeconds, baseId, merchantPrice, mountScale, seedVendorPrice, distance, itemLabel, itemName, nearBank as nearBankAt, nearestBank as nearestBankTo, heldIds, ownedQty, packCapacity, packFree, packQty, plusOf, qualityPrefix, rarityOf, withoutItem} from './items.js';
 import {createCrafting, finishTaskReason} from './crafting.js';
 import {combatEstimate} from './estimates.js';
-import {combatSupplies} from './supplies.js';
+import {combatSupplies, foodEligible} from './supplies.js';
 import {createStrategy} from './strategy.js';
 import {POTION_FLOOR, farmingStocks, herbloreNeeds} from './farming.js';
 import {createEnhancementTraining, planEnhancement} from './enhancement.js';
@@ -59,8 +59,7 @@ export function createPlanner(data) {
   // Count exact quality IDs; raw materials of different qualities are not interchangeable.
   // Overflow is excluded here: it cannot be withdrawn until storage frees up.
   const count = (p,id) => id===data.coinId ? p.coins : (p.bank[id]??0)+packQty(p,id);
-  const held = p => [...new Set([...Object.keys(p.bank).filter(id=>p.bank[id]>0).map(Number),
-    ...p.pack.map(i=>i.itemId), ...Object.values(p.equipment).filter(Number.isFinite)])];
+  const held = p => heldIds(p,{worn:true});
   const nearBank = p => nearBankAt(data,p);
   const nearestBank = p => nearestBankTo(data,p);
   const gearRequirement = id => gearRequirementOf(data,id);
@@ -98,7 +97,7 @@ export function createPlanner(data) {
     Object.assign(goal,{itemTarget:true,targetItemId:id,qty,skill:choice.skill??professionSkill(profession),target:Infinity});
     goal.budget??={coins:0,items:{}};goal.budget.items??={};
     goal.budget.items[id]=Math.max(goal.budget.items[id]??0,qty);
-    const owned=count(p,id)+(p.overflow?.[id]??0)+Object.values(p.equipment).filter(item=>item===id).length+(goal.listedQty??0);
+    const owned=ownedQty(p,id,goal.listedQty??0);
     if(owned>=qty)return {...wait(`已备齐 ${name(id)}：${owned}/${qty}`),completed:true,goal};
     const current=jobs.find(job=>job.id===p.route?.jobId);
     const consuming=current?.inputs.some(input=>input.itemId===id);
@@ -235,8 +234,8 @@ export function createPlanner(data) {
   // group ripening during the delay does not restart it. Why not yet, or null.
   function harvestGate(p,plots=farmPlots(p)) {
     if(!plots.length)return null;
-    const waiting=waitForFarmBatch(p);
-    if(waiting)return waiting.reason;
+    const batch=waitForFarmBatch(p);
+    if(batch)return batch.reason;
     const key=plots.map(f=>`${f.site.id}:${p.plots[f.site.id].seedItemId}:${p.plots[f.site.id].plantedAt}`).sort().join('|');
     const policy=createAutomationPolicy({now:()=>p.lastTick*data.tickMs,saved:{farm:farmPolicy}});
     const timing=policy.farm(key,automation());farmPolicy=policy.save().farm;
@@ -322,9 +321,9 @@ export function createPlanner(data) {
     if(stock?.herblore) {
       const herb=selected.output.itemId,drop=stock.herblore.drops.map(id=>name(id)).join('、');
       const short=stock.herblore.tiers.filter(t=>t.short>0).map(t=>`${qualityName(t.t)} ${t.short}`).join('、');
-      const waiting=[1,2,3].map(t=>({t,n:count(p,herb+t*data.rarityScale)}))
+      const unpaired=[1,2,3].map(t=>({t,n:count(p,herb+t*data.rarityScale)}))
         .filter(w=>w.n>0&&!stock.herblore.tiers.some(x=>x.t===w.t)).map(w=>`${RARITY_NAMES[w.t]}${name(herb)} ${w.n}（等${RARITY_NAMES[w.t]}${drop}）`);
-      farmTargetReason+=`${short?`；按配对品质缺 ${short}`:''}${waiting.length?`；${waiting.join('、')}`:''}`;
+      farmTargetReason+=`${short?`；按配对品质缺 ${short}`:''}${unpaired.length?`；${unpaired.join('、')}`:''}`;
     }
     const seedSlots=empty.length+ready.filter(f=>f.job.id!==selected.id&&!chosenField(p,f.site)).length;
     const seedNeed=Math.max(0,(seedSlots||(!empty.length&&!ready.length?plots.filter(f=>f.job.id!==selected.id&&!chosenField(p,f.site)).length:0))*
@@ -651,7 +650,7 @@ export function createPlanner(data) {
         const departure=gatheringDeparture(p,job);
         if(departure)return departure;
         if((!goal.itemTarget||job.output.itemId!==goal.targetItemId)&&(!goal.mastery||job.output.itemId!==goal.mastery.itemId))
-          quantity=Math.max(quantity,Math.ceil((packCapacity(p)-packUsed(data,p))/job.output.qty));
+          quantity=Math.max(quantity,Math.ceil(packFree(data,p)/job.output.qty));
       }
       const materialBatch = job.grow ? 1 : quantity;
       for (const ingredient of job.inputs) {
@@ -764,8 +763,7 @@ export function createPlanner(data) {
         const travel = distance(p,siteFor(j))*data.tickMs/1000;
         let value;
         if(j.rarity) {
-          const ingredients=Math.max(0,api.crafting.estimate({...p,bank:{...p.bank,[j.output.itemId]:0},
-            pack:p.pack.filter(i=>i.itemId!==j.output.itemId)},j.output.itemId,n*j.output.qty,{reserve:qualityReserve()}).seconds-e.seconds*n);
+          const ingredients=Math.max(0,api.crafting.estimate(withoutItem(p,j.output.itemId),j.output.itemId,n*j.output.qty,{reserve:qualityReserve()}).seconds-e.seconds*n);
           value=e.xp*n/(e.seconds*n+ingredients+travel);
         } else if(j.grow||!j.inputs.length) value=(j.grow?j.xp:e.xp)*n/((j.grow?jobTime(j):e.seconds)*n+travel);
         else {const made=recipeCost(j,n,trail);value=made.xp/(made.seconds+travel);}
@@ -1090,7 +1088,7 @@ export function createPlanner(data) {
       // level-one character must not pursue endgame jewellery before fighting.
       const requirement=gearRequirement(id),stageUpgrade=!owned&&requirement.skill!=='none'&&requirement.level>1;
       const stageReady=Number.isFinite(owned?0:preparation.seconds)&&(stageUpgrade||!(preparation.unlocks?.length));
-      const bank=nearestBank(p),equipmentTrip=nearBank(p)||p.pack.some(i=>i.itemId===id)?0:2*distance(p,bank)*data.tickMs/1000;
+      const equipmentTrip=nearBank(p)||p.pack.some(i=>i.itemId===id)?0:bankTripSeconds(data,p);
       const cost=(owned?0:preparation.seconds)+equipmentTrip+data.tickMs/1000;
       // Both sides of the swap by the game formula: a measurement exists only
       // for the worn set and carries potions and house bonuses.
@@ -1217,8 +1215,7 @@ export function createPlanner(data) {
       if ((entering&&p.hp<targetHp)||p.hp<=selected.monsterMaxHit) {
         if (p.route||p.path?.length) return action({t:'clearRoute'},'先停止当前路线并治疗',
           `当前生命 ${p.hp}，开战前至少恢复到 ${targetHp}`);
-        const eligible=id=>autoUsableMaterial(data,id)&&(data.items[base(id)]?.heals??0)>0&&rarity(id)<=(p.foodMaxTier??1)&&
-          (!goal.itemTarget||id!==goal.targetItemId);
+        const eligible=id=>foodEligible(data,p,id)&&(!goal.itemTarget||id!==goal.targetItemId);
         const compare=(a,b)=>Number(b===supplies.foodItemId)-Number(a===supplies.foodItemId)||
           (data.items[base(b)]?.heals??0)-(data.items[base(a)]?.heals??0);
         const carried=p.pack.filter(i=>i.qty>0&&eligible(i.itemId)).map(i=>i.itemId).sort(compare)[0];
@@ -1358,8 +1355,7 @@ export function createPlanner(data) {
       result=quest.kind==='kill'?fight(style):sets?batch(sets.recipe,Math.min(quest.remaining,sets.n)):batch(job,quest.remaining);
       if(sets)result.reason=`任务计入任何品质：普通配方暂缺原料，先用已有的 ${RARITY_NAMES[sets.recipe.rarity]}配对做 ${Math.min(quest.remaining,sets.n)} 次；${result.reason||result.label}`;
     } else if(goal.itemTarget) {
-      const id=goal.targetItemId,owned=count(p,id)+(p.overflow?.[id]??0)+
-        Object.values(p.equipment).filter(item=>item===id).length+(goal.listedQty??0);
+      const id=goal.targetItemId,owned=ownedQty(p,id,goal.listedQty??0);
       result=need(id,count(p,id)+Math.max(0,goal.qty-owned));
     } else result=train(goal.skill,goal.target);
     result.goal=goal;
@@ -1527,7 +1523,7 @@ export function createPlanner(data) {
   }
   // Why a crop is (or would be) grown, by the same rules harvest() uses.
   function cropWhy(p,job,goal,stocks) {
-    const itemName=name(job.output.itemId);
+    const crop=name(job.output.itemId);
     if(farmingChoice.mode==='manual')return job.id===farmingChoice.jobId?'手动指定的作物':'种下时的选择；成熟后改种手动指定作物';
     if(stocks) {
       const row=stocks.find(r=>r.job.id===job.id);
@@ -1535,27 +1531,27 @@ export function createPlanner(data) {
       const kind=herb?'炼药素材':data.items[job.output.itemId]?.heals?'食物储备':'原料';
       if(!row) {
         const busy=!stocks.length?busyCrop(p,jobs.filter(j=>j.grow&&allowedCrop(j)&&level(p.skills.farming)>=j.levelReq)):null;
-        if(busy?.id===job.id)return `${kind}${itemName}库存已足；为不让农田空闲，用现有种子续种（农业经验最高）`;
-        return `${kind}${itemName}库存已足；收获后改种${busy?name(busy.output.itemId):'需要的作物'}`;
+        if(busy?.id===job.id)return `${kind}${crop}库存已足；为不让农田空闲，用现有种子续种（农业经验最高）`;
+        return `${kind}${crop}库存已足；收获后改种${busy?name(busy.output.itemId):'需要的作物'}`;
       }
-      if(row.plannedMissing>0)return `当前计划需要${itemName}，还缺 ${row.plannedMissing}`;
+      if(row.plannedMissing>0)return `当前计划需要${crop}，还缺 ${row.plannedMissing}`;
       if(row.reason==='herblore') {
         const h=row.herblore,recipe=jobs.find(j=>j.id===h.recipeId);
         const capped=Number.isFinite(h.toUnlock)&&h.potions===h.toUnlock?`，约够练到 ${h.unlockLevel} 级`:'';
         return `配合现有${h.drops.map(id=>name(id)).join('、')}炼制${name(recipe.output.itemId)}（${h.potions} 瓶${capped}）：`+
-          `${itemName}库存 ${row.total}/${row.target}（在田作物计入后续供应）`;
+          `${crop}库存 ${row.total}/${row.target}（在田作物计入后续供应）`;
       }
       if(row.reason==='ahead') {
         const a=row.ahead,recipe=jobs.find(j=>j.id===a.recipeId);
-        return `提前备好 ${a.level} 级配方${name(recipe.output.itemId)}的${itemName}（生长慢，先种上）`+
+        return `提前备好 ${a.level} 级配方${name(recipe.output.itemId)}的${crop}（生长慢，先种上）`+
           (a.potions>0?`：配合现有${a.drops.map(id=>name(id)).join('、')}可做 ${a.potions} 瓶`:`：尚无${a.drops.map(id=>name(id)).join('、')}，先备 ${POTION_FLOOR} 份`)+
           `，库存 ${row.total}/${row.target}`;
       }
-      if(herb)return `药水储备（约 50 瓶）：${itemName}库存 ${row.total}/${row.target}`;
-      return `${kind}${itemName}：库存 ${row.total}/${row.target}（在田作物计入后续供应）`;
+      if(herb)return `药水储备（约 50 瓶）：${crop}库存 ${row.total}/${row.target}`;
+      return `${kind}${crop}：库存 ${row.total}/${row.target}（在田作物计入后续供应）`;
     }
     const need=goal?.budget?.items?.[job.output.itemId]??0,have=count(p,job.output.itemId);
-    if(need>have)return `当前计划需要 ${need} 个${itemName}（现有 ${have}）`;
+    if(need>have)return `当前计划需要 ${need} 个${crop}（现有 ${have}）`;
     const best=jobs.filter(j=>j.grow&&level(p.skills.farming)>=j.levelReq).sort((a,b)=>b.xp/b.grow-a.xp/a.grow)[0];
     if(best?.id===job.id)return `农业经验最高的已解锁作物（约 ${Math.round(job.xp/(job.grow*data.tickMs/60000))} 经验/分钟/块）`;
     return `种下时的选择；成熟后按当前规则改种${best?name(best.output.itemId):'其他作物'}`;
@@ -1622,7 +1618,7 @@ export function createPlanner(data) {
   Object.assign(api,{inputCost:createInputCost(data,api),chooseGoal:strategy.chooseGoal,routeEstimate:strategy.routeEstimate,combatOptions:strategy.combatOptions,
     candidates:strategy.candidates,estimateWork:strategy.estimateWork,setMeasurements:strategy.setMeasurements,rateSource:strategy.rateSource,routeMeasurement:strategy.routeMeasurement,
     acquireEstimate:(p,id,qty,style='magic')=>rarity(id)>0?api.crafting.estimate(
-      {...p,bank:{...p.bank,[id]:0},pack:p.pack.filter(i=>i.itemId!==id)},id,qty,{buy:true}):
+      withoutItem(p,id),id,qty,{buy:true}):
       strategy.routeEstimate(p,{itemId:id},qty,{style}),
     goldJobs,coinRate:p=>Math.max(0,goldJobs(p)[0]?.rate??0),
     // What one unit would sell for, net of tax: the market's sale layers, else the merchant.

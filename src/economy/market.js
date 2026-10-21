@@ -3,7 +3,7 @@ import {action, waiting} from '../planner/result.js';
 import {POTIONS, foodEffects, foodHealing} from '../planner/supplies.js';
 import {inventoryBudget, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
 import {goldToSeconds, maxPrice, payback, secondsToGold} from '../planner/gold.js';
-import {baseId, dayTicks as dayTicksOf, distance, itemLabel, itemName, merchantPrice, minListPrice, netProceeds, plusOf, qualityIds, rarityOf, stockQty, tradableBase} from '../planner/items.js';
+import {bankTripSeconds, dayTicks as dayTicksOf, playerQueued, distance, itemLabel, itemName, merchantPrice, minListPrice, netProceeds, plusOf, rarityOf, reachableQty, stockQty, tradableBase} from '../planner/items.js';
 
 // Price grid (client Nb/Vn/ih/Zm; refusal 'market-price-step'): a price must be
 // a multiple of a step that grows with it: 1 below 100, then 2, 5 or 10 times
@@ -404,15 +404,15 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const recent=book.trades.filter(r=>r.tick>=p.lastTick-recycleMs/data.tickMs);
     return worth(Math.max(lowestAsk(book)??0,...book.bids.map(r=>r.price),...recent.map(r=>r.price)));
   }
-  function buy(p,id,qty,goal,label,reason,maxPrice=Infinity) {
-    if(p.ironman||p.enhance||p.held||p.raidHeld||p.queue?.length||!purchasable(id)||!valid(qty)||state.attempt||!slots(p,'buy')||hasOrder(id))return null;
+  function buy(p,id,qty,goal,label,reason,priceCap=Infinity) {
+    if(p.ironman||p.enhance||playerQueued(p)||!purchasable(id)||!valid(qty)||state.attempt||!slots(p,'buy')||hasOrder(id))return null;
     const capacity=inventoryBudget(data,planner,p,goal);
     if(capacity.freeSlots<=0&&!(p.bank[id]>0))return null;
     const book=quote(id);
     if(book.waiting)return wait('正在核对候选物品的实时卖盘与采购预算');
     if(book.fallback)return null;
     const ask=bestAsk(book);
-    if(!ask||ask.price>maxPrice)return null;
+    if(!ask||ask.price>priceCap)return null;
     const amount=Math.min(qty,ask.qty,Math.floor(purchaseAllowance(p,goal)/ask.price),1000000);
     if(amount<1)return null;
     const result=atBank(p,{t:'marketBuy',itemId:id,qty:amount,price:ask.price},`${label} · ${labelOf(id)} × ${amount}`,true);
@@ -433,7 +433,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     if(!ask||!(rate>0))return null;
     const amount=Math.min(qty,ask.qty,Math.floor(purchaseAllowance(p,goal)/ask.price),1000000);
     if(amount<1)return null;
-    const trip=2*Math.min(...data.banks.map(b=>distance(p,b.approach)))*data.tickMs/1000;
+    const trip=bankTripSeconds(data,p);
     // Buying its materials and crafting it (with the XP) beats buying it: the
     // planner crafts instead, and buys those materials through this same check.
     if(planner.crafting?.makeBeatsBuying(p,id,amount,goldToSeconds(amount*ask.price,rate),goal)) {
@@ -493,13 +493,12 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     select(p);
     const reserve=inventoryBudget(data,planner,p,goal).items;
     const owned=variants(id).map(itemId=>({itemId,power:rarityPower(data,itemId),
-      qty:Math.min(desired,20,p.pack.filter(i=>i.itemId===itemId).reduce((n,i)=>n+i.qty,0)+
-        (planner.nearBank(p)?p.bank[itemId]??0:0),Math.max(0,quantity(p,itemId)-(reserve[itemId]??0)))
+      qty:Math.min(desired,20,reachableQty(data,p,itemId),Math.max(0,quantity(p,itemId)-(reserve[itemId]??0)))
     })).filter(choice=>choice.qty>0);
     if(!procurement?.enabled)return owned.sort((a,b)=>a.itemId-b.itemId)[0]??null;
     const choices=variants(id).map(itemId=>{
       const power=rarityPower(data,itemId),top=topOfBook(itemId);
-      const available=p.pack.filter(i=>i.itemId===itemId).reduce((n,i)=>n+i.qty,0)+(planner.nearBank(p)?p.bank[itemId]??0:0);
+      const available=reachableQty(data,p,itemId);
       const qty=Math.min(desired,20,available,Math.max(0,quantity(p,itemId)-(reserve[itemId]??0)));
       const price=top?.ask>0?top.ask:data.items[id].value*power;
       return {itemId,qty,power,value:pricePerEffect(data,price,itemId)};
@@ -511,13 +510,13 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const name=itemName(data,planner.base(itemId));
     if(!procurement?.enabled)return {key:'procurement-off',message:`药水未喝：${name}库存不足，按收益采购已关闭`};
     if(p.ironman)return {key:'procurement-off',message:`药水未喝：${name}库存不足，铁人角色不采购市场药水`};
-    if(!planner.nearBank(p)||p.route||p.path?.length||p.held||p.raidHeld||p.queue?.length)
+    if(!planner.nearBank(p)||p.route||p.path?.length||playerQueued(p))
       return {key:'route',message:`药水未喝：${name}库存不足，当前路线或位置不在安全补货边界`};
     if(!(purchaseAllowance(p,goal)>0))return {key:'budget',message:`药水未喝：${name}库存不足，采购预算不足`};
     const fresh=variants(itemId).some(id=>{const top=tops.get(id);return top&&now()-top.at<60000&&top.ask>0;});
-    const waiting=variants(itemId).some(id=>bookRequests.has(id));
+    const queried=variants(itemId).some(id=>bookRequests.has(id));
     if(!fresh)return {key:'quote',message:`药水未喝：${name}库存不足，正在等待有效卖盘报价`};
-    if(!waiting&&desiredQty>0)return {key:'budget',message:`药水未喝：${name}暂无符合当前预算的卖盘`};
+    if(!queried&&desiredQty>0)return {key:'budget',message:`药水未喝：${name}暂无符合当前预算的卖盘`};
     return {key:'quote',message:`药水未喝：${name}暂无可用报价`};
   }
   // The most one bottle of this quality may cost. With a known worth (the
@@ -527,7 +526,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     rarityPower(data,itemId);
   function balancedPotion(p,id,goal,desired,uncovered=[],worth=null) {
     if(!POTIONS.some(potion=>potion.itemId===id)||!valid(desired)||!planner.nearBank(p)||p.route||p.path?.length||
-      p.enhance||p.held||p.raidHeld||p.queue?.length||goal?.itemTarget&&goal.targetItemId===id)return null;
+      p.enhance||playerQueued(p)||goal?.itemTarget&&goal.targetItemId===id)return null;
     const reserve=inventoryBudget(data,planner,p,goal).items;
     const stocked=variants(id).reduce((n,itemId)=>n+Math.max(0,quantity(p,itemId)-(reserve[itemId]??0)),0);
     const missing=Math.max(0,Math.min(20,desired)-stocked);if(!missing)return null;
@@ -590,12 +589,12 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     }).filter(c=>c.benefit>c.ask&&(!goal?.itemTarget||c.itemId!==goal.targetItemId))
       .sort((a,b)=>(b.benefit-b.ask)-(a.benefit-a.ask)||a.ask-b.ask);
     for(const c of choices) {
-      const available=p.pack.filter(i=>i.itemId===c.itemId).reduce((n,i)=>n+i.qty,0)+(planner.nearBank(p)?p.bank[c.itemId]??0:0);
+      const available=reachableQty(data,p,c.itemId);
       const reason=`按本次战斗窗口比价，饱食覆盖约 ${Math.ceil(c.fed)} 秒、减伤约 ${Math.ceil(c.rooted)} 秒；参考价 ${c.ask}`;
       if(available>0&&quantity(p,c.itemId)>(reserve[c.itemId]??0))return action(
         {t:'eat',itemId:c.itemId,qty:1,...(!p.pack.some(i=>i.itemId===c.itemId&&i.qty>0)?{shelf:true}:{})},
         `使用增益食物 · ${labelOf(c.itemId)}`,reason);
-      if(!planner.nearBank(p)||p.route||p.path?.length||p.held||p.raidHeld||p.queue?.length)continue;
+      if(!planner.nearBank(p)||p.route||p.path?.length||playerQueued(p))continue;
       // Buy only a dose that can be consumed without using reserved stock.
       if((reserve[c.itemId]??0)>quantity(p,c.itemId))continue;
       const result=buy(p,c.itemId,1,goal,'补充战斗增益食物',reason,c.ask);
@@ -824,18 +823,18 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
   }
   // A potion ingredient, when buying it and brewing beats buying the potion.
   // Same safe boundary and live-book check as a potion purchase.
-  function restockIngredient(p,itemId,qty,goal=null,maxPrice=Infinity,why='') {
+  function restockIngredient(p,itemId,qty,goal=null,priceCap=Infinity,why='') {
     select(p);
     if(!procurement?.enabled||!valid(qty)||!planner.nearBank(p)||p.route||p.path?.length||
-      p.enhance||p.held||p.raidHeld||p.queue?.length)return null;
-    const result=buy(p,itemId,qty,goal,'买原料自制药水',why||'买原料自制比直接买药水便宜',maxPrice);
+      p.enhance||playerQueued(p))return null;
+    const result=buy(p,itemId,qty,goal,'买原料自制药水',why||'买原料自制比直接买药水便宜',priceCap);
     return result?.intent?.t==='marketBuy'?{...result,consumablePurchase:true}:null;
   }
   function restockPotion(p,itemId,goal=null,desiredQty=1,uncovered=[],worth=null) {
     select(p);
     if(procurement)return procurement.enabled?balancedPotion(p,itemId,goal,desiredQty,uncovered,worth):null;
     if(p.ironman||goal?.itemTarget&&goal.targetItemId===itemId||!valid(desiredQty)||!POTIONS.some(potion=>potion.itemId===itemId)||!tradable(itemId)||state.attempt||
-      !planner.nearBank(p)||p.route||p.path?.length||p.enhance||p.held||p.raidHeld||p.queue?.length||
+      !planner.nearBank(p)||p.route||p.path?.length||p.enhance||playerQueued(p)||
       !slots(p,'buy')||hasOrder(itemId)||
       (cooldowns.get(itemId)??0)>now())return null;
     const reserve=goal?.budget?.items?.[itemId]??0,coins=goal?.budget?.coins??0;

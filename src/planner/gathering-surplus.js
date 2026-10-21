@@ -1,7 +1,7 @@
 import {brewPower} from './supplies.js';
 import {goldToSeconds} from './gold.js';
-import {inventoryBudget, saleProtectionReason} from './inventory.js';
-import {baseStride, distance, packCapacity, packQty, packUsed} from './items.js';
+import {WORKING_STOCK, combinedBudget, saleProtectionReason} from './inventory.js';
+import {baseStride, distance, packCapacity, packQty, packUsed, playerQueued} from './items.js';
 
 // Native onFull:'drop' removes every quality of BOTH main and bonus outputs.
 // dropItem matches an exact pack item ID and leaves the active route intact.
@@ -13,7 +13,7 @@ export function planGatheringSurplus(data,planner,p,goal,style,mode,waitingGoals
     goal.skill!==job.skill||!(planner.level(p.skills[job.skill])<goal.target)||
     goal.recipeId!=null&&goal.recipeId!==job.id||p.activity!=='working'||route.phase!=='working'||
     (route.onFull??'bank')!=='bank'||route.errand||route.after||route.limit===0||
-    p.workJobId!=null&&p.workJobId!==job.id||p.path?.length||p.enhance||p.held||p.raidHeld||p.queue?.length)return null;
+    p.workJobId!=null&&p.workJobId!==job.id||p.path?.length||p.enhance||playerQueued(p))return null;
   const id=job.output.itemId,item=data.items[id],site=data.sites.find(s=>s.id===route.siteId);
   if(!site||!site.jobIds.includes(job.id)||distance(p,site)>1||!item||item.stackable||
     id!==planner.base(id)||saleProtectionReason(data,id)||data.gear.some(g=>g.itemId===id)||
@@ -24,9 +24,8 @@ export function planGatheringSurplus(data,planner,p,goal,style,mode,waitingGoals
   const remaining=Math.min(route.limit??Infinity,Math.ceil(planner.xpTo(p,job.skill,goal.target)/xp));
   // Act in sizeable batches before fullness; never redirect an existing trip.
   if(free>Math.ceil(capacity/2)||!(remaining*job.output.qty>free))return null;
-  let reserve=50;
-  for(const plan of [goal,...Object.values(waitingGoals),planner.pendingEquipmentPlan?.(p,style)].filter(Boolean))
-    reserve=Math.max(reserve,inventoryBudget(data,planner,p,plan).items[id]??0);
+  const plans=[goal,...Object.values(waitingGoals),planner.pendingEquipmentPlan?.(p,style)];
+  const reserve=Math.max(WORKING_STOCK,combinedBudget(data,planner,p,plans).items[id]??0);
   const qty=Math.min(carried,Math.max(0,(p.bank[id]??0)+carried-reserve));
   if(!Number.isSafeInteger(qty)||qty<Math.ceil(capacity/2))return null;
   const value=planner.marketSurplusValue?.(p,id,qty)??Infinity,rate=planner.coinRate?.(p)??0;

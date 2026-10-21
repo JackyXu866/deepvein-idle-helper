@@ -1,5 +1,5 @@
 import {autoUsableMaterial, rarityOdds} from './quality.js';
-import {baseId, distance, packCapacity, rarityOf} from './items.js';
+import {baseId, distance, heldIds, packCapacity, rarityOf} from './items.js';
 
 // Reviewed client index-O0haAaUW.js: Ah/g1 (potions), j4/Rt (quality
 // buckets), S1/$1/Or/T1 (food). A potion adds 6000 ticks at its own quality.
@@ -67,6 +67,11 @@ export function activeBuffs(data,p) {
 
 // Healing multiplier per food quality when the game data omits it.
 const FOOD_HEALING=[1,1.2,1.5,2,3];
+// Food the helper may eat or carry: usable (not legendary), heals, and no
+// rarer than the player's food quality limit.
+export const foodEligible=(data,p,id)=>autoUsableMaterial(data,id)&&data.items[baseId(data,id)]?.heals>0&&
+  rarityOf(data,id)<=(p.foodMaxTier??1);
+
 export function foodHealing(data,planner,p,itemId,eatAt=.5) {
   const base=baseId(data,itemId),rarity=rarityOf(data,itemId);
   const item=data.items[base];
@@ -84,11 +89,9 @@ export function foodHealing(data,planner,p,itemId,eatAt=.5) {
 export function combatSupplies(data,planner,p,estimate,options={}) {
   const {zone,monster}=options;
   const capacity=packCapacity(p),eatAt=options.eatAt??.5;
-  const rarity=id=>rarityOf(data,id);
-  const eligible=id=>autoUsableMaterial(data,id)&&data.items[planner.base(id)]?.heals>0&&rarity(id)<=(p.foodMaxTier??1)&&
-    !options.excludeFoodIds?.includes(id);
+  const eligible=id=>foodEligible(data,p,id)&&!options.excludeFoodIds?.includes(id);
   const stock=id=>planner.count(p,id);
-  const owned=[...new Set([...Object.keys(p.bank).map(Number),...p.pack.map(i=>i.itemId)])].filter(id=>eligible(id)&&stock(id)>0);
+  const owned=heldIds(p).filter(id=>eligible(id)&&stock(id)>0);
   const recipes=data.jobs.filter(j=>j.skill==='cooking'&&planner.level(p.skills.cooking)>=j.levelReq);
   const cooked=new Set(data.jobs.filter(j=>j.skill==='cooking').map(j=>j.output.itemId));
   const possible=[...new Set([...owned,...recipes.map(j=>j.output.itemId)])];

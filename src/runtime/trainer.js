@@ -1,7 +1,7 @@
 import {PROFESSIONS, professionSkill} from '../planner/professions.js';
 import {LEGENDARY, autoUsableMaterial} from '../planner/quality.js';
 import {bankedGatheringLoad, finishTaskReason} from '../planner/crafting.js';
-import {POTIONS, POTION_TICKS, foodEffects} from '../planner/supplies.js';
+import {POTIONS, POTION_TICKS, foodEffects, foodEligible} from '../planner/supplies.js';
 import {inventoryBudget, reserveWaitingGoals} from '../planner/inventory.js';
 import {MAIN_TRADES} from '../planner/specialization.js';
 import {HOUSE_ACTIONS, atHome, resumeIntent} from '../planner/housing.js';
@@ -10,7 +10,7 @@ import {Telemetry} from './telemetry.js';
 import {hotSkillAt, hotWindows, normalizeHotFollow} from './hot-follow.js';
 import {createWorldBoss} from './world-boss.js';
 import {fallbackKey, fallbackOwnership} from '../planner/fallback.js';
-import {baseId, distance, itemName, nearestBank, rarityOf, stockQty} from '../planner/items.js';
+import {baseId, distance, itemName, nearestBank, ownedQty, packQty, playerQueued, shelfQty, stockQty} from '../planner/items.js';
 
 // State-dependent refusals in the reviewed client sr() message table. Unknown
 // codes remain a stop, not an invitation to replay a command.
@@ -37,8 +37,8 @@ export const equipmentProject=goal=>goal?.upgrade?.priority||goal?.toolUpgrade?.
 
 export function depositReachedBank(before,p,intent) {
   if(!['deposit','depositItem'].includes(intent.t)||before.id!==p.id)return false;
-  const carried=(state,id)=>state.pack.filter(i=>i.itemId===id).reduce((sum,i)=>sum+i.qty,0);
-  const shelf=(state,id)=>(state.bank[id]??0)+(state.overflow?.[id]??0);
+  const carried=packQty;
+  const shelf=shelfQty;
   const requested=intent.t==='depositItem'?[[intent.itemId,intent.qty]]:
     [...new Set(before.pack.map(i=>i.itemId))].map(id=>[id,carried(before,id)]);
   return requested.length>0&&requested.every(([id,qty])=>qty>0&&
@@ -84,13 +84,10 @@ export function acknowledged(before, p, intent, data=null) {
         (p.bank[intent.itemId]??0)===(before.bank[intent.itemId]??0)&&
         (p.overflow?.[intent.itemId]??0)===(before.overflow?.[intent.itemId]??0);
     }
-    case 'withdraw': return p.pack.filter(i=>i.itemId===intent.itemId).reduce((n,i)=>n+i.qty,0)-
-      before.pack.filter(i=>i.itemId===intent.itemId).reduce((n,i)=>n+i.qty,0)>=intent.qty &&
+    case 'withdraw': return packQty(p,intent.itemId)-packQty(before,intent.itemId)>=intent.qty &&
       quantity(before,intent.itemId)===quantity(p,intent.itemId);
-    case 'depositItem': return before.pack.filter(i=>i.itemId===intent.itemId).reduce((n,i)=>n+i.qty,0)-
-      p.pack.filter(i=>i.itemId===intent.itemId).reduce((n,i)=>n+i.qty,0)>=intent.qty &&
-      (p.bank[intent.itemId]??0)+(p.overflow?.[intent.itemId]??0)>
-      (before.bank[intent.itemId]??0)+(before.overflow?.[intent.itemId]??0);
+    case 'depositItem': return packQty(before,intent.itemId)-packQty(p,intent.itemId)>=intent.qty &&
+      shelfQty(p,intent.itemId)>shelfQty(before,intent.itemId);
     case 'eatAt': return p.eatAt===intent.at;
     case 'chooseFood': return (p.foodItemId??0)===intent.itemId;
     case 'foodMaxTier': return p.foodMaxTier===intent.tier;
@@ -105,8 +102,7 @@ export function acknowledged(before, p, intent, data=null) {
       .some(([effect,ticks])=>ticks>0&&(p.brews?.[effect==='fedTicks'?'fed':'rooted']??0)>
         Math.max(p.lastTick,before.brews?.[effect==='fedTicks'?'fed':'rooted']??0))) && (intent.shelf?
       (before.bank[intent.itemId]??0)-(p.bank[intent.itemId]??0):
-      before.pack.filter(i=>i.itemId===intent.itemId).reduce((n,i)=>n+i.qty,0)-
-      p.pack.filter(i=>i.itemId===intent.itemId).reduce((n,i)=>n+i.qty,0))>=(intent.qty??1);
+      packQty(before,intent.itemId)-packQty(p,intent.itemId))>=(intent.qty??1);
     case 'clearRoute': return p.route===null&&!p.path?.length;
     case 'marketDump': return quantity(before,intent.itemId)-quantity(p,intent.itemId)>=intent.qty && p.coins>before.coins;
     case 'vendorBuy': return quantity(p,intent.itemId)-quantity(before,intent.itemId)>=intent.qty && p.coins<before.coins;
@@ -177,7 +173,7 @@ export class Trainer {
   startBackup() {
     const p=this.player;
     if(!p||!this.pausedError||this.pausedError.backup||!this.compatible||this.awaitingWelcome||this.mode==='assist'||
-      p.route||p.path?.length||p.held||p.raidHeld||p.queue?.length||p.enhance)return null;
+      p.route||p.path?.length||playerQueued(p)||p.enhance)return null;
     const choice=this.planner.chooseFallback?.(p,null,this.style);
     if(!choice)return null;
     const intent={t:'setRoute',jobId:choice.task.jobId,siteId:choice.task.siteId,onFull:'bank',limit:0,rarity:0};
@@ -327,7 +323,7 @@ export class Trainer {
       result.reason='世界 Boss 优先';return result;
     }
     if(this.itemTarget&&this.itemTarget.status!=='completed') {result.reason='物品目标优先';return result;}
-    if(p.held||p.raidHeld||p.queue?.length) {result.reason='玩家队列优先';return result;}
+    if(playerQueued(p)) {result.reason='玩家队列优先';return result;}
     const mainSkill=this.hotMainSkill(),selected=new Set([mainSkill,...this.hotFollow.sides]);
     const target=hotSkillAt(this.data,now+this.hotFollow.leadMinutes*60000/this.data.tickMs)??current;
     result.skill=target.skill;
@@ -387,7 +383,7 @@ export class Trainer {
   startItemTarget(itemId,amount) {
     const p=this.player;
     if(!p||!this.compatible){this.log('尚未同步兼容角色，不能开始物品目标');return false;}
-    if(this.pending||this.resolution||p.enhance||p.route?.errand||p.held||p.raidHeld||p.queue?.length||
+    if(this.pending||this.resolution||p.enhance||p.route?.errand||playerQueued(p)||
       this.boss.ownsRun()||['manual','native'].includes(this.boss.status().phase)) {
       this.log('请等待当前操作、农事或 Boss 结束；物品目标不接管玩家队列或搁置任务');return false;
     }
@@ -406,8 +402,7 @@ export class Trainer {
   itemTargetStatus() {
     const g=this.itemTarget;if(!g)return null;
     const listed=this.player?.id===g.playerId?this.market?.listedQuantity?.(this.player,g.itemId)??0:0;
-    const owned=this.player?.id===g.playerId?quantity(this.player,g.itemId)+
-      Object.values(this.player.equipment).filter(id=>id===g.itemId).length+listed:0;
+    const owned=this.player?.id===g.playerId?ownedQty(this.player,g.itemId,listed):0;
     const completed=g.status==='completed';
     const gained=completed?g.quantity:g.baseline==null?0:Math.max(0,owned-g.baseline);
     return {...g,name:itemName(this.data,g.itemId),mode:this.mode,
@@ -654,7 +649,7 @@ export class Trainer {
     // Unlimited routes the helper started resume as they were; the game's own
     // fallback and a player's unlimited route (assist mode) are left alone.
     if(!(this.bankedLoad||banking)||!this.planner.nearBank(p)||!route||route.fallback||route.limit===0&&this.mode==='assist'||route.errand||route.questId!=null||
-      p.held||p.raidHeld||p.queue?.length||p.enhance)return false;
+      playerQueued(p)||p.enhance)return false;
     const resume=resumeIntent(p,route);
     // Probe only a confirmed banking boundary, keeping the live route's input
     // reserve. Unknown prices never stop native work just to await a quote.
@@ -742,7 +737,7 @@ export class Trainer {
     const listed=p.ironman?0:this.market?.listedQuantity?.(p,g.itemId)??(this.market?.listedQuantity?null:0);
     if(listed===null){this.message='正在同步目标物品的已有挂单，避免撤单被计作新增';return true;}
     g.listedQty=listed;
-    const owned=quantity(p,g.itemId)+Object.values(p.equipment).filter(id=>id===g.itemId).length+listed;
+    const owned=ownedQty(p,g.itemId,listed);
     if(g.baseline===null) {
       if(!Number.isSafeInteger(owned)||!Number.isSafeInteger(owned+g.quantity)){this.pause('目标库存数量异常，请检查后重新设置');return true;}
       g.baseline=owned;g.required=owned+g.quantity;g.qty=g.required;g.status='running';
@@ -829,9 +824,7 @@ export class Trainer {
     if(!this.data.items[targetBase]?.heals)return null;
     const current=p.foodItemId;
     if(current>0&&autoUsableMaterial(this.data,current)&&this.planner.base(current)!==targetBase)return null;
-    const rarity=id=>rarityOf(this.data,id);
-    const candidates=p.pack.filter(item=>item.qty>0&&autoUsableMaterial(this.data,item.itemId)&&this.data.items[this.planner.base(item.itemId)]?.heals&&
-      this.planner.base(item.itemId)!==targetBase&&rarity(item.itemId)<=(p.foodMaxTier??1))
+    const candidates=p.pack.filter(item=>item.qty>0&&foodEligible(this.data,p,item.itemId)&&this.planner.base(item.itemId)!==targetBase)
       .sort((a,b)=>(this.data.items[this.planner.base(b.itemId)]?.heals??0)-
         (this.data.items[this.planner.base(a.itemId)]?.heals??0)||a.itemId-b.itemId);
     const replacement=candidates[0]?.itemId;
@@ -931,7 +924,7 @@ export class Trainer {
       this.plan={intent:null,label:'等待本次强化结果',reason:'强化进行中，完成后继续原任务'};
       this.message=this.plan.reason;return;
     }
-    if((this.mode!=='assist'||this.itemTarget&&this.itemTarget.status!=='completed')&&(p.held||p.raidHeld||p.queue?.length)) {
+    if((this.mode!=='assist'||this.itemTarget&&this.itemTarget.status!=='completed')&&(playerQueued(p))) {
       this.consume(p,reserveWaitingGoals(this.goal,this.waitingGoals),this.style,{intent:null});
       return this.pause('检测到玩家队列或搁置任务，保留原队列并暂停成长调度');
     }

@@ -24,7 +24,7 @@ import {PLANNING_STORAGE_KEYS, enhancementStorage, wirePlanner} from '../economy
 import {fallbackOwnership} from '../planner/fallback.js';
 import {normalizeAutomation} from '../runtime/automation-policy.js';
 import {keepGameActive} from '../ui/stay-active.js';
-import {itemLabel} from '../planner/items.js';
+import {itemLabel, packQty} from '../planner/items.js';
 
 // Runs in the page at document-start. Uses the game's existing connection;
 // Never reads credentials or opens a second game connection. Update checks read
@@ -141,7 +141,7 @@ import {itemLabel} from '../planner/items.js';
     return {tick:p.lastTick,x:p.x,y:p.y,activity:p.activity,nearBank:planner.nearBank(p),coins:p.coins,hp:p.hp,
       route:p.route?{...diagnosticIntent(p.route),phase:p.route.phase}:null,
       equipment:{...p.equipment},enhance:p.enhance?diagnosticIntent(p.enhance):null,packEntries:p.pack.length,
-      item:id?{id,bank:p.bank[id]??0,pack:p.pack.filter(i=>i.itemId===id).reduce((n,i)=>n+i.qty,0),overflow:p.overflow?.[id]??0}:null};
+      item:id?{id,bank:p.bank[id]??0,pack:packQty(p,id),overflow:p.overflow?.[id]??0}:null};
   }
   const allowed=new Set([...readOnly,'setRoute','fight','walk','wear','equipFromBank','deposit',
     'eatAt','eat','drink','chooseFood','foodMaxTier','carryFood','enhance','clearRoute','marketDump','depositItem','dropItem','withdraw','marketBuy','marketSell','marketCancel','vendorBuy','claimQuest','rerollQuest','buyPerk','masteryConfirm','setFallback','plantPref','plotChoice','unqueue',

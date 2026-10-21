@@ -8,6 +8,9 @@ import {baseId, foodCarry, rarityOf, stockQty} from './items.js';
 // Herbs for potions drunk while herblore is not being trained (one potion lasts
 // an hour); training itself makes potions, so this only bridges the gaps.
 export const POTION_FLOOR=50;
+// Crops kept for cooking and brewing: more than the food reserve, since a
+// harvest only comes back after a full growth.
+export const CROP_RESERVE=500;
 
 const herbIds=data=>new Set(data.jobs.filter(j=>j.grow).map(j=>j.output.itemId));
 const held=stockQty;
@@ -75,7 +78,7 @@ export function cropReserve(data,p,job,levels,herblore=herbloreNeeds(data,p,leve
       (other.heals>item.heals||buff.fedTicks>effects.fedTicks||buff.rootedTicks>effects.rootedTicks);
   });
   if(replaced)return 0;
-  return Math.max(500,foodCarry(p)*3);
+  return Math.max(CROP_RESERVE,foodCarry(p)*3);
 }
 
 // Crops below target, in priority order: the current plan's shortfall, then

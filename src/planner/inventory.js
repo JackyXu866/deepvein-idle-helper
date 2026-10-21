@@ -8,6 +8,27 @@ import {COAL_ID, baseId, foodCarry, itemLabel, merchantPrice, plusOf, rarityOf, 
 // Vendor, storage and worn-enhancement rules checked in index-DeoJ7Jh9.js.
 
 export const ENHANCEMENT_BASELINE=5;
+// Materials kept between batches when nothing plans a larger amount.
+export const WORKING_STOCK=50;
+// Food kept for fights: the working stock, or three trips' carry if more.
+export const foodReserve=p=>Math.max(WORKING_STOCK,foodCarry(p)*3);
+// One reserve for several plans (the goal, a pending equipment project...):
+// each item at the most any plan keeps, the coins of all of them.
+export function combinedBudget(data,planner,p,plans) {
+  const budgets=plans.filter(Boolean).map(plan=>inventoryBudget(data,planner,p,plan));
+  if(!budgets.length)return inventoryBudget(data,planner,p,null);
+  const [first,...rest]=budgets,items={...first.items};
+  for(const other of rest)for(const [id,qty]of Object.entries(other.items))items[id]=Math.max(items[id]??0,qty);
+  return {...first,items,coins:budgets.reduce((n,b)=>n+(b.coins??0),0)};
+}
+// Gear the player keeps whatever the plan: the goal's upgrade targets, the
+// piece being enhanced and saved gear sets. A set resolves a missing +N to
+// another +N of the same base and quality (client a$), so those count too.
+export function lockedGear(data,p,goal=null) {
+  const ids=new Set([goal?.upgrade?.id,goal?.toolUpgrade?.upgrade?.id,p.enhance?.itemId].filter(Number.isFinite));
+  for(const set of p.gearSets??[])for(const id of Object.values(set?.items??{}))if(Number.isFinite(id))ids.add(id);
+  return {ids,variants:new Set([...ids].map(id=>id%data.plusScale))};
+}
 
 // Waiting for crops does not make that production batch disposable inventory.
 // This view is for maintenance only; it must not replace the active goal.
@@ -67,7 +88,7 @@ export function inventoryBudget(data, planner, p, goal=null,consuming=false) {
   for(let route=p.route;route;route=route.after)if(route.jobId!=null)recipes.set(route.jobId,route===p.route?p.workRarity??route.rarity??0:route.rarity??0);
   for(const [id,tier]of recipes) {
     const original=data.jobs.find(j=>j.id===id),job=original&&craftRecipe(data,original,tier);
-    if(job)for(const input of job.inputs)material(input.itemId,input.qty*50);
+    if(job)for(const input of job.inputs)material(input.itemId,input.qty*WORKING_STOCK);
   }
   function material(id,qty,trail=[]) {
     reserve(id,qty);
@@ -82,7 +103,7 @@ export function inventoryBudget(data, planner, p, goal=null,consuming=false) {
     if(upgrade?.id!=null)material(upgrade.id%data.plusScale,1);
   if(goal?.itemTarget)material(goal.targetItemId,goal.qty);
   // Food is a renewable supply, but a reserve must survive a sale and a new trip.
-  for(const item of Object.values(data.items))if(item.heals)reserve(item.id,Math.max(50,foodCarry(p)*3));
+  for(const item of Object.values(data.items))if(item.heals)reserve(item.id,foodReserve(p));
   // A replenishable pantry protects against disposal, not useful consumption.
   if(!consuming&&levels.farming>=Math.max(...data.farmUnlocks)) {
     const herblore=herbloreNeeds(data,p,levels,planner.thresholds);
@@ -120,11 +141,7 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
   p.pack.forEach(i=>add(i.itemId,i.qty,'pack'));
   Object.values(p.equipment).forEach(id=>add(id,1,'worn'));
   Object.entries(p.overflow??{}).forEach(([id,qty])=>add(Number(id),qty,'overflow'));
-  const locked=new Set([goal?.upgrade?.id,goal?.toolUpgrade?.upgrade?.id,p.enhance?.itemId]);
-  for(const set of p.gearSets??[])for(const id of Object.values(set?.items??{}))if(Number.isFinite(id))locked.add(id);
-  // Saved sets resolve a missing enhancement level to another level of the same
-  // base item and rarity (client a$). Preserve that fallback too.
-  const lockedVariants=new Set([...locked].filter(Number.isFinite).map(id=>id%data.plusScale));
+  const {ids:locked,variants:lockedVariants}=lockedGear(data,p,goal);
   const requirement=g=>gearRequirementOf(data,g.itemId).level;
   const wearable=g=>canWear(data,lv,g.itemId);
   const relevant=g=>fitsSlot(g,g.slot,combatSkill,style)&&(g.slot!=='shield'||!shieldless(style));
@@ -163,12 +180,12 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
       else {keep=Math.max(1,keep);reason='该职业同类最高品质且可能成为升级，保留一件；重复的仅售市场';}
     }
     else if(seeds.has(base))reason='种子用于持续补种，不作为普通盈余出售';
-    else if(data.items[base]?.heals) {keep=Math.min(total,budget.items[base]??50);reason='保留至少三趟战斗食物及当前计划需要量';}
+    else if(data.items[base]?.heals) {keep=Math.min(total,budget.items[base]??foodReserve(p));reason='保留至少三趟战斗食物及当前计划需要量';}
     else if(inputs.has(base)||houseMaterials.has(base)) {
       const renewable=selfSource(base)||data.monsters.some(m=>m.drop===base);
       const planned=budget.items[base]??0;
       if(renewable||planned>0) {
-        keep=Math.min(total,Math.max(planned,budget.pressure?0:50));
+        keep=Math.min(total,Math.max(planned,budget.pressure?0:WORKING_STOCK));
         reason=planned?'保留当前批次、供料链和打造需要量':budget.pressure?
           '仓库紧张，出售暂未纳入计划且可自行重新采集的普通库存':'保留 50 件周转材料，出售明确盈余';
       } else reason='尚无可用自给来源或后续用途未预算，保留';

@@ -4,7 +4,7 @@ import {secondsToGold} from '../planner/gold.js';
 import {action} from '../planner/result.js';
 import {enhanceQuote, inventoryBudget, reviewInventory} from '../planner/inventory.js';
 import {planEnhancement} from '../planner/enhancement.js';
-import {distance, nearestBank, packCapacity, packQty, packUsed} from '../planner/items.js';
+import {bankTripSeconds, nearestBank, packCapacity, packQty, packUsed} from '../planner/items.js';
 
 // Items made by crafting skills (cooking, smithing, fletching, crafting).
 // Potions are protected separately and never sold.
@@ -132,7 +132,7 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
     const urgent=reserve.pressure||p.coins<reserve.coins;
     // Small depot sales wait until a batch ends; clearing a productive route
     // would restart its supply plan even when the counter is next to the job.
-    const detour=2*distance(p,bankFor(p))*data.tickMs/1000;
+    const detour=bankTripSeconds(data,p);
     const detourWorth=profit>=Math.max(200,secondsToGold(detour,Math.max(1,planner.coinRate(p))));
     const idleAtBank=planner.nearBank(p)&&!p.route&&!p.path?.length;
     if(rows.length&&(idleAtBank||urgent||detourWorth)) {

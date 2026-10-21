@@ -1,11 +1,11 @@
-import {PAIR_TIERS, RARITY_NAMES, autoUsableMaterial, cheapestEffect, rarityPower, tierPower, craftRecipe, setsAt, usableQualities} from './quality.js';
+import {PAIR_TIERS, RARITY_NAMES, cheapestEffect, rarityPower, tierPower, craftRecipe, setsAt, usableQualities} from './quality.js';
 import {combatEstimate} from './estimates.js';
 import {combatStats, formulaWork, perAction} from './rates.js';
 import {POTIONS, brewPower, foodEffects, foodHealing, potionRefillQty} from './supplies.js';
 import {inventoryBudget} from './inventory.js';
 import {MAKE_BIAS} from './crafting.js';
 import {goldToSeconds, secondsToGold} from './gold.js';
-import {baseId, baseStride, itemName, distance, nearestBank, packCapacity, packUsed} from './items.js';
+import {bankTripSeconds, baseStride, itemName, playerQueued, distance, nearestBank, packCapacity, packUsed, reachableQty} from './items.js';
 import {routeKey} from './keys.js';
 
 export function swiftPotion(data,planner,p,plan,window,drinkQty) {
@@ -72,7 +72,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
     report('blocked','药水未喝：当前有强化或等待中的高优先级任务');
     planner.watchPotions?.(p,[]);return null;
   }
-  if(p.held||p.raidHeld||p.queue?.length) {
+  if(playerQueued(p)) {
     report('queue','药水未喝：玩家队列或搁置任务优先，等待队列完成');
     planner.watchPotions?.(p,[]);return null;
   }
@@ -84,8 +84,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
   const carried=id=>p.pack.some(i=>i.itemId===id&&i.qty>0);
   const accessible=id=>carried(id)||planner.nearBank(p)&&(p.bank[id]??0)>0;
   const potionVariants=id=>usableQualities(data,id);
-  const potionQuantity=id=>p.pack.filter(i=>i.itemId===id&&i.qty>0).reduce((sum,i)=>sum+i.qty,0)+
-    (planner.nearBank(p)?p.bank[id]??0:0);
+  const potionQuantity=id=>reachableQty(data,p,id);
   const potionReserve=id=>Math.max(0,budget.items[id]??0);
   const usablePotion=id=>Math.min(potionQuantity(id),Math.max(0,planner.count(p,id)-potionReserve(id)));
   const potionSurplus=id=>potionVariants(id).reduce((sum,itemId)=>
@@ -206,7 +205,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
     if(!site)return 0;
     const e=formulaWork(data,planner,p,job);
     const load=job.inputs.length?planner.carriedBatch?.(p,job)??1:Math.floor(packCapacity(p)/job.output.qty);
-    const trip=2*distance(site,nearestBank(data,site).approach)*data.tickMs/Math.round(baseStride(data,p));
+    const trip=bankTripSeconds(data,p,site);
     const work=Math.max(1,load)*perAction(e);
     return trip/(trip+work);
   }

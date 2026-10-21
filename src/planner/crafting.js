@@ -1,7 +1,8 @@
 import {autoUsableMaterial, craftRecipe} from './quality.js';
 import {formulaWork} from './rates.js';
+import {lockedGear} from './inventory.js';
 import {goldToSeconds} from './gold.js';
-import {baseId, distance, packCapacity, packQty, packUsed, rarityOf} from './items.js';
+import {baseId, distance, packFree, packQty, rarityOf, stockMap, withoutItem} from './items.js';
 
 // Making an item from bought materials may cost up to this much more than
 // buying it outright: the crafting XP is worth something too.
@@ -25,13 +26,11 @@ export function createCrafting(data,planner) {
   // Whether making `id` beats buying it at `buySeconds` (its price as time).
   const makeBeatsBuying=(p,id,qty,buySeconds,goal=null)=>fromBought(p,id,qty,goal).seconds<=buySeconds*MAKE_BIAS;
   function estimate(p,id,qty,{reserve={},buy=false,coins=0}={}) {
-    const stock={...p.bank},levels=planner.levels(p);
-    for(const item of p.pack)stock[item.itemId]=(stock[item.itemId]??0)+item.qty;
+    const stock=stockMap(p),levels=planner.levels(p);
     const keep={...reserve};
-    if(p.enhance?.itemId)keep[p.enhance.itemId]=Math.max(keep[p.enhance.itemId]??0,1);
-    for(const set of p.gearSets??[])for(const item of Object.values(set?.items??{}))
-      if(Number.isInteger(item))for(const key of Object.keys(stock))
-        if(+key%data.plusScale===item%data.plusScale)keep[key]=Math.max(keep[key]??0,1);
+    const locked=lockedGear(data,p);
+    for(const key of Object.keys(stock))
+      if(locked.ids.has(+key)||locked.variants.has(+key%data.plusScale))keep[key]=Math.max(keep[key]??0,1);
     for(const [key,n]of Object.entries(keep))stock[key]=Math.max(0,(stock[key]??0)-n);
     let money=0;
     function supply(itemId,amount,trail=[]) {
@@ -72,8 +71,7 @@ export function createCrafting(data,planner) {
   // the materials still missing at its ends (e.g. uncommon cobalt ore), and the
   // crafting levels it needs. Ordinary fuel is left to `estimate`'s gathering.
   function shortfall(p,id,qty) {
-    const stock={...p.bank},levels=planner.levels(p),missing={},requirements=[];
-    for(const item of p.pack)stock[item.itemId]=(stock[item.itemId]??0)+item.qty;
+    const stock=stockMap(p),levels=planner.levels(p),missing={},requirements=[];
     (function walk(itemId,amount,trail) {
       const used=Math.min(amount,stock[itemId]??0);stock[itemId]=(stock[itemId]??0)-used;
       const left=amount-used;if(left<=0)return;
@@ -92,7 +90,7 @@ export function createCrafting(data,planner) {
   function available(p,job,tier,reserve={},max=50) {
     const recipe=craftRecipe(data,job,tier);if(!recipe)return 0;
     // Output already owned must not count as raw material for another batch.
-    const before={...p,bank:{...p.bank,[recipe.output.itemId]:0},pack:p.pack.filter(i=>i.itemId!==recipe.output.itemId)};
+    const before=withoutItem(p,recipe.output.itemId);
     if(!Number.isFinite(estimate(before,recipe.output.itemId,recipe.output.qty,{reserve}).seconds))return 0;
     let lo=0,hi=max;
     while(lo<hi) {const n=Math.ceil((lo+hi)/2);
@@ -140,7 +138,7 @@ export function finishTaskReason(data,p) {
   const filler=route?.fallback||route?.limit==null&&p.fallback?.task?.jobId===route?.jobId;
   if (!job||job.grow||route.errand||filler||!route.phase||route.phase==='toBank'||route.limit===0) return null;
   const base=id=>baseId(data,id);
-  const free=packCapacity(p)-packUsed(data,p);
+  const free=packFree(data,p);
   const output=data.items[base(job.output.itemId)];
   if (['mining','fishing','woodcutting'].includes(job.skill)&&!job.inputs.length&&!output?.stackable) {
     return free>=job.output.qty?'继续当前采集，背包满或本批完成后再切换任务':null;
@@ -150,7 +148,7 @@ export function finishTaskReason(data,p) {
   if(route.limit===null&&output?.stackable&&job.inputs.every(i=>data.items[base(i.itemId)]?.stackable))return null;
   let freed=0;
   for (const input of job.inputs) {
-    const count=p.pack.filter(i=>i.itemId===input.itemId).reduce((n,i)=>n+i.qty,0);
+    const count=packQty(p,input.itemId);
     if (count<input.qty) return null;
     freed+=data.items[base(input.itemId)]?.stackable?Number(count===input.qty):input.qty;
   }

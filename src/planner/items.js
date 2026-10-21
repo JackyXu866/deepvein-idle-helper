@@ -26,17 +26,41 @@ export const qualityIds=(data,id,from=0,to=data.rarityMultipliers.length-1)=>
   Array.from({length:to-from+1},(_,i)=>baseId(data,id)+(from+i)*data.rarityScale);
 
 // Stock of one exact id. Bank, pack and overflow storage; worn items and coins
-// are separate. `planner.count` deliberately omits overflow (not withdrawable).
+// are separate. Overflow is owned but cannot be withdrawn until storage frees
+// up: it counts toward what is owned (stockQty, ownedQty), never toward what
+// can be used now (usableQty, planner.count, stockMap).
 export const packQty=(p,id)=>p.pack.reduce((n,i)=>i.itemId===id?n+i.qty:n,0);
 export const shelfQty=(p,id)=>(p.bank[id]??0)+(p.overflow?.[id]??0);
 export const stockQty=(p,id)=>shelfQty(p,id)+packQty(p,id);
+export const usableQty=(p,id)=>(p.bank[id]??0)+packQty(p,id);
+// Within reach right now: the pack, plus the bank when standing at it.
+export const reachableQty=(data,p,id)=>packQty(p,id)+(nearBank(data,p)?p.bank[id]??0:0);
+export const wornQty=(p,id)=>Object.values(p.equipment??{}).filter(worn=>worn===id).length;
+// Owned in all: stock (overflow included), worn pieces and market listings.
+export const ownedQty=(p,id,listed=0)=>stockQty(p,id)+wornQty(p,id)+listed;
+// id -> quantity usable now (bank and pack); with overflow when asked.
+export function stockMap(p,{overflow=false}={}) {
+  const stock={...p.bank};
+  for(const item of p.pack)stock[item.itemId]=(stock[item.itemId]??0)+item.qty;
+  if(overflow)for(const [id,n]of Object.entries(p.overflow??{}))stock[id]=(stock[id]??0)+n;
+  return stock;
+}
+// Every id held once: banked (quantity above 0) and carried, worn when asked.
+export const heldIds=(p,{worn=false}={})=>[...new Set([...Object.keys(p.bank).filter(id=>p.bank[id]>0).map(Number),
+  ...p.pack.map(i=>i.itemId),...(worn?Object.values(p.equipment??{}).filter(Number.isFinite):[])])];
+// The same player holding none of `id`: output already made is not material.
+export const withoutItem=(p,id)=>({...p,bank:{...p.bank,[id]:0},pack:p.pack.filter(i=>i.itemId!==id)});
 
 // Pack space: 28 slots plus the pockets perk; a stackable kind takes one slot.
 export const packCapacity=p=>28+Math.max(0,Math.floor(p.perks?.pockets??0));
 export const packUsed=(data,p)=>p.pack.reduce((n,i)=>n+(data.items[baseId(data,i.itemId)]?.stackable?1:i.qty),0);
+export const packFree=(data,p)=>packCapacity(p)-packUsed(data,p);
 // Food taken per trip: -1 fills the pack, -2 leaves one slot, else the set count.
 export const foodCarry=(p,capacity=packCapacity(p))=>
   p.foodPerTrip===-1?capacity:p.foodPerTrip===-2?Math.max(1,capacity-1):p.foodPerTrip??20;
+
+// The player's own queued or set-aside work comes first: nothing is started over it.
+export const playerQueued=p=>!!(p.held||p.raidHeld||p.queue?.length);
 
 // Map: tiles are Chebyshev distance apart; "at the bank" is within one tile.
 export const distance=(a,b)=>Math.max(Math.abs(a.x-b.x),Math.abs(a.y-b.y));
@@ -51,6 +75,14 @@ export function baseStride(data,p) {
   const mount=p.equipment?.mount??0,g=data.gear.find(g=>g.itemId===baseId(data,mount)&&g.slot==='mount');
   const bonus=(g?.bonus??0)*mountScale(data,mount);
   return (1000+Math.round(bonus*1000))*(1+.005*(p.masteries?.move??0));
+}
+// The bank the game's own routes use: the home bank, else the nearest one.
+export const homeBank=(data,p,from=p)=>data.banks.find(b=>b.id===p.homeBank)??nearestBank(data,from);
+// Seconds for a round trip from `from` to that bank's approach and back, at
+// the base stride (a mount shortens it; potions are left out).
+export function bankTripSeconds(data,p,from=p) {
+  const bank=homeBank(data,p,from);
+  return 2*distance(from,bank.approach??bank)*data.tickMs/Math.round(baseStride(data,p));
 }
 
 // Prices: the merchant pays 40% of base value (at least 1); market sales pay

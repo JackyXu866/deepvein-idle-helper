@@ -4,7 +4,7 @@ import {combatEstimate, workEstimate} from './estimates.js';
 import {goldToSeconds} from './gold.js';
 import {combatSafe, combatStats, workInputs} from './rates.js';
 import {buffKey, combatSupplies} from './supplies.js';
-import {distance, nearestBank, packCapacity, seedVendorPrice} from './items.js';
+import {baseId, distance, nearestBank, packCapacity, packQty, seedVendorPrice} from './items.js';
 import {COMBAT_SKILLS, combatKey, equipmentKey, jobKey, levelsKey, usableSample} from './keys.js';
 
 // A rolling comparison of attainable routes, including their self-supply work.
@@ -99,10 +99,10 @@ export function createStrategy(data, planner) {
       seconds+=e.seconds*n;xp+=e.xp*n;coins+=e.coins*n;
       // Project size and carried loads are separate. Nonstacked materials need
       // native bank trips; an all-stack recipe does not bank every fifty units.
-      const stackSlots=j.inputs.filter(i=>data.items[i.itemId]?.stackable).length+
+      const stackSlots=j.inputs.filter(i=>data.items[baseId(data,i.itemId)]?.stackable).length+
         Number(!!data.items[j.output.itemId]?.stackable);
       const unitSlots=Math.max(data.items[j.output.itemId]?.stackable?0:j.output.qty,
-        j.inputs.reduce((n,i)=>n+(data.items[i.itemId]?.stackable?0:i.qty),0));
+        j.inputs.reduce((n,i)=>n+(data.items[baseId(data,i.itemId)]?.stackable?0:i.qty),0));
       const load=unitSlots?Math.max(1,Math.floor((packCapacity(p)-stackSlots)/unitSlots)):Infinity;
       if (includeTravel) seconds+=Math.max(0,Math.ceil(n/load)-1)*(2*distance(site,bank)+3)*tick;
       if(completeTrips)travel(bank.approach??bank);
@@ -207,7 +207,7 @@ export function createStrategy(data, planner) {
         foodItemId:0,horizon,supplyCost:id=>supplyCost(p,id)});
       if (!supplies.sustainable||!supply(supplies.foodItemId,c.damage*n/supplies.heal,trail)) return false;
       const bank=bankAt(c.zone);
-      const carried=p.pack.filter(i=>i.itemId===supplies.foodItemId).reduce((n,i)=>n+i.qty,0);
+      const carried=packQty(p,supplies.foodItemId);
       const restockFirst=position!==p||supplies.bankFirst||!carried;
       if(restockFirst)travel(bankAt(position));
       const inside=position.x>=c.zone.x&&position.x<c.zone.x+(c.zone.width??1)&&

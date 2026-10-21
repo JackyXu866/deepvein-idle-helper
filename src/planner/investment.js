@@ -3,7 +3,7 @@ import {combatEstimate} from './estimates.js';
 import {combatStats as sharedCombatStats, formulaWork} from './rates.js';
 import {canWear, professionSkill} from './professions.js';
 import {LEGENDARY, autoUsableMaterial, craftRecipe} from './quality.js';
-import {baseId, itemLabel, plusOf, rarityOf} from './items.js';
+import {baseId, heldIds, itemLabel, plusOf, rarityOf} from './items.js';
 import {goldToSeconds, payback} from './gold.js';
 import {COMBAT_SLOTS, fitsSlot, shieldless, useSeconds as sharedUseSeconds} from './gear.js';
 export {USE_CAP_SECONDS} from './gear.js';
@@ -96,7 +96,7 @@ export function createInvestments(data,planner) {
       // Pieces already in the bank or pack, of any quality: wearing keeps a
       // legendary piece with the player. Nothing is bought or made that is no
       // better than the best of them.
-      const ownedIds=[...new Set([...Object.keys(p.bank).filter(k=>p.bank[k]>0).map(Number),...p.pack.map(i=>i.itemId)])]
+      const ownedIds=heldIds(p)
         .filter(id=>id!==current&&fits(id)&&canWear(data,lv,id)&&rate(p,style,ctx,slot,id)>before)
         .sort((a,b)=>rate(p,style,ctx,slot,b)-rate(p,style,ctx,slot,a)||a-b);
       const floor=ownedIds.length?Math.max(before,rate(p,style,ctx,slot,ownedIds[0])):before;

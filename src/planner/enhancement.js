@@ -2,7 +2,7 @@ import {gearRequirementOf, professionSkill, statsDominate} from './professions.j
 import {fitsSlot, shieldless} from './gear.js';
 import {autoUsableMaterial} from './quality.js';
 import {ENHANCEMENT_BASELINE, enhanceQuote} from './inventory.js';
-import {itemLabel, plusOf} from './items.js';
+import {heldIds, itemLabel, plusOf} from './items.js';
 
 // Count before sending so a refresh or an unconfirmed command cannot reset the
 // attempt allowance. Failed/ambiguous work waits for the next equipment-use stage.
@@ -70,7 +70,7 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
   // Wearable now or at the very next level.
   const nearlyWearable=id=>{const r=gearRequirementOf(data,id);return r.skill==='none'||r.level<=(lv[r.skill]??0)+1;};
   const better=statsDominate;
-  const owned=[...Object.keys(p.bank).filter(id=>p.bank[id]>0).map(Number),...p.pack.map(i=>i.itemId)];
+  const owned=heldIds(p);
   const options=[];
   let deferredReason='暂无值得强化的在用装备：先换阶段装备，或等待有实际属性收益的升级；不制造备用装备刷强化等级';
   for(const [slot,itemId]of Object.entries(p.equipment)) {

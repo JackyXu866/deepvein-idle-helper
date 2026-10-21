@@ -9,7 +9,7 @@
 // finished fast, buying cheap inputs rather than gathering at length.
 import {goldToSeconds} from './gold.js';
 import {autoUsableMaterial, craftRecipe} from './quality.js';
-import {baseId, distance, nearestBank, rarityOf} from './items.js';
+import {bankTripSeconds, baseId, rarityOf, stockMap} from './items.js';
 import {perAction} from './rates.js';
 
 const NONE={seconds:0,xp:0,effective:0,source:null};
@@ -20,12 +20,9 @@ export function createInputCost(data,planner) {
   // the per-skill XP rates (memoised). buyOnly: inputs only from stock or
   // the market (for work that cannot gather on the way, such as a potion brew).
   function context(p,{style=planner.styleHint??'magic',stock,credit=true,grow=null,buyOnly=false}={}) {
-    const held={...p.bank};
-    for(const item of p.pack)held[item.itemId]=(held[item.itemId]??0)+item.qty;
-    const bank=nearestBank(data,p);
-    return {p,lv:planner.levels(p),stock:stock??held,grow,buyOnly,rates:new Map(),coinRate:planner.coinRate?.(p)??0,
+    return {p,lv:planner.levels(p),stock:stock??stockMap(p),grow,buyOnly,rates:new Map(),coinRate:planner.coinRate?.(p)??0,
       trained:new Set(credit?planner.trainedSkills?.(style)??[]:[]),
-      trip:2*distance(p,bank?.approach??bank??p)*data.tickMs/1000};
+      trip:bankTripSeconds(data,p)};
   }
   // XP per second of the best unlocked work in a skill (what its XP is worth).
   function skillRate(ctx,skill) {
