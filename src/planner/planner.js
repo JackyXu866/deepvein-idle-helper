@@ -15,7 +15,7 @@ import {createHousing} from './housing.js';
 import {planGatheringSurplus} from './gathering-surplus.js';
 import {perkOverview} from './perks.js';
 import {chooseFallback} from './fallback.js';
-import {createInvestments, payback as paybackRule} from './investment.js';
+import {USE_CAP_SECONDS, createInvestments, payback as paybackRule} from './investment.js';
 import {createCollectionMastery} from './collection.js';
 import {HOT_FOLLOW_SKILLS, hotSkillAt, hotWindows} from '../runtime/hot-follow.js';
 import {createAutomationPolicy, normalizeAutomation} from '../runtime/automation-policy.js';
@@ -1128,11 +1128,13 @@ export function createPlanner(data) {
       return {affordable:goal.growth||stageUpgrade?stageReady&&gain>0:worth&&cost<=wear,
         seconds:cost,payback,before,after,horizon:wear};
     }
-    // Seconds until this piece is outgrown: XP to the next wear tier in the
-    // same slot at the current rate, clamped to [30 min, 24 h]. Unknown rates
-    // or the top tier use the full day.
+    // Seconds until this piece is outgrown: the time spent levelling to the
+    // next wear tier in the same slot at the current rate, clamped to
+    // [30 min, 7 days] like the investment table (useSeconds). Unknown rates
+    // or the top tier use the full seven days. It used to stop at one day, so
+    // a tool worn for days was judged on its first day only.
     function wearHorizon(id,slot,skill,xpRate) {
-      const DAY=86400,requirement=gearRequirement(id);
+      const DAY=USE_CAP_SECONDS,requirement=gearRequirement(id);
       const nextLevel=data.gear.filter(g=>g.slot===slot&&(!g.style||g.style===equipmentStats(id)?.style))
         .map(g=>gearRequirement(g.itemId)).filter(r=>r.skill===requirement.skill&&r.level>requirement.level)
         .map(r=>r.level).sort((a,b)=>a-b)[0];
