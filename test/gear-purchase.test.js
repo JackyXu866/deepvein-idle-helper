@@ -114,3 +114,32 @@ test('the helper\'s own three sell listings do not block a purchase', () => {
     {ids: [363], score: () => 1, evaluate, currentId: p.equipment.pan});
   assert.ok(result?.intent?.t === 'marketBuy' || /实时卖盘/.test(result?.reason ?? ''), JSON.stringify(result));
 });
+
+test('a measured rate with bonuses does not hide the pan\'s gain (both sides by formula)', async () => {
+  const {createEconomy} = await import('../src/economy/economy.js');
+  const {wirePlanner} = await import('../src/economy/wiring.js');
+  const planner = makePlanner(), d = planner.data, R = d.rarityScale, clock = 1_000_000_000;
+  const market = createMarket(d, planner, {now: () => clock});
+  const economy = createEconomy(d, planner, {});
+  wirePlanner(planner, market, () => economy, () => false);
+  market.configureProcurement({enabled: true});
+  planner.coinRate = () => 18;
+  const bank = d.banks[0];
+  const p = player(planner, {lastTick: 100000, coins: 5_290_000, levels: {cooking: 63, fishing: 66}, hp: 100, x: bank.x, y: bank.y,
+    path: null, activity: 'idle', equipment: {pan: 363 + 2 * R}, bank: {20: 32768, 25: 9000, [25 + R]: 800}});
+  // Measured with potions and house bonuses: 1.5x the formula for the worn pan.
+  const lobster = d.jobs.find(j => j.id === 66), lv = planner.levels(p);
+  const e = planner.estimateWork(p, lobster);
+  const measured = {samples: 6, seconds: 600, xp: 1.5 * e.xp / e.seconds * 600, coins: 0,
+    equipmentKey: JSON.stringify(Object.keys(p.equipment).sort().map(k => [k, p.equipment[k]])), levelsKey: JSON.stringify([['cooking', lv.cooking]])};
+  planner.setMeasurements({'job:66': measured});
+  market.receive({tick: 100000, m: [{t: 'welcome', you: p, orders: []}]});
+  const items = {};
+  for (const base of [361, 362, 363, 364]) for (let r = 0; r <= 4; r++) for (let plus = 0; plus <= 5; plus++) items[base + r * R + plus * d.plusScale] = {sellQty: 0};
+  items[363 + 3 * R] = {lowestSell: 64000, sellQty: 33};
+  market.setPriceFeed({generatedAt: new Date(clock).toISOString(), items}, clock);
+  const goal = {skill: 'cooking', target: 65, development: true, growth: true, stage: 65, horizon: 7200, budget: {coins: 0, items: {}},
+    recipes: {cooking: 66}, recipeRarities: {cooking: 0}, recipeLevels: {cooking: 63}};
+  const plan = planner.plan(p, goal, 'melee');
+  assert.ok(plan?.intent?.t === 'marketBuy' || /实时卖盘/.test(plan?.reason ?? ''), JSON.stringify([plan?.intent, plan?.label, plan?.reason]));
+});

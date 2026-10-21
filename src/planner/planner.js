@@ -2,7 +2,7 @@ import {PROFESSIONS, canWear as canWearWith, gearRequirementOf, matchesProfessio
 import {PAIR_TIERS, autoUsableMaterial, craftRecipe, mergeHold, potionSaleWorth, qualityHold, qualityWorth} from './quality.js';
 import {RARITY_NAMES, baseId, distance, itemLabel, nearBank as nearBankAt, nearestBank as nearestBankTo, packCapacity, packQty, packUsed, plusOf, qualityPrefix, rarityOf} from './items.js';
 import {createCrafting, finishTaskReason} from './crafting.js';
-import {combatEstimate} from './estimates.js';
+import {combatEstimate, workEstimate} from './estimates.js';
 import {combatSupplies} from './supplies.js';
 import {createStrategy} from './strategy.js';
 import {POTION_FLOOR, farmingStocks, herbloreNeeds} from './farming.js';
@@ -1149,7 +1149,17 @@ export function createPlanner(data) {
         // worthwhile epic pan was never bought: market purchases are judged on
         // the work itself, as the investment table is. A tool to be made keeps
         // the route estimate, which weighs its own gathering against the gain.
-        const work=state=>{const e=strategy.estimateWork(state,task);return e.seconds>0?e.xp/e.seconds:0;};
+        // Both sides by the game formula, as the investment table does: a
+        // measurement exists only for the worn tool and carries potions and
+        // house bonuses, so measured-before against formula-after hid the gain.
+        const toolSlot=Object.keys(data.toolSkills).find(s=>data.toolSkills[s]===task.skill);
+        const work=state=>{
+          const tool=state.equipment[toolSlot];
+          const e=workEstimate(data,task,lv[task.skill],{toolBonus:equipmentStats(tool)?.bonus??0,
+            quick:state.perks?.quick??0,hands:state.perks?.hands??0,
+            luck:(data.toolLuck[rarity(tool??0)]??0)+(equipmentStats(state.equipment.amulet)?.luck??0)});
+          return e.seconds>0?e.xp/e.seconds:0;
+        };
         before=workRate?work(p):strategy.routeEstimate(p,task,50).rate?.xp??0;
         after=workRate?work(next):strategy.routeEstimate(next,task,50).rate?.xp??0;
       }
