@@ -27,8 +27,39 @@ export function createStrategy(data, planner) {
     if (m.equipmentKey!==equipmentKey(p)||m.levelsKey!==levelsKey(job?[job.skill]:COMBAT_SKILLS,s=>lv[s])) return null;
     return m;
   }
-  // Where a candidate's rate comes from: 'measured', 'simulated' or 'formula'.
-  const rateSource=(p,key)=>{const m=usableMeasurement(p,key);return !m?'formula':m.simulated?'simulated':'measured';};
+  // Where a candidate's rate comes from: 'measured', 'simulated', 'averaged'
+  // (learnt earlier, see learn) or 'formula'.
+  const rateSource=(p,key)=>{const m=usableMeasurement(p,key);
+    return m?m.simulated?'simulated':'measured':efficiency[key]?'averaged':'formula';};
+  // Day-averaged efficiency per task: observed ÷ formula XP (and gold) per
+  // working second, from measurements and engine simulations, weighted by
+  // the time observed and fading with a one-day half-life. Kept per task, not
+  // per level, gear or potion state, and across reloads, so every planner
+  // (Worker or page) sees the same steady rate: a level-up or an expiring
+  // potion no longer swaps a sample for the bare formula, and one noisy
+  // minute barely moves it. A simulation counts as ten minutes, once per state.
+  const EFFICIENCY_HALF_LIFE=86400,SIMULATED_WEIGHT=600,EFFICIENCY_RANGE=[.25,4];
+  let efficiency={};
+  function learn(p,key,m,e) {
+    const working=m.seconds-(m.travelSeconds??0);
+    if(m.deaths||!(working>0)||!(e.seconds>0))return;
+    const state=JSON.stringify([m.equipmentKey,m.levelsKey,m.buffKey,!!m.simulated]),row=efficiency[key];
+    // A measurement grows while its state lasts; a smaller one restarted (reload).
+    const same=row?.state===state,weight=m.simulated?(same?0:SIMULATED_WEIGHT):
+      same&&m.seconds>=row.seen?m.seconds-row.seen:m.seconds;
+    if(!(weight>0))return;
+    const now=p.lastTick*tick,kept=row?row.weight*.5**(Math.max(0,now-row.at)/EFFICIENCY_HALF_LIFE):0;
+    const ratio=(observed,formula)=>Number.isFinite(observed)&&formula>0?
+      Math.min(EFFICIENCY_RANGE[1],Math.max(EFFICIENCY_RANGE[0],observed/working/(formula/e.seconds))):null;
+    const mix=(old,next)=>next==null?old??null:old==null?next:(old*kept+next*weight)/(kept+weight);
+    efficiency[key]={xp:mix(row?.xp,ratio(m.xp??m.xpPerSecond*m.seconds,e.xp)),
+      coins:mix(row?.coins,ratio(m.coins??m.coinsPerSecond*m.seconds,e.coins)),
+      weight:kept+weight,at:now,state,seen:m.seconds};
+  }
+  const efficiencyRuntime=value=>{
+    if(value!==undefined)efficiency=value&&typeof value==='object'?value:{};
+    return efficiency;
+  };
   // While set, every estimate is the game formula alone (see byFormula).
   let formulaOnly=false;
   // Runs `fn` with estimates by the formula alone: both sides of a gear swap
@@ -38,15 +69,18 @@ export function createStrategy(data, planner) {
     const was=formulaOnly;formulaOnly=true;
     try{return fn();}finally{formulaOnly=was;}
   }
+  // The formula estimate scaled by the task's averaged efficiency. Observed
+  // travel is left out (each candidate adds its own); a faster XP rate does
+  // not imply faster material production. A simulation that died marks the
+  // route worthless now, whatever the average says.
   function calibrated(p,key,e,lv) {
-    const m=formulaOnly?null:usableMeasurement(p,key,lv);
-    if (!m) return e;
-    const working=m.seconds-(m.travelSeconds??0);
-    // Remove observed travel before adding this candidate's separate travel
-    // estimate. Do not infer faster material production from an XP bonus.
-    const xp=m.xp??m.xpPerSecond*m.seconds,coins=m.coins??m.coinsPerSecond*m.seconds;
-    return {...e,xp:Number.isFinite(xp)?xp/working*e.seconds:e.xp,
-      coins:Number.isFinite(coins)?coins/working*e.seconds:e.coins,measured:true};
+    if(formulaOnly)return e;
+    const m=usableMeasurement(p,key,lv);
+    if(m?.deaths)return {...e,xp:0,coins:0,measured:true};
+    if(m)learn(p,key,m,e);
+    const row=efficiency[key];
+    if(!row)return e;
+    return {...e,xp:row.xp!=null?e.xp*row.xp:e.xp,coins:row.coins!=null?e.coins*row.coins:e.coins,measured:true};
   }
   function estimateWork(p,j,lv=planner.levels(p)) {
     const key=jobKey(j.id,j.rarity),inputs=workInputs(data,planner,p,j);
@@ -337,6 +371,6 @@ export function createStrategy(data, planner) {
     }
     return goal;
   }
-  return {chooseGoal,candidates,routeEstimate,estimateWork,combatOptions,byFormula,setMeasurements,supplyCost,horizon,rateSource,
+  return {chooseGoal,candidates,routeEstimate,estimateWork,combatOptions,byFormula,setMeasurements,efficiencyRuntime,supplyCost,horizon,rateSource,
     routeMeasurement:(p,key)=>usableMeasurement(p,key)};
 }

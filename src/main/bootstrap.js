@@ -451,12 +451,17 @@ import {itemLabel, packQty} from '../planner/items.js';
       metricsPlayer=trainer.player.id;
       try {
         const saved=JSON.parse(localStorage.getItem(metricsKey)||'null');
-        if(saved?.playerId===metricsPlayer)trainer.telemetry.restore(saved.metrics);
+        if(saved?.playerId===metricsPlayer) {
+          trainer.telemetry.restore(saved.metrics);
+          // The day-averaged task efficiency outlives the session (strategy.js).
+          if(saved.efficiency)planner.runtime({...planner.runtime(),efficiency:saved.efficiency});
+        }
       } catch { /* A malformed local report is ignored. */ }
     }
     if(!force&&Date.now()-lastMetricsSave<60000)return;
     lastMetricsSave=Date.now();
-    try{localStorage.setItem(metricsKey,JSON.stringify({playerId:metricsPlayer,metrics:trainer.telemetry.summary()}));}
+    try{localStorage.setItem(metricsKey,JSON.stringify({playerId:metricsPlayer,metrics:trainer.telemetry.summary(),
+      efficiency:planner.runtime().efficiency}));}
     catch { /* On-screen measurements remain available without storage. */ }
   }
   try { trainer.setStyle(localStorage.getItem(styleKey)); } catch { /* Default to mage. */ }
@@ -2664,7 +2669,7 @@ import {itemLabel, packQty} from '../planner/items.js';
     catch {trainer.log('最低收益设置无法保存，刷新后恢复为不限制');}
     render();
   }
-  const SOURCE_LABELS={simulated:'引擎',measured:'实测',formula:'公式'};
+  const SOURCE_LABELS={simulated:'引擎',measured:'实测',averaged:'平均',formula:'公式'};
   const fmt=n=>Number.isFinite(n)?Math.round(n).toLocaleString('zh-CN'):'—';
   const el=(tag,props={},children=[])=>{const node=Object.assign(document.createElement(tag),props);node.append(...children);return node;};
   // Rebuild a container only when its content changed (render runs every second).
