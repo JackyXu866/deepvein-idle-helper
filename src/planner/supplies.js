@@ -65,18 +65,20 @@ export function activeBuffs(data,p) {
 // Client index-DeoJ7Jh9.js: Vt/jl/J2/DT/G9/H2 and z9/In. Food is
 // unstackable, while combat loot that does not fit goes directly to the bank.
 
+// Healing multiplier per food quality when the game data omits it.
+const FOOD_HEALING=[1,1.2,1.5,2,3];
 export function foodHealing(data,planner,p,itemId,eatAt=.5) {
   const base=baseId(data,itemId),rarity=rarityOf(data,itemId);
   const item=data.items[base];
-  if(!item?.heals)return {heal:0,currentHeal:0,maxHp:0,rarity};
-  const raw=Math.max(1,Math.round(item.heals*(data.foodHealingMultipliers??[1,1.2,1.5,2,3])[rarity]));
+  if(!item?.heals)return {heal:0,currentHeal:0,at:()=>0,maxHp:0,rarity};
+  const raw=Math.max(1,Math.round(item.heals*(data.foodHealingMultipliers??FOOD_HEALING)[rarity]));
   const maxHp=Math.floor(planner.level(p.skills.hitpoints)*(1+.005*(p.masteries?.hp??0)));
   const gap=Math.max(1,maxHp-Math.floor(maxHp*eatAt));
   const meals=.025*(p.perks?.meals??0);
-  const nourish=.25*brewPower(data,p,'nourish');
+  // One bite at a nourish strength (+25% per power), capped by the gap eaten into.
+  const at=nourish=>Math.min(gap,Math.floor(raw*(1+meals+.25*nourish)));
   // Do not assume a timed healing buff survives the entire expedition.
-  return {heal:Math.min(gap,Math.floor(raw*(1+meals))),
-    currentHeal:Math.min(gap,Math.floor(raw*(1+meals+nourish))),maxHp,rarity};
+  return {heal:at(0),currentHeal:at(brewPower(data,p,'nourish')),at,maxHp,rarity};
 }
 
 export function combatSupplies(data,planner,p,estimate,options={}) {

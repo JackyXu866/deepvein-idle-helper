@@ -1,6 +1,6 @@
 import {professionSkill} from './professions.js';
 import {PAIR_TIERS} from './quality.js';
-import {workEstimate} from './estimates.js';
+import {formulaWork, perAction, weaponStyle} from './rates.js';
 import {dayTicks as dayTicksOf} from './items.js';
 
 export function createQuests(data,planner) {
@@ -25,8 +25,8 @@ export function createQuests(data,planner) {
     return rows;
   }
   function claim(p,style='magic') {
-    const gear=planner.equipmentStats(p.equipment.weapon);
-    const activeSkill=gear?.magic?'magic':gear?.ranged?'ranged':'melee';
+    const activeSkill=weaponStyle(planner.equipmentStats(p.equipment.weapon));
+
     const q=read(p).find(q=>!q.claimed&&!q.remaining&&(q.kind!=='kill'||activeSkill===professionSkill(style)));
     if(!q)return null;
     const skill=q.kind==='kill'?activeSkill:q.reward.skill;
@@ -44,7 +44,7 @@ export function createQuests(data,planner) {
     if(q.kind==='kill'&&!data.monsters.some(m=>m.id===q.monsterId))return {reason:'任务怪物尚未核对'};
     // Progress counts successful produced events, including rare results,
     // once per action. Existing output stock cannot substitute for the work.
-    const success=job?workEstimate(data,job,levels[skill],{hands:p.perks?.hands??0}).success:1;
+    const work=job?formulaWork(data,planner,p,job,levels):null,success=work?.success??1;
     if(!(success>0))return {reason:'当前等级无法成功完成'};
     // Price the whole input chain, so a cheap market input can beat a long
     // unlock (e.g. buying wood for a rod quest without the Woodcutting level).
@@ -54,11 +54,10 @@ export function createQuests(data,planner) {
     const crafts=Math.ceil(q.remaining/success);
     const held=job&&job.inputs.length&&!job.grow?Math.min(crafts,PAIR_TIERS.filter(t=>t>0)
       .reduce((n,t)=>n+(planner.crafting?.available?.(p,job,t,{},crafts)??0),0)):0;
-    const work=job?workEstimate(data,job,levels[skill],{hands:p.perks?.hands??0}):null;
     const rest=crafts-held;
     const estimate=rest>0?planner.routeEstimate(p,job??{monsterId:q.monsterId},rest,{style,buyInputs:true}):
       {seconds:0,xp:0,coins:0,budget:{coins:0,items:{}},recipes:{[skill]:job.id},supplyRecipes:{},purchases:{}};
-    if(held>0)estimate.seconds+=held*work.seconds/Math.max(.01,work.success),estimate.xp+=held*work.xp;
+    if(held>0)estimate.seconds+=held*perAction(work),estimate.xp+=held*work.xp;
     const seconds=estimate.seconds,left=(q.expiresAtTick-p.lastTick)*data.tickMs/1000;
     const base={job,skill,estimate,seconds,left};
     if(!Number.isFinite(seconds)||seconds<=0)return {...base,reason:q.kind==='kill'?'没有可安全击杀的路线':'没有可行的供料路线'};

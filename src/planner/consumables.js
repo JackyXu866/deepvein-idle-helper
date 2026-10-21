@@ -1,11 +1,11 @@
-import {professionSkill} from './professions.js';
 import {PAIR_TIERS, RARITY_NAMES, autoUsableMaterial, cheapestEffect, rarityPower, tierPower, craftRecipe, setsAt, usableQualities} from './quality.js';
-import {expectedAttacks, workEstimate} from './estimates.js';
-import {POTIONS, brewPower, foodEffects, potionRefillQty} from './supplies.js';
+import {combatEstimate} from './estimates.js';
+import {combatStats, formulaWork, perAction} from './rates.js';
+import {POTIONS, brewPower, foodEffects, foodHealing, potionRefillQty} from './supplies.js';
 import {inventoryBudget} from './inventory.js';
 import {MAKE_BIAS} from './crafting.js';
 import {goldToSeconds, secondsToGold} from './gold.js';
-import {baseId, baseStride, itemName, distance, nearestBank, packCapacity, packUsed, rarityOf} from './items.js';
+import {baseId, baseStride, itemName, distance, nearestBank, packCapacity, packUsed} from './items.js';
 import {routeKey} from './keys.js';
 
 export function swiftPotion(data,planner,p,plan,window,drinkQty) {
@@ -34,9 +34,7 @@ export function swiftPotion(data,planner,p,plan,window,drinkQty) {
     if(job&&!job.inputs.length&&!job.grow&&['mining','fishing','woodcutting'].includes(job.skill)&&
       !data.items[job.output.itemId]?.stackable&&(route.onFull??'bank')==='bank'&&
       (next||!['toBank','banking'].includes(route.phase))) {
-      const slot=Object.keys(data.toolSkills).find(k=>data.toolSkills[k]===job.skill);
-      const seconds=workEstimate(data,job,planner.levels(p)[job.skill],{toolBonus:planner.equipmentStats(p.equipment[slot])?.bonus??0,
-        quick:p.perks?.quick??0,hands:p.perks?.hands??0}).seconds;
+      const seconds=formulaWork(data,planner,p,job).seconds;
       const capacity=packCapacity(p);
       let dose=drinkQty;
       const freed=p.pack.filter(i=>i.itemId===itemId).reduce((slots,i)=>{
@@ -125,10 +123,10 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
         coins+=ask>0?short*ask:Infinity;missing.push({itemId:input.itemId,qty:short,ask});
       }
     }
-    const lv=planner.levels(p),e=workEstimate(data,recipe,lv.herblore,{quick:p.perks?.quick??0,hands:p.perks?.hands??0});
+    const e=formulaWork(data,planner,p,recipe);
     const tick=data.tickMs/1000,trip=(distance(p,site)+distance(site,nearestBank(data,site).approach))*tick;
     const training=goal?.skill==='herblore'&&goal.rate?.xp>0?qty*e.xp/goal.rate.xp:0;
-    const seconds=qty*e.seconds/Math.max(.01,e.success)+trip-training;
+    const seconds=qty*perAction(e)+trip-training;
     return {buy:buy||Infinity,brew:(coins+secondsToGold(seconds,coinRate))/qty,missing,training:training>0};
   }
   // Brew from held ingredients, only where switching task costs nothing: no
@@ -209,12 +207,10 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
     if(m?.seconds>0&&Number.isFinite(m.travelSeconds))return Math.max(0,Math.min(1,m.travelSeconds/m.seconds));
     const site=job&&data.sites.find(s=>s.id===route.siteId);
     if(!site)return 0;
-    const slot=Object.keys(data.toolSkills).find(k=>data.toolSkills[k]===job.skill);
-    const e=workEstimate(data,job,planner.levels(p)[job.skill],{toolBonus:planner.equipmentStats(p.equipment[slot])?.bonus??0,
-      quick:p.perks?.quick??0,hands:p.perks?.hands??0});
+    const e=formulaWork(data,planner,p,job);
     const load=job.inputs.length?planner.carriedBatch?.(p,job)??1:Math.floor(packCapacity(p)/job.output.qty);
     const trip=2*distance(site,nearestBank(data,site).approach)*data.tickMs/Math.round(baseStride(data,p));
-    const work=Math.max(1,load)*e.seconds/Math.max(.01,e.success);
+    const work=Math.max(1,load)*perAction(e);
     return trip/(trip+work);
   }
   const swift=swiftPotion(data,planner,p,plan,window,useQty(225,potionRefillQty(p,'swift')));
@@ -236,20 +232,10 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
   if(!next&&route.limit===0)return choose();
   const tick=data.tickMs/1000,lv=planner.levels(p),limit=route.limit>0?route.limit:Infinity;
   const cap=Math.min(600,Math.max(0,window));
-  const slot=job&&Object.keys(data.toolSkills).find(k=>data.toolSkills[k]===job.skill);
-  const work=job&&workEstimate(data,job,lv[job.skill],{
-    toolBonus:planner.equipmentStats(p.equipment[slot])?.bonus??0,quick:p.perks?.quick??0,hands:p.perks?.hands??0});
-  const style=professionSkill(profession),gear=Object.values(p.equipment).map(planner.equipmentStats).filter(Boolean);
-  const stat=key=>gear.reduce((sum,g)=>sum+(key==='defence'||!g.style||g.style===style?1:-1)*(g[key]??0),0);
-  const weapon=planner.equipmentStats(p.equipment.weapon);
-  const fightSeconds=(warrior=brewPower(data,p,'warrior'),haste=brewPower(data,p,'haste'),fed=active('fed')?.25:0)=>{
-    const divisor=style==='magic'?4.5:weapon?.twoHanded?6:style==='ranged'&&weapon?.speed===5?5:8;
-    const baseHit=Math.max(1,1+Math.floor((lv[style]+stat('strength'))/divisor));
-    const maxHit=Math.ceil(baseHit*(1+.1*warrior+fed));
-    const accuracy=Math.max(1,10+lv[style]+stat('accuracy')+Math.round(10*warrior));
-    const hit=accuracy/(accuracy+10+monster.defence*(style==='magic'?.5:1));
-    return expectedAttacks(monster.hp,maxHit,hit)*(weapon?.speed??5)*tick/(1+.2*haste);
-  };
+  const work=job&&formulaWork(data,planner,p,job,lv);
+  const stats=monster&&combatStats(data,planner,p,profession,p.equipment,lv);
+  const fightSeconds=(warrior=brewPower(data,p,'warrior'),haste=brewPower(data,p,'haste'),fed=active('fed')?.25:0)=>
+    combatEstimate(data,monster,{...stats,warrior,haste,fed}).seconds;
   const seconds=job?work.seconds:fightSeconds(),duration=Math.min(cap,limit*seconds);
   const foodId=p.foodItemId>0?p.foodItemId:p.pack.find(i=>data.items[planner.base(i.itemId)]?.heals)?.itemId??60;
   const food=data.items[planner.base(foodId)];
@@ -257,13 +243,9 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
   const rootedHit=monster?Array.from({length:monster.maxHit},(_,i)=>Math.max(1,Math.floor((i+1)*.8)))
     .reduce((sum,damage)=>sum+damage,0)/monster.maxHit:0;
   const damageReduction=meanHit?1-rootedHit/meanHit:0;
-  const enemyDps=monster?(10+monster.attack)/(20+monster.attack+lv.defence+stat('defence'))*
-    (active('rooted')?rootedHit:meanHit)/(monster.speed*tick):0;
-  const foodRarity=rarityOf(data,foodId);
-  const rawHeal=Math.max(1,Math.round((food?.heals??0)*(data.foodHealingMultipliers??[1,1.2,1.5,2,3])[foodRarity]));
-  const maxHp=Math.floor(lv.hitpoints*(1+.005*(p.masteries?.hp??0)));
-  const gap=Math.max(1,maxHp-Math.floor(maxHp*(p.eatAt??.5)));
-  const healFor=power=>Math.max(1,Math.min(gap,Math.floor(rawHeal*(1+.025*(p.perks?.meals??0)+.25*power))));
+  const enemyDps=monster?combatEstimate(data,monster,stats).enemyHit*(active('rooted')?rootedHit:meanHit)/(monster.speed*tick):0;
+  const bite=foodHealing(data,planner,p,foodId,p.eatAt??.5);
+  const healFor=power=>Math.max(1,bite.at(power));
   const healing=healFor(brewPower(data,p,'nourish'));
   const foodValue=food?planner.saleValue(p,foodId):0;
   // A potion's worth is the share of time it saves (XP +10% = 1/11 of the

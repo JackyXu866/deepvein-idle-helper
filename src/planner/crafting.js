@@ -1,5 +1,5 @@
 import {autoUsableMaterial, craftRecipe} from './quality.js';
-import {workEstimate} from './estimates.js';
+import {formulaWork, perAction} from './rates.js';
 import {goldToSeconds} from './gold.js';
 import {baseId, distance, packCapacity, packQty, packUsed, rarityOf} from './items.js';
 
@@ -24,10 +24,8 @@ export function createCrafting(data,planner) {
         if(held>0)seconds+=rate>0?goldToSeconds(held*planner.saleValue(p,input.itemId,held),rate):0;
         if(short>0)seconds+=goldToSeconds(short*(planner.marketBuyPrice?.(p,input.itemId,short)??Infinity),rate);
       }
-      const slot=Object.keys(data.toolSkills).find(s=>data.toolSkills[s]===job.skill);
-      const e=workEstimate(data,job,levels[job.skill],{toolBonus:planner.equipmentStats(p.equipment?.[slot])?.bonus??0,
-        quick:p.perks?.quick??0,hands:p.perks?.hands??0});
-      seconds+=n*e.seconds/Math.max(.01,e.success);
+      const e=formulaWork(data,planner,p,job,levels);
+      seconds+=n*perAction(e);
       if(goal?.skill===job.skill&&goal.rate?.xp>0)seconds-=n*e.xp/goal.rate.xp;
       if(seconds<best.seconds)best={seconds,job:original};
     }
@@ -60,9 +58,7 @@ export function createCrafting(data,planner) {
         let seconds=0;
         for(const input of recipe.inputs)seconds+=supply(input.itemId,n*input.qty,next);
         if(Number.isFinite(seconds)) {
-          const slot=Object.keys(data.toolSkills).find(s=>data.toolSkills[s]===job.skill);
-          const rate=workEstimate(data,recipe,levels[job.skill],{toolBonus:planner.equipmentStats(p.equipment[slot])?.bonus??0,
-            quick:p.perks?.quick??0,hands:p.perks?.hands??0});
+          const rate=formulaWork(data,planner,p,recipe,levels);
           stock[itemId]=(stock[itemId]??0)+n*recipe.output.qty-missing;
           const travel=2*Math.min(...data.sites.filter(site=>site.jobIds.includes(job.id))
             .map(site=>distance(p,site)))*data.tickMs/1000;

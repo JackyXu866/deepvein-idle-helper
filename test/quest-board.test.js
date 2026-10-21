@@ -13,6 +13,7 @@ const daily = (id, extra = {}) => ({id, kind: 'craft', jobId: job.id, goal: 15, 
 const stub = seconds => ({
   levels: () => Object.fromEntries(d.skills.map(s => [s, 50])),
   trainedSkills: () => d.skills,
+  equipmentStats: () => null,
   routeEstimate: () => ({seconds, xp: 1, coins: 0, budget: {coins: 0, items: {}}, recipes: {}, supplyRecipes: {}, purchases: {}}),
 });
 const withQuests = (quests, extra = {}) => ({lastTick: 1000, perks: {}, quests: {day: 0, week: 0, daily: quests, weekly: [], ...extra}});

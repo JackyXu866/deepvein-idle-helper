@@ -13,6 +13,7 @@ function stub({seconds = 600, coins = 0, purchases = {}} = {}) {
   const planner = {
     levels: () => Object.fromEntries(d.skills.map(s => [s, 50])),
     trainedSkills: () => d.skills.filter(s => !['melee', 'ranged'].includes(s)),
+    equipmentStats: () => null,
     routeEstimate: () => ({seconds, xp: 100, coins, budget: {coins: 0, items: {}}, recipes: {}, supplyRecipes: {}, purchases}),
     watchPurchases: (p, ids) => watched.push(...ids),
     crafting: {ingredients: id => [`chain-of-${id}`]},

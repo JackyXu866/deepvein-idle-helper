@@ -2,8 +2,9 @@ import {matchesProfessionWeapon, professionSkill, starterWeapon} from './profess
 import {PAIR_TIERS, autoUsableMaterial, craftRecipe, qualityWorth, setsAt} from './quality.js';
 import {combatEstimate, workEstimate} from './estimates.js';
 import {goldToSeconds} from './gold.js';
+import {combatSafe, combatStats, workInputs} from './rates.js';
 import {buffKey, combatSupplies} from './supplies.js';
-import {distance, nearestBank, packCapacity, rarityOf, seedVendorPrice} from './items.js';
+import {distance, nearestBank, packCapacity, seedVendorPrice} from './items.js';
 import {COMBAT_SKILLS, combatKey, equipmentKey, jobKey, levelsKey, usableSample} from './keys.js';
 
 // A rolling comparison of attainable routes, including their self-supply work.
@@ -39,31 +40,21 @@ export function createStrategy(data, planner) {
       coins:Number.isFinite(coins)?coins/working*e.seconds:e.coins,measured:true};
   }
   function estimateWork(p,j,lv=planner.levels(p)) {
-    const slot=Object.keys(data.toolSkills).find(s=>data.toolSkills[s]===j.skill);
-    const key=jobKey(j.id,j.rarity);
-    const luck=(data.toolLuck[rarityOf(data,p.equipment[slot]??0)]??0)+(planner.equipmentStats(p.equipment.amulet)?.luck??0);
+    const key=jobKey(j.id,j.rarity),inputs=workInputs(data,planner,p,j);
     // The engine's measured quality factor also covers brews, house and
     // masteries; it is a sample, so it replaces the exact tool+amulet factor
     // only when clearly higher.
     const measured=usableMeasurement(p,key,lv)?.rarityFactor;
-    return calibrated(p,key,workEstimate(data,j,lv[j.skill],{
-      toolBonus:planner.equipmentStats(p.equipment[slot])?.bonus??0,
-      quick:p.perks?.quick??0,hands:p.perks?.hands??0,luck,
-      rarityFactor:measured>(1+luck)*1.15?measured:undefined}),lv);
+    return calibrated(p,key,workEstimate(data,j,lv[j.skill],{...inputs,
+      rarityFactor:measured>(1+inputs.luck)*1.15?measured:undefined}),lv);
   }
   function combatOptions(p,profession='magic') {
-    const style=professionSkill(profession);
-    const lv=planner.levels(p), gear=Object.values(p.equipment).map(planner.equipmentStats).filter(Boolean);
-    const w=planner.equipmentStats(p.equipment.weapon);
-    if (!matchesProfessionWeapon(w,profession)) return [];
-    const stat=k=>gear.reduce((n,g)=>n+(k==='defence'||!g.style||g.style===style?1:-1)*(g[k]??0),0);
-    return data.monsters.filter(m=>m.maxHit<lv.hitpoints/3&&
-      lv.hitpoints/((10+m.attack)/(20+m.attack+lv.defence+stat('defence'))*(1+m.maxHit)/2)>=6)
+    const lv=planner.levels(p);
+    if (!matchesProfessionWeapon(planner.equipmentStats(p.equipment.weapon),profession)) return [];
+    const stats=combatStats(data,planner,p,profession,p.equipment,lv);
+    return data.monsters.filter(m=>combatSafe(lv,stats,m))
       .map(m=>({monster:m,zone:data.zones.find(z=>z.monsterId===m.id),
-        ...calibrated(p,combatKey(m.id),combatEstimate(data,m,{style,level:lv[style],
-          accuracy:stat('accuracy'),strength:stat('strength'),defence:stat('defence'),
-          defenceLevel:lv.defence,speed:w.speed??5,twoHanded:w.twoHanded,
-          luck:planner.equipmentStats(p.equipment.amulet)?.luck??0}),lv)}));
+        ...calibrated(p,combatKey(m.id),combatEstimate(data,m,stats),lv)}));
   }
   function supplyCost(p,id,trail=[]) {
     if (trail.includes(id)) return Infinity;

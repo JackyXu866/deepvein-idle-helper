@@ -1,5 +1,6 @@
 import {ENHANCEMENT_BASELINE, enhanceQuote} from './inventory.js';
-import {combatEstimate, workEstimate} from './estimates.js';
+import {combatEstimate} from './estimates.js';
+import {combatStats as sharedCombatStats, formulaWork} from './rates.js';
 import {canWear, gearRequirementOf, matchesProfessionWeapon, professionSkill} from './professions.js';
 import {LEGENDARY, autoUsableMaterial, craftRecipe} from './quality.js';
 import {baseId, itemLabel, plusOf, rarityOf} from './items.js';
@@ -31,15 +32,7 @@ const COMBAT_SLOTS=['weapon','helmet','body','legs','shield','ring','amulet'];
 export function createInvestments(data,planner) {
   let cache=null,fundingDeferred={};
   const lvOf=p=>planner.levels(p);
-  function combatStats(p,equipment,style) {
-    const skill=professionSkill(style),lv=lvOf(p);
-    const gear=Object.entries(equipment).filter(([slot,id])=>Number.isFinite(id)&&(slot!=='shield'||style!=='melee_twohand'))
-      .map(([,id])=>planner.equipmentStats(id)).filter(Boolean);
-    const weapon=planner.equipmentStats(equipment.weapon);
-    const sum=k=>gear.reduce((n,g)=>n+(k==='defence'||!g.style||g.style===skill?1:-1)*(g[k]??0),0);
-    return {style:skill,level:lv[skill],accuracy:sum('accuracy'),strength:sum('strength'),defence:sum('defence'),
-      defenceLevel:lv.defence,speed:weapon?.speed??5,twoHanded:weapon?.twoHanded,luck:planner.equipmentStats(equipment.amulet)?.luck??0};
-  }
+  const combatStats=(p,equipment,style)=>sharedCombatStats(data,planner,p,style,equipment,lvOf(p));
   // What each slot is used for: the monster being fought, or the job its tool serves.
   function contexts(p,style,goal) {
     const skill=professionSkill(style),lv=lvOf(p);
@@ -51,7 +44,7 @@ export function createInvestments(data,planner) {
     const jobFor=toolSkill=>data.jobs.find(j=>j.id===(goal?.recipes?.[toolSkill]??(goal?.skill===toolSkill?goal.recipeId:null)))??
       data.jobs.find(j=>j.id===p.route?.jobId&&j.skill===toolSkill)??
       data.jobs.filter(j=>j.skill===toolSkill&&!j.grow&&lv[toolSkill]>=j.levelReq&&data.sites.some(s=>s.jobIds.includes(j.id)))
-        .sort((a,b)=>{const r=j=>{const e=workEstimate(data,j,lv[toolSkill]);return e.xp/e.seconds;};return r(b)-r(a);})[0]??null;
+        .sort((a,b)=>{const r=j=>{const e=formulaWork(data,planner,p,j,lv);return e.xp/e.seconds;};return r(b)-r(a);})[0]??null;
     return {skill,monster,jobFor};
   }
   // XP per second with `slot` holding `id`, by the game formulas on both sides
@@ -60,13 +53,10 @@ export function createInvestments(data,planner) {
     const equipment={...p.equipment,[slot]:id},toolSkill=data.toolSkills[slot];
     if(toolSkill) {
       const job=ctx.jobFor(toolSkill);if(!job)return 0;
-      const e=workEstimate(data,job,lvOf(p)[toolSkill],{toolBonus:planner.equipmentStats(id)?.bonus??0,
-        quick:p.perks?.quick??0,hands:p.perks?.hands??0,
-        luck:(data.toolLuck[rarityOf(data,id)]??0)+(planner.equipmentStats(equipment.amulet)?.luck??0)});
+      const e=formulaWork(data,planner,p,job,lvOf(p),equipment);
       return e.xp/e.seconds;
     }
     if(!ctx.monster)return 0;
-    if(slot==='weapon'&&planner.equipmentStats(id)?.twoHanded)equipment.shield=null;
     const e=combatEstimate(data,ctx.monster,combatStats(p,equipment,style));
     return e.mainXp/e.seconds;
   }

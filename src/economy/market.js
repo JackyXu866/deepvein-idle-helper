@@ -1,5 +1,4 @@
 import {autoUsableMaterial, pricePerEffect, rarityPower, usableQualities} from '../planner/quality.js';
-import {workEstimate} from '../planner/estimates.js';
 import {action, waiting} from '../planner/result.js';
 import {POTIONS, foodEffects, foodHealing} from '../planner/supplies.js';
 import {inventoryBudget, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
@@ -350,7 +349,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     return action(intent,label);
   }
   const tier=id=>rarityOf(data,id);
-  const itemName=id=>itemLabel(data,id);
+  const labelOf=id=>itemLabel(data,id);
   const variants=id=>usableQualities(data,id);
   const purchasable=id=>valid(id)&&autoUsableMaterial(data,id)&&plusOf(data,id)<=5&&
     tradable(planner.base(id))&&(id<data.plusScale||!!planner.equipmentStats(id));
@@ -416,7 +415,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     if(!ask||ask.price>maxPrice)return null;
     const amount=Math.min(qty,ask.qty,Math.floor(purchaseAllowance(p,goal)/ask.price),1000000);
     if(amount<1)return null;
-    const result=atBank(p,{t:'marketBuy',itemId:id,qty:amount,price:ask.price},`${label} · ${itemName(id)} × ${amount}`,true);
+    const result=atBank(p,{t:'marketBuy',itemId:id,qty:amount,price:ask.price},`${label} · ${labelOf(id)} × ${amount}`,true);
     result.reason=`${reason}；单价 ${ask.price}，本笔 ${amount*ask.price} 金币；核对现有金币及任务必需开销`;
     if(result.intent?.t==='marketBuy')Object.assign(result,{procurement:true,purchaseReserve:goal?.budget?.coins??0});
     status=result.reason;return result;
@@ -438,7 +437,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     // Buying its materials and crafting it (with the XP) beats buying it: the
     // planner crafts instead, and buys those materials through this same check.
     if(planner.crafting?.makeBeatsBuying(p,id,amount,goldToSeconds(amount*ask.price,rate),goal)) {
-      status=`${itemName(id)}：买原料自制不比直接买贵（含制作经验），改为自制`;return null;
+      status=`${labelOf(id)}：买原料自制不比直接买贵（含制作经验），改为自制`;return null;
     }
     const seconds=goldToSeconds(amount*ask.price,rate)+trip,self=planner.acquireEstimate?.(p,id,amount,profession);
     // Keep the goal's experience. Buying its ingredients need not compensate
@@ -595,7 +594,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       const reason=`按本次战斗窗口比价，饱食覆盖约 ${Math.ceil(c.fed)} 秒、减伤约 ${Math.ceil(c.rooted)} 秒；参考价 ${c.ask}`;
       if(available>0&&quantity(p,c.itemId)>(reserve[c.itemId]??0))return action(
         {t:'eat',itemId:c.itemId,qty:1,...(!p.pack.some(i=>i.itemId===c.itemId&&i.qty>0)?{shelf:true}:{})},
-        `使用增益食物 · ${itemName(c.itemId)}`,reason);
+        `使用增益食物 · ${labelOf(c.itemId)}`,reason);
       if(!planner.nearBank(p)||p.route||p.path?.length||p.held||p.raidHeld||p.queue?.length)continue;
       // Buy only a dose that can be consumed without using reserved stock.
       if((reserve[c.itemId]??0)>quantity(p,c.itemId))continue;
@@ -704,7 +703,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       if(!offer)return defer(`${what}缺少近期同品质成交参考或需求不足；保留，不转系统回收`);
       status=`${what}按同品质近期成交参考出售，不转系统回收`;
       return scoped({...atBank(p,{t:'marketSell',itemId:id,...offer},
-        `出售${what} · ${itemName(id)} × ${offer.qty}，单价 ${offer.price}`),equipmentSale:{goal,profession}});
+        `出售${what} · ${labelOf(id)} × ${offer.qty}，单价 ${offer.price}`),equipmentSale:{goal,profession}});
     }
     const net=netOf;
     const bid=bidsHighFirst(book).find(row=>
@@ -809,9 +808,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const self=planner.acquireEstimate?.(p,itemId,amount,profession);
     if(!self||seconds>(goal?.horizon??1800))return null;
     const job=data.jobs.find(j=>j.id===(goal?.recipeId??goal?.recipes?.[goal?.skill]));
-    const tool=job&&Object.entries(data.toolSkills).find(([,skill])=>skill===job.skill)?.[0];
-    const work=job&&workEstimate(data,job,planner.levels(p)[job.skill],
-      {toolBonus:planner.equipmentStats(p.equipment[tool])?.bonus??0,quick:p.perks?.quick??0,hands:p.perks?.hands??0});
+    const work=job&&planner.estimateWork(p,job);
     const xpRate=goal?.rate?.xp??(work?work.xp/work.seconds:0);
     // Buying saves time but sacrifices the experience self-production earns.
     if((self.xp??0)>0&&!(xpRate>0))return null;

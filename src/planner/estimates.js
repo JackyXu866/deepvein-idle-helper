@@ -42,21 +42,24 @@ export function expectedAttacks(hp, maxHit, hitChance) {
   return expectation[hp];
 }
 
+// Optional buffs at their strength (0 when off): warrior (+10 accuracy and
+// +10% max hit per power), haste (+20% attack speed) and fed (+25% max hit).
 export function combatEstimate(data, monster, stats) {
+  const {warrior=0,haste=0,fed=0}=stats;
   const divisor=stats.style==='magic'?4.5:stats.twoHanded?6:
     stats.style==='ranged'&&stats.speed===5?5:8;
-  const maxHit=Math.max(1,1+Math.floor((stats.level+stats.strength)/divisor));
-  const accuracy=Math.max(1,10+stats.level+stats.accuracy);
+  const maxHit=Math.ceil(Math.max(1,1+Math.floor((stats.level+stats.strength)/divisor))*(1+.1*warrior+fed));
+  const accuracy=Math.max(1,10+stats.level+stats.accuracy+Math.round(10*warrior));
   const effectiveDefence=monster.defence*(stats.style==='magic'?.5:1);
   const hitChance=accuracy/(accuracy+10+effectiveDefence);
   const attacks=expectedAttacks(monster.hp,maxHit,hitChance);
-  const seconds=attacks*stats.speed*data.tickMs/1000;
+  const seconds=attacks*stats.speed*data.tickMs/1000/(1+.2*haste);
   const enemyHit=(10+monster.attack)/(20+monster.attack+stats.defenceLevel+stats.defence);
   // Continuous DPS is a conservative approximation: the final player hit can
   // prevent an enemy attack. No regeneration or damage-reduction buffs counted.
   const damage=seconds/(monster.speed*data.tickMs/1000)*enemyHit*(monster.maxHit+1)/2;
   const shards=Math.min(.2,.08+monster.level*.0013)*(1+Math.floor(monster.level/30));
-  return {seconds,attacks,maxHit,hitChance,effectiveDefence,damage,mainXp:monster.xp,
+  return {seconds,attacks,maxHit,hitChance,effectiveDefence,enemyHit,damage,mainXp:monster.xp,
     xp:monster.xp+2*Math.max(1,Math.floor(monster.xp/3)),shards,
     coins:(monster.gold[0]+monster.gold[1])/2,drops:combatDrops(data,monster,stats.luck??0,shards)};
 }

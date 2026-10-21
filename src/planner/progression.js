@@ -1,5 +1,4 @@
 import {professionSkill} from './professions.js';
-import {workEstimate} from './estimates.js';
 import {planEnhancement} from './enhancement.js';
 import {NAMES} from './planner.js';
 import {itemName} from './items.js';
@@ -122,7 +121,7 @@ export function createProgression(data,planner) {
         const job=data.jobs.filter(j=>j.skill===skill&&j.levelReq<=lv[skill]&&data.sites.some(s=>s.jobIds.includes(j.id)))
           .sort((a,b)=>b.xp/(b.baseTicks+(b.grow??0))-a.xp/(a.baseTicks+(a.grow??0)))[0];
         if(job) {
-          const e=workEstimate(data,job,lv[skill]);
+          const e=planner.estimateWork(p,job,lv);
           best={recipeId:job.id,recipes:{[skill]:job.id},batch:50,budget:{coins:0,items:{}},
             rate:{xp:e.xp/(e.seconds+(job.grow??0)*data.tickMs/1000),coins:0},unpriced:true};
         } else if(skill===professionSkill(style))best={rate:{xp:0,coins:0},budget:{coins:0,items:{}},unpriced:true};

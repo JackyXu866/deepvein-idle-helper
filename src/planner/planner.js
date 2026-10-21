@@ -1,10 +1,11 @@
 import {PROFESSIONS, canWear as canWearWith, gearRequirementOf, matchesProfessionWeapon, professionSkill, starterWeapon} from './professions.js';
 import {LEGENDARY, PAIR_TIERS, autoUsableMaterial, rarityPower, craftRecipe, mergeHold, potionSaleWorth, qualityHold, qualityWorth} from './quality.js';
 import {createLevels} from './levels.js';
+import {combatSafe, combatStats, formulaWork, weaponStyle} from './rates.js';
 import {action, waiting} from './result.js';
 import {RARITY_NAMES, qualityName, baseId, merchantPrice, seedVendorPrice, distance, itemLabel, itemName, nearBank as nearBankAt, nearestBank as nearestBankTo, packCapacity, packQty, packUsed, plusOf, qualityPrefix, rarityOf} from './items.js';
 import {createCrafting, finishTaskReason} from './crafting.js';
-import {combatEstimate, workEstimate} from './estimates.js';
+import {combatEstimate} from './estimates.js';
 import {combatSupplies} from './supplies.js';
 import {createStrategy} from './strategy.js';
 import {POTION_FLOOR, farmingStocks, herbloreNeeds} from './farming.js';
@@ -553,10 +554,8 @@ export function createPlanner(data) {
     const unlocked = j => lv[j.skill]>=j.levelReq;
     const made = id => jobs.filter(j=>j.output.itemId===id);
     const atGoal = (skill,target) => lv[skill]>=target;
-    const combatStyle = () => {
-      const weapon = gear.get(base(p.equipment.weapon??0));
-      return weapon?.magic ? 'magic' : weapon?.ranged ? 'ranged' : 'melee';
-    };
+    const combatStyle = () => weaponStyle(gear.get(base(p.equipment.weapon??0)));
+
     const canWear = id => canWearWith(data,lv,id);
     function siteFor(job) {
       let choices = sites.filter(s=>s.jobIds.includes(job.id));
@@ -1137,14 +1136,7 @@ export function createPlanner(data) {
         // Both sides by the game formula, as the investment table does: a
         // measurement exists only for the worn tool and carries potions and
         // house bonuses, so measured-before against formula-after hid the gain.
-        const toolSlot=Object.keys(data.toolSkills).find(s=>data.toolSkills[s]===task.skill);
-        const work=state=>{
-          const tool=state.equipment[toolSlot];
-          const e=workEstimate(data,task,lv[task.skill],{toolBonus:equipmentStats(tool)?.bonus??0,
-            quick:state.perks?.quick??0,hands:state.perks?.hands??0,
-            luck:(data.toolLuck[rarity(tool??0)]??0)+(equipmentStats(state.equipment.amulet)?.luck??0)});
-          return e.seconds>0?e.xp/e.seconds:0;
-        };
+        const work=state=>{const e=formulaWork(data,api,state,task,lv);return e.seconds>0?e.xp/e.seconds:0;};
         before=workRate?work(p):strategy.routeEstimate(p,task,50).rate?.xp??0;
         after=workRate?work(next):strategy.routeEstimate(next,task,50).rate?.xp??0;
       }
@@ -1200,19 +1192,15 @@ export function createPlanner(data) {
       }
       if (p.equipment.weapon!==weapon) return equip(weapon);
       // Use deliberately conservative base stats: omit positive house/potion/mastery bonuses.
-      const w=equipmentStats(weapon);
-      const equipment=Object.values(p.equipment).filter(Number.isFinite).map(equipmentStats).filter(Boolean);
-      const stat=key=>equipment.reduce((sum,g)=>sum+(key==='defence'||!g.style||g.style===style?1:-1)*(g[key]??0),0);
-      const maxHp=lv.hitpoints;
-      const safe = m => m.maxHit<maxHp/3 && maxHp/((10+m.attack)/(20+m.attack+lv.defence+stat('defence'))*(1+m.maxHit)/2)>=6;
+      const w=equipmentStats(weapon),stats={...combatStats(data,api,p,profession,p.equipment,lv),style,level:lv[style]};
+      const safe = m => combatSafe(lv,stats,m);
       if(fixedMonster&&!safe(fixedMonster))return blocked(`固定怪物 ${fixedMonster.name} 目前无法安全战斗；请检查生命、防御与装备，不自动更换怪物`);
       const safeMonsters=monsters.filter(safe);
       if (!safeMonsters.length) return blocked('当前生命／防御不足以稳定战斗，请先检查装备与生命值');
       const choices=safeMonsters.filter(m=>(!fixedMonster||m.id===fixedMonster.id)&&zones.some(z=>z.monsterId===m.id)&&
         (requiredItem===null||requiredItem===data.shardId||m.drop===requiredItem&&(m.dropChance??1)>0||
           (goal.itemTarget||goal.mastery)&&m.bonus?.itemId===requiredItem&&m.bonus.chance>0)).map(m=>{
-        const estimate=combatEstimate(data,m,{style,level:lv[style],accuracy:stat('accuracy'),
-          strength:stat('strength'),defence:stat('defence'),defenceLevel:lv.defence,speed:w.speed??5,twoHanded:w.twoHanded});
+        const estimate=combatEstimate(data,m,stats);
         const zone=zones.find(z=>z.monsterId===m.id);
         const supplies=combatSupplies(data,api,p,estimate,{zone,monster:m,foodItemId:0,
           excludeFoodIds:goal.itemTarget?[goal.targetItemId]:[],
