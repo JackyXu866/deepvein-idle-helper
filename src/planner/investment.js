@@ -100,14 +100,22 @@ export function createInvestments(data,planner) {
         .filter(id=>id!==current&&fits(id)&&canWear(data,lv,id)&&rate(p,style,ctx,slot,id)>before)
         .sort((a,b)=>rate(p,style,ctx,slot,b)-rate(p,style,ctx,slot,a)||a-b);
       const floor=ownedIds.length?Math.max(before,rate(p,style,ctx,slot,ownedIds[0])):before;
-      const add=(kind,id,label,cost,extra={})=>{
-        if(!cost)return;
+      const priced=(kind,id,label,cost,extra={})=>{
+        if(!cost)return null;
         const after=rate(p,style,ctx,slot,id);
-        if(!(after>before))return;
+        if(!(after>before))return null;
         const use=useSeconds(id,after),result=payback({gold:cost.gold,seconds:cost.seconds,coinRate,before,after,useSeconds:use});
-        rows.push({slot,kind,id,label,current,source:cost.source??null,gold:Math.round(cost.gold),seconds:cost.seconds,
-          gain:after/before-1,useSeconds:use,...result,...extra});
+        return {slot,kind,id,label,current,source:cost.source??null,gold:Math.round(cost.gold),seconds:cost.seconds,
+          gain:after/before-1,useSeconds:use,...result,...extra};
       };
+      const add=(...args)=>{const row=priced(...args);if(row)rows.push(row);};
+      // Every quality of a piece that beats the floor, priced; the best net
+      // saving wins (the cheapest quality that beats may save far less than a
+      // dearer one: common Bone gloves +1% against rare +13%).
+      const bestQuality=(kind,base,tiers)=>tiers.map(r=>base+r*data.rarityScale)
+        .filter(id=>rate(p,style,ctx,slot,id)>floor)
+        .map(id=>priced(kind,id,`换 ${itemLabel(data,id)}`,acquire(p,id,coinRate))).filter(Boolean)
+        .sort((a,b)=>b.net-a.net)[0]??null;
       // Enhance the worn piece: the best stopping point up to +5.
       if(autoUsableMaterial(data,current)&&plusOf(data,current)<ENHANCEMENT_BASELINE) {
         let best=null;
@@ -124,16 +132,13 @@ export function createInvestments(data,planner) {
         if(best)rows.push(best);
       }
       // A higher quality of the same piece.
-      for(let r=rarityOf(data,current)+1;r<LEGENDARY;r++) {
-        const id=baseId(data,current)+r*data.rarityScale;
-        if(!(rate(p,style,ctx,slot,id)>floor))continue;
-        add('quality',id,`换 ${itemLabel(data,id)}`,acquire(p,id,coinRate));break;
-      }
-      // Another piece wearable now, in its lowest quality that beats the worn one.
+      const higher=Array.from({length:Math.max(0,LEGENDARY-rarityOf(data,current)-1)},(_,i)=>rarityOf(data,current)+1+i);
+      const quality=bestQuality('quality',baseId(data,current),higher);
+      if(quality)rows.push(quality);
+      // Another piece wearable now, in its quality with the best net saving.
       const others=data.gear.filter(g=>g.itemId!==baseId(data,current)&&fits(g.itemId)&&canWear(data,lv,g.itemId))
-        .map(g=>[0,1,2,3].map(r=>g.itemId+r*data.rarityScale).find(id=>rate(p,style,ctx,slot,id)>floor))
-        .filter(id=>id!=null).sort((a,b)=>rate(p,style,ctx,slot,b)-rate(p,style,ctx,slot,a)).slice(0,2);
-      for(const id of others)add('tier',id,`换 ${itemLabel(data,id)}`,acquire(p,id,coinRate));
+        .map(g=>bestQuality('tier',g.itemId,[0,1,2,3])).filter(Boolean).sort((a,b)=>b.net-a.net).slice(0,2);
+      rows.push(...others);
       if(ownedIds.length)add('owned',ownedIds[0],`换 ${itemLabel(data,ownedIds[0])}`,{gold:0,seconds:0,source:'已持有'});
     }
     for(const row of rows)row.cheapest=row.worth&&!rows.some(o=>o!==row&&o.slot===row.slot&&o.worth&&o.net>row.net);

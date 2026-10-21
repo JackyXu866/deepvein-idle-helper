@@ -999,9 +999,7 @@ export function createPlanner(data) {
       if(goal.mastery)return null;
       const swap=ownedSwap(skill);
       if(swap)return swap;
-      if(goal.itemTarget)return null;
-      if(goal.developmentFiller)return null;
-      if(completedUpgrade||goal.temporary&&!goal.upgrade?.priority)return null;
+      if(goal.itemTarget||completedUpgrade)return null;
       const rareCrafts=slot=>{
         const ids=data.gear.filter(g=>fitsSlot(g,slot,skill,profession)&&canWear(g.itemId)).flatMap(g=>[1,2,3,4].map(t=>g.itemId+t*data.rarityScale))
           .filter(id=>gearScore(id,skill)>gearScore(p.equipment[slot],skill)&&
@@ -1010,12 +1008,25 @@ export function createPlanner(data) {
         return ids.filter(id=>Number.isFinite(api.crafting.estimate(p,id,1,
           {reserve:goal.budget?.items,coins:goal.budget?.coins,buy:true}).seconds));
       };
-      const shop=slot=>api.marketEquipment?.(p,goal,profession,{
+      // `marketOnly`: the pieces it could craft are no benchmark (filler never crafts them).
+      const shop=(slot,marketOnly=false)=>api.marketEquipment?.(p,goal,profession,{
         currentId:p.equipment[slot],
-        selfOptions:rareCrafts(slot).map(id=>({id,seconds:api.crafting.estimate(p,id,1,{reserve:goal.budget?.items,coins:goal.budget?.coins,buy:true}).seconds})),
+        selfOptions:marketOnly?[]:rareCrafts(slot).map(id=>({id,seconds:api.crafting.estimate(p,id,1,{reserve:goal.budget?.items,coins:goal.budget?.coins,buy:true}).seconds})),
         ids:data.gear.filter(g=>fitsSlot(g,slot,skill,profession)&&canWear(g.itemId)&&
           gearScore(g.itemId+4*data.rarityScale+5*data.plusScale,skill)>gearScore(p.equipment[slot],skill)).map(g=>g.itemId),
         score:id=>gearScore(id,skill),evaluate:id=>upgradeReturn(id,slot,skill,true,true)});
+      // Filler and temporary work (thieving while crops grow) skips gear
+      // projects, crafting a piece or a standing upgrade goal, but still buys a
+      // worthwhile piece on the market: it costs one bank visit, and filler can
+      // fill days, so a much better tool repays itself there too. A bought
+      // piece is put on at the next boundary (ownedSwap).
+      if(goal.developmentFiller||goal.temporary&&!goal.upgrade?.priority) {
+        for(const slot of gearSlots(skill)) {
+          const market=shop(slot,true);
+          if(market?.intent||market?.marketWaiting)return market;
+        }
+        return null;
+      }
       if (goal.upgrade) {
         const {slot}=goal.upgrade;let id=goal.upgrade.id;
         if(count(p,id)<=0) {
