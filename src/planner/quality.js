@@ -1,10 +1,16 @@
 // Item quality (common, uncommon, rare, epic, legendary): every rule about it
 // lives here, so recipes, pairing, reserves, prices and sales agree.
+import {secondsToGold} from './gold.js';
 import {COAL_ID, RARITY_NAMES, baseId, qualityIds, qualityPrefix, rarityOf} from './items.js';
 
 export {RARITY_NAMES, qualityIds, qualityPrefix, rarityOf};
 
 export const LEGENDARY=4;
+// Strength of a quality (x1, x1.3, ...): potions, food and gear scale by it.
+export const tierPower=(data,tier)=>data.rarityMultipliers[tier]??1;
+export const rarityPower=(data,id)=>tierPower(data,rarityOf(data,id));
+// Price of one common unit of effect: a x1.3 bottle at 130 costs 100 per effect.
+export const pricePerEffect=(data,price,id)=>price>0?price/rarityPower(data,id):Infinity;
 // Chance of each quality (common first) when a roll's odds are scaled by
 // actor (luck, brews, house...): each rarer tier is a subset of the last.
 export function rarityOdds(data,factor=1) {
@@ -69,11 +75,13 @@ export const isPotion=(data,id)=>data.jobs.some(j=>j.skill==='herblore'&&j.outpu
 export const marketPotion=(data,id)=>{const tier=rarityOf(data,id);return tier>0&&tier<LEGENDARY&&id%data.plusScale===id&&isPotion(data,id);};
 export function potionSaleWorth(data,planner,p,id) {
   if(!marketPotion(data,id))return false;
-  const power=t=>data.rarityMultipliers[t];
-  const perEffect=Math.min(...usableQualities(data,id).map(q=>(planner.marketAsk?.(p,q)||Infinity)/power(rarityOf(data,q))));
-  const bid=planner.marketUnitValue?.(p,id,1)??0;
-  return Number.isFinite(perEffect)&&bid>=POTION_SALE_RATIO*perEffect*power(rarityOf(data,id));
+  const perEffect=cheapestEffect(data,planner,p,id);
+  const bid=planner.saleValue?.(p,id,1)??0;
+  return Number.isFinite(perEffect)&&bid>=POTION_SALE_RATIO*perEffect*rarityPower(data,id);
 }
+// The lowest market price of one unit of effect over the usable qualities.
+export const cheapestEffect=(data,planner,p,id)=>
+  Math.min(...usableQualities(data,id).map(q=>pricePerEffect(data,planner.marketAsk?.(p,q),q)));
 
 // Reserve lists (item id -> quantity) combine by keeping the larger amount.
 export function mergeHold(...lists) {
@@ -110,10 +118,10 @@ export function qualityHold(data,planner,p,profession,{gearOnly=false}={}) {
 export function qualityWorth(data,planner,p,job,tier) {
   const recipe=craftRecipe(data,job,tier);
   if(!tier||!recipe)return {ok:!!recipe||!tier,extraIn:0,extraOut:0,xp:0};
-  const value=(id,qty)=>qty*(planner.marketUnitValue?.(p,id,Math.max(1,qty))??0);
+  const value=(id,qty)=>qty*(planner.saleValue?.(p,id,Math.max(1,qty))??0);
   const extraIn=recipe.inputs.reduce((n,i,k)=>n+value(i.itemId,i.qty)-value(job.inputs[k].itemId,job.inputs[k].qty),0);
   const extraOut=value(recipe.output.itemId,recipe.output.qty)-value(job.output.itemId,job.output.qty);
   const e=planner.estimateWork?.(p,job),rate=planner.coinRate?.(p)??0;
-  const xp=e?.xp>0&&rate>0?(recipe.xp-job.xp)*e.seconds/e.xp*rate:0;
+  const xp=e?.xp>0?secondsToGold((recipe.xp-job.xp)*e.seconds/e.xp,rate):0;
   return {ok:extraIn<=extraOut+xp,extraIn,extraOut,xp};
 }

@@ -42,10 +42,10 @@ test('a stale or far-off feed is ignored', () => {
 
 test('buy-vs-make reads the feed ask, and an order still waits for the live book', () => {
   const {market, p, item, feed} = setup();
-  assert.equal(market.marketUnitCost(p, item, 5), Infinity, 'unknown price');
+  assert.equal(market.marketBuyPrice(p, item, 5), Infinity, 'unknown price');
   market.setPriceFeed(feed({[item]: {lowestSell: 300, sellQty: 50, highestBuy: null, buyQty: 0}}));
-  assert.equal(market.marketUnitCost(p, item, 5), 30, 'ask / coin rate');
-  assert.equal(market.marketUnitCost(p, item, 60), Infinity, 'not enough on sale');
+  assert.equal(market.marketBuyPrice(p, item, 5), 300, 'the feed ask');
+  assert.equal(market.marketBuyPrice(p, item, 60), Infinity, 'not enough on sale');
   const plan = market.purchase(p, item, 5, {horizon: 3600, budget: {coins: 0, items: {}}});
   assert.notEqual(plan?.intent?.t, 'marketBuy', 'no order from feed prices alone');
   assert.deepEqual(market.query(p), {t: 'marketDepth', itemId: item}, 'the live book is requested first');

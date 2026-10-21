@@ -59,6 +59,9 @@ export const COAL_ID=5;
 // special items, and worth something (burnt food 70 sells for scrap).
 export const tradableBase=(data,base)=>base!==data.coinId&&![294,295,296,297].includes(base)&&
   (data.items[base]?.value>0||base===70);
+// The vendor sells the starter seed (sage, 190) at four times base value.
+export const SEED_ID=190;
+export const seedVendorPrice=data=>(data.items[SEED_ID]?.value??0)*4;
 export const merchantPrice=(data,id)=>Math.max(1,Math.floor((data.items[baseId(data,id)]?.value??0)*.4));
 export const netProceeds=(price,qty,taxBp)=>price*qty-Math.floor(price*qty*taxBp/10000);
 export const minListPrice=(floor,taxBp)=>Math.floor(floor/(1-taxBp/10000))+1;

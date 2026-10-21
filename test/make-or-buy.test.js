@@ -9,7 +9,7 @@ function bars() {
   planner.coinRate = () => 10;
   const job = d.jobs.find(j => j.skill === 'smithing' && j.name === 'Bronze bar');
   const inputs = job.inputs.map(i => i.itemId);
-  planner.marketUnitCost = (_p, id) => inputs.includes(id) ? 1 : Infinity; // 1 second of gold per ore
+  planner.marketBuyPrice = (_p, id) => inputs.includes(id) ? 10 : Infinity; // 1 second of gold per ore
   const p = player(planner, {levels: {smithing: 20}});
   return {planner, d, job, p};
 }

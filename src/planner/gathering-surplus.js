@@ -1,4 +1,5 @@
 import {brewPower} from './supplies.js';
+import {goldToSeconds} from './gold.js';
 import {inventoryBudget, saleProtectionReason} from './inventory.js';
 import {baseStride, distance, packCapacity, packQty, packUsed} from './items.js';
 
@@ -34,8 +35,9 @@ export function planGatheringSurplus(data,planner,p,goal,style,mode,waitingGoals
   const speed=Math.max(1000,stride,p.strideSpeed??0)/1000;
   const travel=2*Math.min(...data.banks.map(b=>Math.max(0,distance(p,b)-1)))*data.tickMs/1000/speed;
   const saved=Math.max(0,travel*Math.min(qty,remaining*job.output.qty-free)/capacity-4);
-  if(!(saved>value/rate))return null;
+  const earn=goldToSeconds(value,rate);
+  if(!(saved>earn))return null;
   return {intent:{t:'dropItem',itemId:id,qty},label:`原地清理普通盈余 · ${item.name} ×${qty}`,
     reason:`保留至少 ${reserve} 件周转／计划材料及全部稀有物、副产物；按腾出背包比例预计省下约 ${Math.floor(saved)} 秒往返，`+
-      `放弃产物估值 ${Math.ceil(value)} 金币（约 ${Math.ceil(value/rate)} 秒筹币）；当前采集继续`};
+      `放弃产物估值 ${Math.ceil(value)} 金币（约 ${Math.ceil(earn)} 秒筹币）；当前采集继续`};
 }

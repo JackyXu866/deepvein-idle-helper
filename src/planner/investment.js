@@ -2,29 +2,14 @@ import {ENHANCEMENT_BASELINE, enhanceQuote} from './inventory.js';
 import {combatEstimate, workEstimate} from './estimates.js';
 import {canWear, gearRequirementOf, matchesProfessionWeapon, professionSkill} from './professions.js';
 import {LEGENDARY, autoUsableMaterial, craftRecipe} from './quality.js';
-import {baseId, itemLabel, merchantPrice, plusOf, rarityOf} from './items.js';
+import {baseId, itemLabel, plusOf, rarityOf} from './items.js';
+import {goldToSeconds, payback} from './gold.js';
 
-// Gold as time. Every spend (enhancing, gear, house points) is converted to the
-// seconds the best gold job needs to earn it, and every improvement to the
-// seconds it saves over the time it will actually be used. Spend only when the
-// time saved beats the time paid by a margin.
-export const PAYBACK_MARGIN=1.2;
 // A funding stretch on the best gold job lasts at most this long.
 export const FUNDING_CAP_SECONDS=3600;
-// An item is valued for at most a week of use (until outgrown, if sooner).
+// An item is valued for at most 30 days of use (until outgrown, if sooner).
 export const USE_CAP_SECONDS=30*86400;
 const FUNDING_RETRY_SECONDS=6*3600,CACHE_SECONDS=60;
-
-// Seconds saved over `useSeconds` of play when progress per second rises
-// from `before` to `after`: the same progress then takes before/after as long.
-export const secondsSaved=(before,after,useSeconds)=>
-  before>0&&after>before&&useSeconds>0?useSeconds*(1-before/after):0;
-
-export function payback({gold=0,seconds=0,credit=0,coinRate,before,after,useSeconds}) {
-  const paid=Math.max(0,seconds-credit)+(gold>0?(coinRate>0?gold/coinRate:Infinity):0);
-  const saved=secondsSaved(before,after,useSeconds);
-  return {paid,saved,net:saved-paid,worth:Number.isFinite(paid)&&saved>0&&saved>=paid*PAYBACK_MARGIN};
-}
 
 // Expected gold and shards to take an item from its current +N to `toPlus`.
 // A failed attempt resets it to +0, so step k costs (g + (1-s)·E_k)/s, where
@@ -110,7 +95,7 @@ export function createInvestments(data,planner) {
     }
     const ask=planner.marketAsk?.(p,id);
     if(ask>0)options.push({gold:ask,seconds:0,source:'市场'});
-    const cost=o=>o.seconds+(coinRate>0?o.gold/coinRate:Infinity);
+    const cost=o=>o.seconds+goldToSeconds(o.gold,coinRate);
     return options.sort((a,b)=>cost(a)-cost(b))[0]??null;
   }
   function slotsFor(p,style) {
@@ -121,7 +106,7 @@ export function createInvestments(data,planner) {
   // Every worthwhile way to improve each worn piece, on the same terms.
   function compute(p,style,goal) {
     const ctx=contexts(p,style,goal),coinRate=planner.coinRate?.(p)??0,lv=lvOf(p),rows=[];
-    const shardValue=planner.marketUnitValue?.(p,data.shardId,1)??merchantPrice(data,data.shardId);
+    const shardValue=planner.saleValue(p,data.shardId,1);
     for(const slot of slotsFor(p,style)) {
       const current=p.equipment[slot],worn=planner.equipmentStats(current);
       if(!worn||slot==='mount')continue;
@@ -190,7 +175,10 @@ export function createInvestments(data,planner) {
     const row=options(p,style,goal).find(r=>r.cheapest&&!r.affordable&&r.gold>0&&
       !(fundingDeferred[fundingKey(r)]>p.lastTick));
     if(!row)return null;
-    const choice=(planner.incomeChoices?.(p,planner.candidates(p,style,deferred),style)??[])[0];
+    // Earned on the gold job whose rate priced the payback; the best income
+    // route only when that job is set aside.
+    const candidates=planner.candidates(p,style,deferred),gold=planner.goldJobs?.(p)[0]?.job;
+    const choice=candidates.find(c=>c.recipeId===gold?.id&&!c.rarity)??(planner.incomeChoices?.(p,candidates,style)??[])[0];
     if(!choice)return null;
     const ticks=Math.ceil(FUNDING_CAP_SECONDS*1000/data.tickMs);
     return {...choice,target:planner.thresholds.length,funding:{key:fundingKey(row),gold:row.gold,label:row.label,until:p.lastTick+ticks},

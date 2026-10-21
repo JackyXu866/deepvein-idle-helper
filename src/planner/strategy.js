@@ -1,8 +1,9 @@
 import {matchesProfessionWeapon, professionSkill, starterWeapon} from './professions.js';
 import {PAIR_TIERS, autoUsableMaterial, craftRecipe, qualityWorth, setsAt} from './quality.js';
 import {combatEstimate, workEstimate} from './estimates.js';
+import {goldToSeconds} from './gold.js';
 import {buffKey, combatSupplies} from './supplies.js';
-import {distance, merchantPrice, nearestBank, packCapacity, rarityOf} from './items.js';
+import {distance, nearestBank, packCapacity, rarityOf, seedVendorPrice} from './items.js';
 import {COMBAT_SKILLS, combatKey, equipmentKey, jobKey, levelsKey, usableSample} from './keys.js';
 
 // A rolling comparison of attainable routes, including their self-supply work.
@@ -126,14 +127,14 @@ export function createStrategy(data, planner) {
       if(!autoUsableMaterial(data,id))return false;
       budget[id]=(budget[id]??0)+Math.ceil(quantity);
       const used=Math.max(0,Math.min(quantity,stock[id]??0));stock[id]=(stock[id]??0)-used;
-      if(used>0&&id!==data.coinId)stockValue+=used*(planner.marketUnitValue?.(p,id,Math.ceil(used))??merchantPrice(data,id));
+      if(used>0&&id!==data.coinId)stockValue+=used*planner.saleValue(p,id,Math.ceil(used));
       const missing=quantity-used;
       if (missing<1e-7) return true;
       if (trail.includes(id)) return false;
       const next=[...trail,id];
       if(buyInputs&&id!==root?.output?.itemId&&id!==root?.itemId) {
-        const qty=Math.ceil(missing),unit=planner.marketUnitCost?.(p,id,qty+(purchases[id]??0))??Infinity;
-        const cost=Number.isFinite(unit)?unit*qty*(planner.coinRate?.(p)??0):Infinity,allowance=planner.marketAllowance?.(p)??0;
+        const qty=Math.ceil(missing),cost=qty*(planner.marketBuyPrice?.(p,id,qty+(purchases[id]??0))??Infinity);
+        const unit=goldToSeconds(cost,planner.coinRate?.(p)??0)/qty,allowance=planner.marketAllowance?.(p)??0;
         // Crafting it from bought materials (with the XP) beats buying it: fall
         // through to the recipe, whose inputs get this same choice.
         const make=Number.isFinite(unit)&&planner.crafting?.makeBeatsBuying({...p,x:position.x,y:position.y,bank:stock,pack:[]},id,qty,unit*qty);
@@ -151,7 +152,7 @@ export function createStrategy(data, planner) {
         }
       }
       if(id===190) {
-        const price=data.items[190].value*4;
+        const price=seedVendorPrice(data);
         coins-=price;travel(bankAt(position).approach??bankAt(position));seconds+=tick;
         return true;
       }

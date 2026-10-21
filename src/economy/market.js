@@ -1,9 +1,9 @@
-import {autoUsableMaterial, usableQualities} from '../planner/quality.js';
+import {autoUsableMaterial, pricePerEffect, rarityPower, usableQualities} from '../planner/quality.js';
 import {workEstimate} from '../planner/estimates.js';
 import {action, waiting} from '../planner/result.js';
 import {POTIONS, foodEffects, foodHealing} from '../planner/supplies.js';
 import {inventoryBudget, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
-import {PAYBACK_MARGIN, payback} from '../planner/investment.js';
+import {goldToSeconds, maxPrice, payback, secondsToGold} from '../planner/gold.js';
 import {baseId, dayTicks as dayTicksOf, distance, itemLabel, itemName, merchantPrice, minListPrice, netProceeds, plusOf, qualityIds, rarityOf, stockQty, tradableBase} from '../planner/items.js';
 
 // Price grid (client Nb/Vn/ih/Zm; refusal 'market-price-step'): a price must be
@@ -261,7 +261,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     // Market value counts only new output that current buyers could absorb
     // after existing stock. Asking prices and escrow never count as earned income.
     let stock=quantity(p,itemId),remaining=qty,net=0,bidValue=null;
-    for(const bid of [...book.bids].sort((a,b)=>b.price-a.price)) {
+    for(const bid of bidsHighFirst(book)) {
       const old=Math.min(stock,bid.qty),take=Math.min(remaining,bid.qty-old);
       const proceeds=netOf(bid.price,take);
       if(take>0&&proceeds<=floor*take)continue;
@@ -273,7 +273,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     if(pricing==='list'&&book.tradesKnown===true) {
       const listing=listingQuote(p,book,floor);
       const room=listing?listing.demand.volume-listing.demand.ahead-quantity(p,itemId):0;
-      const best=[...book.bids].sort((a,b)=>b.price-a.price)[0]?.price;
+      const best=bidsHighFirst(book)[0]?.price;
       if(listing&&room>=qty&&listingWorthIt(listing,best)&&netOf(listing.price,qty)>floor*qty&&
         netOf(listing.price,qty)>(bidValue?.net??0))return {net:netOf(listing.price,qty),qty,listed:true};
     }
@@ -282,10 +282,8 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
   // The lowest ask for one unit: a fresh live top of book, else the price feed.
   function askPrice(p,id) {
     select(p);
-    const top=tops.get(id);
-    if(top&&now()-top.at<60000)return top.ask>0&&top.askQty>0?top.ask:null;
-    const row=feedRow(id);
-    return row?.ask&&row.askQty>0?row.ask:null;
+    const top=topOfBook(id);
+    return top?.ask>0&&top.askQty>0?top.ask:null;
   }
   // What one unit would sell for through the three selling layers: the market
   // (bid, or listing in listing mode), the town buyback and the merchant.
@@ -300,7 +298,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const best=id===planner.base(id)?opportunity(p,id,qty):null;
     if(best)return Math.max(merchant,best.net>0?best.net/qty:0);
     const live=quotes.get(id);
-    const bid=live&&now()-live.at<ttl?[...live.bids].sort((a,b)=>b.price-a.price).find(row=>row.qty>=qty)?.price:
+    const bid=live&&now()-live.at<ttl?bidsHighFirst(live).find(row=>row.qty>=qty)?.price:
       feedRow(id)?.bidQty>=qty?feedRow(id).bid:null;
     return Math.max(merchant,bid?netOf(bid,qty)/qty:0);
   }
@@ -319,6 +317,12 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     feed={at,items};return true;
   }
   const feedRow=id=>feed&&now()-feed.at<feedTtl?feed.items[id]??null:null;
+  // Top of the book for one id: a fresh live top (under a minute old), else
+  // the price feed. Every ask lookup and "is it priced" check reads this.
+  const topOfBook=id=>{const live=tops.get(id);return live&&now()-live.at<60000?live:feedRow(id);};
+  const bestAsk=book=>book.asks.reduce((best,row)=>!best||row.price<best.price?row:best,null);
+  const lowestAsk=book=>bestAsk(book)?.price;
+  const bidsHighFirst=book=>[...book.bids].sort((a,b)=>b.price-a.price);
   function quote(id) {
     if((cooldowns.get(id)??0)>now())return {fallback:true};
     const current=quotes.get(id);
@@ -370,22 +374,21 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const found=[];
     for(const id of new Set(ids.filter(purchasable))) {
       if(hasOrder(id)||(cooldowns.get(id)??0)>now())continue;
-      const top=tops.get(id);
-      if(top&&now()-top.at<60000){if(valid(top.ask)&&top.askQty>0)found.push(top);continue;}
       // The price feed answers without a query; buy() re-checks the live ask.
-      const row=feedRow(id);
-      if(row){if(row.ask&&row.askQty>0)found.push({itemId:id,ask:row.ask,askQty:row.askQty,feed:true});continue;}
+      const top=topOfBook(id);
+      if(top){if(valid(top.ask)&&top.askQty>0)found.push(top.at!=null?top:{itemId:id,ask:top.ask,askQty:top.askQty,feed:true});continue;}
       if(!bookRequests.has(id))bookRequests.set(id,{sentAt:null});
     }
     return found;
   }
-  function marketUnitCost(p,id,qty=1) {
-    select(p);const live=tops.get(id),rate=planner.coinRate?.(p);
-    const top=live&&now()-live.at<60000?live:feedRow(id);
+  // The gold one unit costs now, when `qty` can be bought within the allowance;
+  // Infinity when it cannot be bought automatically.
+  function marketBuyPrice(p,id,qty=1) {
+    select(p);const top=topOfBook(id);
     if(p.ironman||!purchasable(id)||!procurement?.enabled||state.attempt||hasOrder(id)||!slots(p,'buy')||
-      (cooldowns.get(id)??0)>now()||!top||!(rate>0)||!(top.ask>0)||top.askQty<qty||
+      (cooldowns.get(id)??0)>now()||!(top?.ask>0)||top.askQty<qty||
       top.ask*qty>purchaseAllowance(p))return Infinity;
-    return top.ask/rate;
+    return top.ask;
   }
   function surplusValue(p,id,qty) {
     select(p);
@@ -393,14 +396,14 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const book=quote(id);
     // Unknown/stale markets never make goods "worthless". This query does not
     // pause gathering or authorize a sale; it only bounds the cost of disposal.
+    // The highest price anyone shows, after tax, and never below the merchant.
+    const worth=price=>Math.max(qty*merchantPrice(data,id),netOf(price,qty));
     if(book.waiting||book.fallback||!book.tradesKnown) {
       const row=feedRow(id);
-      return row&&(row.ask||row.bid)?qty*Math.max(merchantPrice(data,id),row.ask??0,row.bid??0):Infinity;
+      return row&&(row.ask||row.bid)?worth(Math.max(row.ask??0,row.bid??0)):Infinity;
     }
-    const ask=Math.min(...book.asks.map(r=>r.price));
     const recent=book.trades.filter(r=>r.tick>=p.lastTick-recycleMs/data.tickMs);
-    return qty*Math.max(merchantPrice(data,id),Number.isFinite(ask)?ask:0,
-      ...book.bids.map(r=>r.price),...recent.map(r=>r.price));
+    return worth(Math.max(lowestAsk(book)??0,...book.bids.map(r=>r.price),...recent.map(r=>r.price)));
   }
   function buy(p,id,qty,goal,label,reason,maxPrice=Infinity) {
     if(p.ironman||p.enhance||p.held||p.raidHeld||p.queue?.length||!purchasable(id)||!valid(qty)||state.attempt||!slots(p,'buy')||hasOrder(id))return null;
@@ -409,7 +412,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const book=quote(id);
     if(book.waiting)return wait('正在核对候选物品的实时卖盘与采购预算');
     if(book.fallback)return null;
-    const ask=[...book.asks].sort((a,b)=>a.price-b.price)[0];
+    const ask=bestAsk(book);
     if(!ask||ask.price>maxPrice)return null;
     const amount=Math.min(qty,ask.qty,Math.floor(purchaseAllowance(p,goal)/ask.price),1000000);
     if(amount<1)return null;
@@ -427,17 +430,17 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const book=quote(id);
     if(book.waiting)return wait('比较买成品、买原料与自给的实际耗时');
     if(book.fallback)return null;
-    const ask=[...book.asks].sort((a,b)=>a.price-b.price)[0],rate=planner.coinRate?.(p);
+    const ask=bestAsk(book),rate=planner.coinRate?.(p);
     if(!ask||!(rate>0))return null;
     const amount=Math.min(qty,ask.qty,Math.floor(purchaseAllowance(p,goal)/ask.price),1000000);
     if(amount<1)return null;
     const trip=2*Math.min(...data.banks.map(b=>distance(p,b.approach)))*data.tickMs/1000;
     // Buying its materials and crafting it (with the XP) beats buying it: the
     // planner crafts instead, and buys those materials through this same check.
-    if(planner.crafting?.makeBeatsBuying(p,id,amount,amount*ask.price/rate,goal)) {
+    if(planner.crafting?.makeBeatsBuying(p,id,amount,goldToSeconds(amount*ask.price,rate),goal)) {
       status=`${itemName(id)}：买原料自制不比直接买贵（含制作经验），改为自制`;return null;
     }
-    const seconds=amount*ask.price/rate+trip,self=planner.acquireEstimate?.(p,id,amount,profession);
+    const seconds=goldToSeconds(amount*ask.price,rate)+trip,self=planner.acquireEstimate?.(p,id,amount,profession);
     // Keep the goal's experience. Buying its ingredients need not compensate
     // every unrelated gathering XP point that self-supply would have earned.
     if(!self||seconds>(goal?.horizon??1800)||Number.isFinite(self.seconds)&&seconds>=self.seconds)return null;
@@ -462,7 +465,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const benchmark=Math.max(baseline.before*horizon,baseline.after*Math.max(0,horizon-self.seconds),
       ...selfOptions.map(option=>evaluate(option.id).after*Math.max(0,horizon-option.seconds)));
     const choices=books.filter(top=>top.ask<=purchaseAllowance(p,goal)).map(top=>{
-      const improvement=evaluate(top.itemId),seconds=top.ask/rate+improvement.seconds;
+      const improvement=evaluate(top.itemId),seconds=goldToSeconds(top.ask,rate)+improvement.seconds;
       return {...top,improvement,value:improvement.after*Math.max(0,horizon-seconds)};
     }).filter(c=>c.improvement.after>c.improvement.before&&c.value>benchmark&&
       // Shared payback rule (investment.js): the price, as time at the gold rate,
@@ -490,17 +493,17 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
   function potionDose(p,id,goal,desired) {
     select(p);
     const reserve=inventoryBudget(data,planner,p,goal).items;
-    const owned=variants(id).map(itemId=>({itemId,power:data.rarityMultipliers[tier(itemId)],
+    const owned=variants(id).map(itemId=>({itemId,power:rarityPower(data,itemId),
       qty:Math.min(desired,20,p.pack.filter(i=>i.itemId===itemId).reduce((n,i)=>n+i.qty,0)+
         (planner.nearBank(p)?p.bank[itemId]??0:0),Math.max(0,quantity(p,itemId)-(reserve[itemId]??0)))
     })).filter(choice=>choice.qty>0);
     if(!procurement?.enabled)return owned.sort((a,b)=>a.itemId-b.itemId)[0]??null;
     const choices=variants(id).map(itemId=>{
-      const power=data.rarityMultipliers[tier(itemId)],top=tops.get(itemId);
+      const power=rarityPower(data,itemId),top=topOfBook(itemId);
       const available=p.pack.filter(i=>i.itemId===itemId).reduce((n,i)=>n+i.qty,0)+(planner.nearBank(p)?p.bank[itemId]??0:0);
       const qty=Math.min(desired,20,available,Math.max(0,quantity(p,itemId)-(reserve[itemId]??0)));
-      const price=top&&now()-top.at<60000&&top.ask>0?top.ask:feedRow(itemId)?.ask??data.items[id].value*power;
-      return {itemId,qty,power,value:price>0?price/power:Infinity};
+      const price=top?.ask>0?top.ask:data.items[id].value*power;
+      return {itemId,qty,power,value:pricePerEffect(data,price,itemId)};
     }).filter(c=>c.qty>0&&Number.isFinite(c.value)).sort((a,b)=>a.value-b.value||a.itemId-b.itemId);
     return choices[0]??null;
   }
@@ -521,8 +524,8 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
   // The most one bottle of this quality may cost. With a known worth (the
   // coins its hour of effect saves at the gold rate) the gold-as-time payback
   // rule applies; otherwise 3x base value per effect multiplier.
-  const potionCap=(id,itemId,worth)=>(Number.isFinite(worth)&&worth>0?worth/PAYBACK_MARGIN:data.items[id].value*3)*
-    data.rarityMultipliers[tier(itemId)];
+  const potionCap=(id,itemId,worth=null)=>(Number.isFinite(worth)&&worth>0?maxPrice(worth):data.items[id].value*3)*
+    rarityPower(data,itemId);
   function balancedPotion(p,id,goal,desired,uncovered=[],worth=null) {
     if(!POTIONS.some(potion=>potion.itemId===id)||!valid(desired)||!planner.nearBank(p)||p.route||p.path?.length||
       p.enhance||p.held||p.raidHeld||p.queue?.length||goal?.itemTarget&&goal.targetItemId===id)return null;
@@ -530,7 +533,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const stocked=variants(id).reduce((n,itemId)=>n+Math.max(0,quantity(p,itemId)-(reserve[itemId]??0)),0);
     const missing=Math.max(0,Math.min(20,desired)-stocked);if(!missing)return null;
     const choices=scan(p,variants(id)).filter(top=>top.ask<=purchaseAllowance(p,goal)&&top.ask<=potionCap(id,top.itemId,worth))
-      .sort((a,b)=>a.ask/data.rarityMultipliers[tier(a.itemId)]-b.ask/data.rarityMultipliers[tier(b.itemId)]||a.ask-b.ask);
+      .sort((a,b)=>pricePerEffect(data,a.ask,a.itemId)-pricePerEffect(data,b.ask,b.itemId)||a.ask-b.ask);
     if(!choices.length)return null;
     const top=choices[0];
     // Cover other applicable expired effects before stacking this one to 20h.
@@ -538,7 +541,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     let coverage=0;
     for(const other of new Set(uncovered))if(other!==id&&!variants(other).some(itemId=>quantity(p,itemId)>(reserve[itemId]??0))) {
       const asks=scan(p,variants(other)).filter(row=>row.ask<=purchaseAllowance(p,goal)&&
-        row.ask<=data.items[other].value*3*data.rarityMultipliers[tier(row.itemId)]);
+        row.ask<=potionCap(other,row.itemId));
       if(asks.length)coverage+=Math.min(...asks.map(row=>row.ask));
     }
     if(coverage+top.ask>purchaseAllowance(p,goal)&&
@@ -546,8 +549,8 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const coveredGoal=coverage+top.ask<=purchaseAllowance(p,goal)?
       {...goal,budget:{...goal?.budget,coins:(goal?.budget?.coins??0)+coverage}}:goal;
     const result=buy(p,top.itemId,coverage&&coveredGoal===goal?Math.min(1,missing):missing,coveredGoal,'按品质性价比补药',
-      `各品质每瓶同为 1 小时，当前药效倍率 ×${data.rarityMultipliers[tier(top.itemId)]}`+
-      (worth>0?`；药效每小时约省下价值 ${Math.round(worth*data.rarityMultipliers[tier(top.itemId)])} 金币的时间`:''),top.ask);
+      `各品质每瓶同为 1 小时，当前药效倍率 ×${rarityPower(data,top.itemId)}`+
+      (worth>0?`；药效每小时约省下价值 ${Math.round(worth*rarityPower(data,top.itemId))} 金币的时间`:''),top.ask);
     return result?.intent?.t==='marketBuy'?{...result,consumablePurchase:true}:null;
   }
   function foodPurchase(p,goal,supplies) {
@@ -564,9 +567,10 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     if(!best)return now()-foodScan.startedAt<waitMs&&ids.some(id=>bookRequests.has(id))?
       wait('首次熟食比价最多等待 4 秒；随后继续自给备粮'):null;
     const self=planner.acquireEstimate(p,supplies.foodItemId,supplies.needFood+quantity(p,supplies.foodItemId)),rate=planner.coinRate(p);
-    if(!(rate>0)||best.ask*supplies.needFood/rate>=self.seconds)return null;
+    const buySeconds=goldToSeconds(best.ask*supplies.needFood,rate);
+    if(!(rate>0)||buySeconds>=self.seconds)return null;
     // Cooking it from bought fish (with the cooking XP) is no dearer: cook instead.
-    if(planner.crafting?.makeBeatsBuying(p,best.itemId,supplies.needFood,best.ask*supplies.needFood/rate,goal))return null;
+    if(planner.crafting?.makeBeatsBuying(p,best.itemId,supplies.needFood,buySeconds,goal))return null;
     const result=buy(p,best.itemId,supplies.needFood,goal,'市场补充熟食',
       `每份有效治疗 ${best.heal}；按实际缺口采购，遵守游戏自动进食品质上限`,best.ask);
     if(result?.intent?.t==='marketBuy')result.foodItemId=best.itemId;
@@ -582,7 +586,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       const rooted=(p.brews?.rooted??0)>p.lastTick?0:Math.min(duration,effects.rootedTicks*tick);
       // Use only half of the ideal 25% damage-buff time saving. Discrete hits
       // and travel make the theoretical maximum too optimistic.
-      const benefit=rate*fed*.1+rooted*enemyDps/Math.max(1,healing)*damageReduction*foodValue;
+      const benefit=secondsToGold(fed*.1,rate)+rooted*enemyDps/Math.max(1,healing)*damageReduction*foodValue;
       return {...top,fed,rooted,benefit};
     }).filter(c=>c.benefit>c.ask&&(!goal?.itemTarget||c.itemId!==goal.targetItemId))
       .sort((a,b)=>(b.benefit-b.ask)-(a.benefit-a.ask)||a.ask-b.ask);
@@ -624,7 +628,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const minimum=priceUp(minListPrice(floor,taxBp));
     const reference=prices.length?Math.min(...prices):floor*2;
     const recentDemand=book.trades.some(row=>row.tick<=p.lastTick&&(p.lastTick-row.tick)*data.tickMs<=recycleMs);
-    const ask=recentDemand&&book.asks.length?stepBelow(Math.min(...book.asks.map(row=>row.price))):reference;
+    const ask=recentDemand&&book.asks.length?stepBelow(lowestAsk(book)):reference;
     const price=Math.max(minimum,priceDown(Math.min(ask,previous?Math.min(reference,Math.floor(previous.price*.9)):reference)));
     if(!valid(price)||price>1e9)return null;
     return {price,demand:saleDemand(p,book,price,floor)};
@@ -703,7 +707,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
         `出售${what} · ${itemName(id)} × ${offer.qty}，单价 ${offer.price}`),equipmentSale:{goal,profession}});
     }
     const net=netOf;
-    const bid=[...book.bids].sort((a,b)=>b.price-a.price).find(row=>
+    const bid=bidsHighFirst(book).find(row=>
       net(row.price,Math.min(safeQty,row.qty))>intent.floor*Math.min(safeQty,row.qty));
     // In listing mode, wait for buyers at the ask unless this batch already
     // failed to sell through two re-pricings.
@@ -778,9 +782,9 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const reference=prices[Math.floor(prices.length/2)];
     const vendor=merchantPrice(data,id);
     const minimum=priceUp(Math.max(Math.ceil(reference*.9),minListPrice(vendor,taxBp)));
-    const bid=[...book.bids].sort((a,b)=>b.price-a.price).find(row=>row.price>=minimum);
+    const bid=bidsHighFirst(book).find(row=>row.price>=minimum);
     if(bid)return {qty:Math.min(qty,bid.qty),price:bid.price};
-    const price=Math.max(minimum,priceDown(Math.min(reference,book.asks.length?stepBelow(Math.min(...book.asks.map(row=>row.price))):reference)));
+    const price=Math.max(minimum,priceDown(Math.min(reference,book.asks.length?stepBelow(lowestAsk(book)):reference)));
     const demand=saleDemand(p,book,price,vendor),available=demand.volume-demand.ahead;
     return available>0?{qty:Math.min(qty,available),price}:null;
   }
@@ -795,13 +799,13 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     const book=quote(itemId);
     if(book.waiting)return wait('查询当前缺口的卖盘，比较采购筹币时间与自制经验');
     if(book.fallback)return null;
-    const ask=[...book.asks].sort((a,b)=>a.price-b.price)[0];if(!ask)return null;
+    const ask=bestAsk(book);if(!ask)return null;
     const available=Math.max(0,p.coins-(goal?.budget?.coins??0));
     const amount=Math.min(qty,ask.qty,Math.floor(available/ask.price),1000000);if(amount<1)return null;
     const rate=planner.coinRate?.(p),cost=amount*ask.price;
     if(!(rate>0)||!Number.isFinite(rate))return null;
     const bankDistance=Math.min(...data.banks.map(b=>distance(p,b.approach)));
-    const seconds=cost/rate+2*bankDistance*data.tickMs/1000;
+    const seconds=goldToSeconds(cost,rate)+2*bankDistance*data.tickMs/1000;
     const self=planner.acquireEstimate?.(p,itemId,amount,profession);
     if(!self||seconds>(goal?.horizon??1800))return null;
     const job=data.jobs.find(j=>j.id===(goal?.recipeId??goal?.recipes?.[goal?.skill]));
@@ -845,7 +849,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     if(limit<=spent||!persist())return null;
     const book=quote(itemId);
     if(book.waiting||book.fallback)return null;
-    const ask=[...book.asks].sort((a,b)=>a.price-b.price)[0];
+    const ask=bestAsk(book);
     if(!ask||ask.price>potionCap(itemId,itemId,worth)||ask.price+spent>limit)return null;
     const qty=Math.min(missing,ask.qty,Math.floor((limit-spent)/ask.price));
     if(!valid(qty))return null;
@@ -868,7 +872,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     }
     if(intent.t==='marketDump'&&plan?.illiquidSale) {
       const book=quotes.get(intent.itemId),minimum=priceUp(minListPrice(intent.floor,taxBp));
-      const price=Math.max(minimum,book?.asks.length?priceDown(stepBelow(Math.min(...book.asks.map(row=>row.price)))):minimum);
+      const price=Math.max(minimum,book?.asks.length?priceDown(stepBelow(lowestAsk(book))):minimum);
       if(!capacitySalesEnabled||!plan.capacitySale||inventoryBudget(data,planner,before).freeSlots>0||
         !book||now()-book.at>=ttl||!saleDemand(before,book,price,intent.floor).illiquid||
         book.bids.some(row=>netOf(row.price,Math.min(intent.qty,row.qty))>
@@ -1044,6 +1048,6 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     return {saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status,pricing,buyback,feed};
   }
   return {runtime,receive,next,sale,purchase,restockPotion,restockIngredient,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setSalePricing,setBuyback,setPriceFeed,unitValue,askPrice,priceFeedAge:()=>feed?now()-feed.at:null,
-    configureProcurement,equipmentPurchase,foodPurchase,buffFood,potionDose,marketUnitCost,surplusValue,watchPurchases:scan,
+    configureProcurement,equipmentPurchase,foodPurchase,buffFood,potionDose,marketBuyPrice,surplusValue,watchPurchases:scan,
     purchaseAllowance:(p,goal)=>{select(p);return purchaseAllowance(p,goal);}};
 }

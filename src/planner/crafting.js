@@ -1,5 +1,6 @@
 import {autoUsableMaterial, craftRecipe} from './quality.js';
 import {workEstimate} from './estimates.js';
+import {goldToSeconds} from './gold.js';
 import {baseId, distance, packCapacity, packQty, packUsed, rarityOf} from './items.js';
 
 // Making an item from bought materials may cost up to this much more than
@@ -20,8 +21,8 @@ export function createCrafting(data,planner) {
       let seconds=0;
       for(const input of job.inputs) {
         const need=input.qty*n,held=Math.min(need,Math.max(0,planner.count(p,input.itemId))),short=need-held;
-        if(held>0)seconds+=rate>0?held*(planner.marketUnitValue?.(p,input.itemId,held)??0)/rate:0;
-        if(short>0)seconds+=short*(planner.marketUnitCost?.(p,input.itemId,short)??Infinity);
+        if(held>0)seconds+=rate>0?goldToSeconds(held*planner.saleValue(p,input.itemId,held),rate):0;
+        if(short>0)seconds+=goldToSeconds(short*(planner.marketBuyPrice?.(p,input.itemId,short)??Infinity),rate);
       }
       const slot=Object.keys(data.toolSkills).find(s=>data.toolSkills[s]===job.skill);
       const e=workEstimate(data,job,levels[job.skill],{toolBonus:planner.equipmentStats(p.equipment?.[slot])?.bonus??0,
@@ -70,8 +71,9 @@ export function createCrafting(data,planner) {
         for(const key of Object.keys(stock))delete stock[key];Object.assign(stock,saved);money=beforeMoney;
       }
       if(buy) {
-        const unit=itemId===id?Infinity:planner.marketUnitCost?.(p,itemId,missing)??Infinity;
-        if(Number.isFinite(unit)){money+=unit*missing*planner.coinRate(p);return unit*missing;}
+        const unit=itemId===id?Infinity:planner.marketBuyPrice?.(p,itemId,missing)??Infinity;
+        const seconds=goldToSeconds(unit*missing,planner.coinRate(p));
+        if(Number.isFinite(seconds)){money+=unit*missing;return seconds;}
         // Ordinary missing fuel can be gathered; never grind random rare drops.
         if(tier===0)return planner.routeEstimate({...p,bank:stock,pack:[]},{itemId},missing).seconds;
       }

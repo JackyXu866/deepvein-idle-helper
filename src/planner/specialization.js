@@ -19,7 +19,7 @@ export function createSpecialization(data,planner) {
     const choices=[];
     // Market value of an expected (possibly fractional) quantity: the best fresh
     // bid for that quality, else the merchant; net of tax.
-    const value=(id,qty)=>qty>0?(planner.marketUnitValue?.(p,id,Math.max(1,Math.round(qty)))??0)*qty:0;
+    const value=(id,qty)=>qty>0?planner.saleValue(p,id,Math.max(1,Math.round(qty)))*qty:0;
     for(let c of candidates) {
       let proceeds=0,actions=c.actions;const saleItems=[];
       // Quality crafting (held matched sets): its output at its market value,

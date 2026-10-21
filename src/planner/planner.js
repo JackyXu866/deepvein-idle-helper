@@ -1,8 +1,8 @@
 import {PROFESSIONS, canWear as canWearWith, gearRequirementOf, matchesProfessionWeapon, professionSkill, starterWeapon} from './professions.js';
-import {LEGENDARY, PAIR_TIERS, autoUsableMaterial, craftRecipe, mergeHold, potionSaleWorth, qualityHold, qualityWorth} from './quality.js';
+import {LEGENDARY, PAIR_TIERS, autoUsableMaterial, rarityPower, craftRecipe, mergeHold, potionSaleWorth, qualityHold, qualityWorth} from './quality.js';
 import {createLevels} from './levels.js';
 import {action, waiting} from './result.js';
-import {RARITY_NAMES, qualityName, baseId, distance, itemLabel, itemName, nearBank as nearBankAt, nearestBank as nearestBankTo, packCapacity, packQty, packUsed, plusOf, qualityPrefix, rarityOf} from './items.js';
+import {RARITY_NAMES, qualityName, baseId, merchantPrice, seedVendorPrice, distance, itemLabel, itemName, nearBank as nearBankAt, nearestBank as nearestBankTo, packCapacity, packQty, packUsed, plusOf, qualityPrefix, rarityOf} from './items.js';
 import {createCrafting, finishTaskReason} from './crafting.js';
 import {combatEstimate, workEstimate} from './estimates.js';
 import {combatSupplies} from './supplies.js';
@@ -17,7 +17,8 @@ import {createHousing} from './housing.js';
 import {planGatheringSurplus} from './gathering-surplus.js';
 import {perkOverview} from './perks.js';
 import {chooseFallback} from './fallback.js';
-import {USE_CAP_SECONDS, createInvestments, payback as paybackRule} from './investment.js';
+import {USE_CAP_SECONDS, createInvestments} from './investment.js';
+import {goldToSeconds, payback as paybackRule} from './gold.js';
 import {createCollectionMastery} from './collection.js';
 import {HOT_FOLLOW_SKILLS, hotSkillAt, hotWindows} from '../runtime/hot-follow.js';
 import {createAutomationPolicy, normalizeAutomation} from '../runtime/automation-policy.js';
@@ -43,7 +44,7 @@ export function createPlanner(data) {
   function equipmentStats(id) {
     const g=gear.get(base(id));
     if (!g) return null;
-    const tier=data.rarityMultipliers[rarity(id)]??1, scale=1+data.enhanceScale*plus(id);
+    const tier=rarityPower(data,id), scale=1+data.enhanceScale*plus(id);
     return {...g,itemId:id,accuracy:Math.round(Math.round((g.accuracy??0)*tier)*scale),
       strength:Math.round(Math.round((g.strength??0)*tier)*scale),
       defence:Math.round(Math.round((g.defence??0)*tier)*scale),bonus:(g.bonus??0)*tier*scale,
@@ -409,7 +410,7 @@ export function createPlanner(data) {
     if(seedNeed&&farmingChoice.mode==='auto'&&catchUp&&!empty.length&&ready.length<plots.length&&!demanded(selected))
       return deferFarm('作物仍在生长，先推进当前主任务及其原料需求；整批成熟后再准备作物升级');
     const sage=selected.inputs[0].itemId===190?selected:null;
-    const seedPrice=data.items[190].value*4;
+    const seedPrice=seedVendorPrice(data);
     const seedQty=Math.min(seedNeed,Math.floor((p.coins-Math.max(0,goal?.budget?.coins??0))/seedPrice));
     if(naturalBreak&&sage&&seedQty>0) {
       if(nearBank(p)&&(p.route||p.path?.length))return {
@@ -586,7 +587,7 @@ export function createPlanner(data) {
     }
     function cost(id, trail=[],quantity=1) {
       if (trail.includes(id)) return Infinity;
-      const marketCost=api.marketUnitCost?.(p,id,Math.max(1,Math.ceil(quantity)))??Infinity;
+      const marketCost=goldToSeconds(api.marketBuyPrice?.(p,id,Math.max(1,Math.ceil(quantity)))??Infinity,api.coinRate(p));
       const producers = made(id).filter(unlocked);
       if (producers.length) return Math.min(marketCost,...producers.map(j => {
         if(j.grow) {
@@ -731,10 +732,10 @@ export function createPlanner(data) {
             const missing=quantity-used;
             if(missing<=0||id===data.coinId)return true;
             if(seen.includes(id))return false;
-            const qty=Math.ceil(missing),unit=api.marketUnitCost?.(p,id,qty+(purchases[id]??0))??Infinity;
-            const price=Number.isFinite(unit)?unit*qty*api.coinRate(p):Infinity;
-            if(Number.isFinite(unit)&&money+price<=(api.marketAllowance?.(p,goal)??0)&&
-              unit*qty<=(goal.horizon??1800)) {
+            const qty=Math.ceil(missing),unit=api.marketBuyPrice?.(p,id,qty+(purchases[id]??0))??Infinity;
+            const price=unit*qty;
+            if(Number.isFinite(price)&&money+price<=(api.marketAllowance?.(p,goal)??0)&&
+              goldToSeconds(price,api.coinRate(p))<=(goal.horizon??1800)) {
               money+=price;purchases[id]=(purchases[id]??0)+qty;return true;
             }
             const source=made(id).find(unlocked)??made(id)[0];
@@ -841,7 +842,7 @@ export function createPlanner(data) {
       const changed=goal.recipeLevels[skill]!=null&&goal.recipeLevels[skill]!==lv[skill];
       const betterQuality=choices[0]?.rarity>0&&score(choices[0])>score(cached??choices[0]);
       const betterSupply=cached?.inputs.length&&choices[0].inputs.some(i=>count(p,i.itemId)<i.qty*20&&
-        Number.isFinite(api.marketUnitCost?.(p,i.itemId,Math.max(1,i.qty*20-count(p,i.itemId)))??Infinity))&&
+        Number.isFinite(api.marketBuyPrice?.(p,i.itemId,Math.max(1,i.qty*20-count(p,i.itemId)))??Infinity))&&
         score(choices[0])>score(cached)*1.1;
       // Stage plan: gather until the owned crafts of every quality cover the
       // stage, then craft them all, the higher qualities first (more XP each).
@@ -908,15 +909,14 @@ export function createPlanner(data) {
       }
       const next = [...trail,id];
       if (id===data.coinId) {
-        const job = jobs.filter(j=>j.skill==='thieving'&&j.output.itemId===id&&unlocked(j))
-          .sort((a,b)=>b.output.qty/jobTime(b)-a.output.qty/jobTime(a))[0];
+        const job = goldJobs(p)[0].job;
         return batch(job,Math.ceil((quantity-p.coins)/job.output.qty),next);
       }
       // The reviewed vendor sells this starter seed at four times base value.
       // A single seed is returned by harvesting and starts the herb supply chain.
       if(id===190) {
         const qty=goal.itemTarget&&id===goal.targetItemId?Math.min(100,Math.max(1,quantity-count(p,id))):1;
-        const price=data.items[190].value*4*qty;
+        const price=seedVendorPrice(data)*qty;
         const reserve=Math.max(0,(goal.budget?.coins??0)-((goal.budget?.items?.[190]??0)>0?price:0));
         if(p.coins<price+reserve)return need(data.coinId,price+reserve,next);
         if(nearBank(p)&&(p.route||p.path?.length))return action({t:'clearRoute'},'购买启动种子前停止旧路线');
@@ -1635,6 +1635,14 @@ export function createPlanner(data) {
     else if(farmTargetReason)reason=`${farmTargetReason} · ${best.name}：${reason}`;
     return {...status,crop:best.name,reason};
   }
+  // The one gold rate: the jobs that pay coins directly (no inputs) and are
+  // unlocked, best calibrated coins per second first. Every gold-as-time
+  // conversion uses the first one's rate (coinRate).
+  function goldJobs(p) {
+    return jobs.filter(j=>j.output.itemId===data.coinId&&!j.inputs.length&&level(p.skills[j.skill])>=j.levelReq)
+      .map(job=>{const e=strategy.estimateWork(p,job);return {job,rate:e.coins/e.seconds};})
+      .filter(row=>row.rate>0).sort((a,b)=>b.rate-a.rate);
+  }
   const api={level,levels,thresholds,maxLevel,xpTo,trainedSkills,balancedChooseGoal,plan:planAtBoundary,planItemTarget,itemTargetChoices,count,base,nearBank,carriedBatch,equipmentStats,farmPlots,farmFields,farmFieldCount,harvest,harvestOnly,professionUpgrade,equipmentStatus,gearTargets,plannedQualityGear,plannedGearReserve,farmStatus,
     hotFollowSkills:HOT_FOLLOW_SKILLS.slice(),hotSkillAt:tick=>hotSkillAt(data,tick),hotWindows:(tick,count=4)=>hotWindows(data,tick,count),
     setFarmingPreference,farmingPreference,
@@ -1651,8 +1659,9 @@ export function createPlanner(data) {
     acquireEstimate:(p,id,qty,style='magic')=>rarity(id)>0?api.crafting.estimate(
       {...p,bank:{...p.bank,[id]:0},pack:p.pack.filter(i=>i.itemId!==id)},id,qty,{buy:true}):
       strategy.routeEstimate(p,{itemId:id},qty,{style}),
-    coinRate:p=>Math.max(0,...jobs.filter(j=>j.output.itemId===data.coinId&&!j.inputs.length&&level(p.skills[j.skill])>=j.levelReq)
-      .map(j=>{const e=strategy.estimateWork(p,j);return e.coins/e.seconds;}))});
+    goldJobs,coinRate:p=>Math.max(0,goldJobs(p)[0]?.rate??0),
+    // What one unit would sell for, net of tax: the market's sale layers, else the merchant.
+    saleValue:(p,id,qty=1)=>api.marketUnitValue?.(p,id,qty)??merchantPrice(data,id)});
   const growth=createProgression(data,api);
   const specialization=createSpecialization(data,api);
   const quests=createQuests(data,api);

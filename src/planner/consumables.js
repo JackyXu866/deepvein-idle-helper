@@ -1,9 +1,10 @@
 import {professionSkill} from './professions.js';
-import {PAIR_TIERS, RARITY_NAMES, autoUsableMaterial, craftRecipe, setsAt, usableQualities} from './quality.js';
+import {PAIR_TIERS, RARITY_NAMES, autoUsableMaterial, cheapestEffect, rarityPower, tierPower, craftRecipe, setsAt, usableQualities} from './quality.js';
 import {expectedAttacks, workEstimate} from './estimates.js';
 import {POTIONS, brewPower, foodEffects, potionRefillQty} from './supplies.js';
 import {inventoryBudget} from './inventory.js';
 import {MAKE_BIAS} from './crafting.js';
+import {goldToSeconds, secondsToGold} from './gold.js';
 import {baseId, baseStride, itemName, distance, nearestBank, packCapacity, packUsed, rarityOf} from './items.js';
 import {routeKey} from './keys.js';
 
@@ -91,7 +92,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
   const usablePotion=id=>Math.min(potionQuantity(id),Math.max(0,planner.count(p,id)-potionReserve(id)));
   const potionSurplus=id=>potionVariants(id).reduce((sum,itemId)=>
     sum+usablePotion(itemId),0);
-  const ownedDose=(id,desired)=>potionVariants(id).map(itemId=>({itemId,power:data.rarityMultipliers[rarityOf(data,itemId)],
+  const ownedDose=(id,desired)=>potionVariants(id).map(itemId=>({itemId,power:rarityPower(data,itemId),
     qty:Math.min(desired,20,usablePotion(itemId))}))
     .filter(choice=>choice.qty>0).sort((a,b)=>a.itemId-b.itemId)[0]??null;
   const producing=id=>job?.output.itemId===id||data.jobs.some(j=>j.id===p.route?.jobId&&j.output.itemId===id)||
@@ -101,7 +102,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
   const coinRate=planner.coinRate?.(p)??0;
   // Coins one common bottle's hour of effect is worth: the share of time it
   // saves, at the gold rate (gold as time). Null when not measurable.
-  const worthOf=fraction=>fraction>0&&coinRate>0?fraction*3600*coinRate:null;
+  const worthOf=fraction=>fraction>0&&coinRate>0?secondsToGold(fraction*3600,coinRate):null;
   const restock=(id,desired,uncovered=[],worth=null)=>planner.nearBank(p)&&p.activity==='idle'&&!p.route&&!p.path?.length?
     planner.restockPotion?.(p,id,goal,desired,uncovered,worth):null;
   const recipeFor=itemId=>data.jobs.find(j=>j.skill==='herblore'&&!j.grow&&j.output.itemId===itemId);
@@ -118,7 +119,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
     let coins=0;const missing=[];
     for(const input of recipe.inputs) {
       const need=input.qty*qty,use=Math.min(need,held(input.itemId)),short=need-use;
-      if(use>0)coins+=use*(planner.marketUnitValue?.(p,input.itemId,use)??0);
+      if(use>0)coins+=use*planner.saleValue(p,input.itemId,use);
       if(short>0) {
         const ask=planner.marketAsk?.(p,input.itemId);
         coins+=ask>0?short*ask:Infinity;missing.push({itemId:input.itemId,qty:short,ask});
@@ -128,7 +129,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
     const tick=data.tickMs/1000,trip=(distance(p,site)+distance(site,nearestBank(data,site).approach))*tick;
     const training=goal?.skill==='herblore'&&goal.rate?.xp>0?qty*e.xp/goal.rate.xp:0;
     const seconds=qty*e.seconds/Math.max(.01,e.success)+trip-training;
-    return {buy:buy||Infinity,brew:(coins+seconds*coinRate)/qty,missing,training:training>0};
+    return {buy:buy||Infinity,brew:(coins+secondsToGold(seconds,coinRate))/qty,missing,training:training>0};
   }
   // Brew from held ingredients, only where switching task costs nothing: no
   // route, or the plan replaces it.
@@ -172,12 +173,12 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
       // but does 1.3x): buying any quality at its ask, or brewing any quality
       // the held matched sets make. What held sets make is weighed (and
       // brewed) first; the rest is decided after, against buying ingredients.
-      const recipe=recipeFor(itemId),power=t=>data.rarityMultipliers[t];
+      const recipe=recipeFor(itemId),power=t=>tierPower(data,t);
       const options=recipe?PAIR_TIERS.map(t=>({t,n:Math.min(needed,setsAt(craftRecipe(data,recipe,t),held))})).filter(o=>o.n>=1)
         .map(o=>({...o,cost:supplyCosts(itemId,o.n,o.t)})).sort((a,b)=>a.cost.brew/power(a.t)-b.cost.brew/power(b.t)):[];
       const pick=options[0]??{t:0,n:needed,cost:supplyCosts(itemId,needed,0)};
       const short=pick.n,cost=pick.cost,round=n=>Number.isFinite(n)?Math.round(n).toLocaleString('en-US'):'—';
-      const buyPerEffect=Math.min(...potionVariants(itemId).map(id=>(planner.marketAsk?.(p,id)||Infinity)/power(rarityOf(data,id))));
+      const buyPerEffect=cheapestEffect(data,planner,p,itemId);
       const why=`自制每瓶约 ${round(cost.brew)}（药效 ×${power(pick.t)}），市场每份药效最低约 ${round(buyPerEffect)}${cost.training?'；含炼药练级省下的时间':''}`;
       // With neither price known, brew what the held ingredients make, else buy.
       const brewing=cost.brew/power(pick.t)<=buyPerEffect*MAKE_BIAS||!Number.isFinite(cost.brew)&&!Number.isFinite(buyPerEffect);
@@ -264,7 +265,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
   const gap=Math.max(1,maxHp-Math.floor(maxHp*(p.eatAt??.5)));
   const healFor=power=>Math.max(1,Math.min(gap,Math.floor(rawHeal*(1+.025*(p.perks?.meals??0)+.25*power))));
   const healing=healFor(brewPower(data,p,'nourish'));
-  const foodValue=food?.value??0;
+  const foodValue=food?planner.saleValue(p,foodId):0;
   // A potion's worth is the share of time it saves (XP +10% = 1/11 of the
   // hour; combat: fight time with versus without it), at the gold rate.
   for(const potion of POTIONS) {
@@ -300,10 +301,10 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
     const itemId=item.id,effects=foodEffects(data,itemId);
     if(!effects.rootedTicks||active('rooted')||!accessible(itemId)||planner.count(p,itemId)<=Math.max(0,budget.items[itemId]??0))continue;
     const covered=Math.min(duration,effects.rootedTicks*tick);
-    const savedFood=covered*enemyDps/healing*damageReduction*foodValue;
-    if(savedFood>item.value)options.push({intent:{t:'eat',itemId,qty:1,...(!carried(itemId)?{shelf:true}:{})},
+    const savedFood=covered*enemyDps/healing*damageReduction*foodValue,cropValue=planner.saleValue(p,itemId);
+    if(savedFood>cropValue)options.push({intent:{t:'eat',itemId,qty:1,...(!carried(itemId)?{shelf:true}:{})},
       label:'用盈余作物补充减伤',reason:`承伤 -20%，覆盖本批约 ${Math.ceil(covered)} 秒；`+
-        `预计节省食物估值 ${Math.floor(savedFood)}，消耗作物估值 ${item.value} 金币，保留正常补给和计划原料`,gain:(savedFood-item.value)/Math.max(.001,coinRate)});
+        `预计节省食物估值 ${Math.floor(savedFood)}，消耗作物估值 ${Math.round(cropValue)} 金币，保留正常补给和计划原料`,gain:goldToSeconds(savedFood-cropValue,coinRate)});
   }
   options.sort((a,b)=>b.gain-a.gain||a.intent.itemId-b.intent.itemId);
   return options[0]??null;

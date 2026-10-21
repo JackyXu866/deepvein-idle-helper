@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {PAYBACK_MARGIN, expectedEnhancement, payback, secondsSaved} from '../src/planner/investment.js';
+import {expectedEnhancement} from '../src/planner/investment.js';
+import {PAYBACK_MARGIN, payback, secondsSaved} from '../src/planner/gold.js';
 import {planEnhancement} from '../src/planner/enhancement.js';
 import {makePlanner, player} from './helpers.js';
 

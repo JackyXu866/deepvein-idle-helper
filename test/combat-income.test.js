@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {combatDrops, combatEstimate} from '../src/planner/estimates.js';
 import {createSpecialization} from '../src/planner/specialization.js';
+import {merchantPrice} from '../src/planner/items.js';
 import {data, makePlanner, player} from './helpers.js';
 
 test('combat drops cover every drop rarity, the bonus item and shards', () => {
@@ -32,7 +33,10 @@ test('business income counts sellable monster drops at bid, skips unquoted ones'
     estimate: {coins: 5000, seconds: 1000, xp: 1}, rate: {xp: .001, coins: 5}};
   const [choice] = spec.incomeChoices(p, [candidate], 'melee');
   const commonDrops = Math.floor(candidate.drops[m.drop] * kills);
-  assert.equal(choice.marketProceeds, commonDrops * 100);
-  assert.equal(choice.rate.coins, (5000 + commonDrops * 100) / 1000);
+  // Quality drops are kept, valued at their sale value: here the merchant's.
+  const kept = Object.entries(candidate.drops).filter(([id]) => +id !== planner.base(+id))
+    .reduce((n, [id, perKill]) => n + merchantPrice(d, +id) * perKill * kills, 0);
+  assert.equal(choice.marketProceeds, commonDrops * 100 + kept);
+  assert.equal(choice.rate.coins, (5000 + commonDrops * 100 + kept) / 1000);
   assert.ok(asked.includes(m.drop));
 });

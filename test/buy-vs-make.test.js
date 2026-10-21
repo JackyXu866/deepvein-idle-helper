@@ -14,7 +14,7 @@ test('cheap market logs beat unlocking Woodcutting for a rod quest', () => {
   planner.coinRate = () => coinRate;
   planner.marketAllowance = () => 1e6;
   // Market sells the logs for 300 each; nothing else is quoted.
-  planner.marketUnitCost = (p, id) => id === logs ? 300 / coinRate : Infinity;
+  planner.marketBuyPrice = (p, id) => id === logs ? 300 : Infinity;
   const p = player(planner, {levels: {fletching: 60, smithing: 60, woodcutting: 1, mining: 60}, coins: 100000,
     bank: {[bar]: 20}});
   const withMarket = planner.routeEstimate(p, rod, 15, {style: 'melee', buyInputs: true});

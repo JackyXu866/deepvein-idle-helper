@@ -1,10 +1,10 @@
 import {professionSkill} from '../planner/professions.js';
 import {finishTaskReason} from '../planner/crafting.js';
-import {workEstimate} from '../planner/estimates.js';
+import {secondsToGold} from '../planner/gold.js';
 import {action} from '../planner/result.js';
 import {enhanceQuote, inventoryBudget, reviewInventory} from '../planner/inventory.js';
 import {planEnhancement} from '../planner/enhancement.js';
-import {distance, merchantPrice, nearestBank, packCapacity, packQty, packUsed} from '../planner/items.js';
+import {distance, nearestBank, packCapacity, packQty, packUsed} from '../planner/items.js';
 
 // Items made by crafting skills (cooking, smithing, fletching, crafting).
 // Potions are protected separately and never sold.
@@ -16,7 +16,6 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
   planner.pendingEquipmentPlan=(p,style)=>p.id===lastPlayer&&style===lastStyle?investmentGoal:null;
   const budget=(p,goal)=>inventoryBudget(data,planner,p,goal);
   const review=(p,goal,style='magic')=>reviewInventory(data,planner,p,goal,style);
-    const value=id=>merchantPrice(data,id);
   const bankFor=p=>nearestBank(data,p);
   const atBank=(p,intent,label,reason,extra={})=>planner.nearBank(p)?action(intent,label,reason,extra):
     action({t:'walk',...bankFor(p).approach},'整理库存 · 前往仓库',reason||label,extra);
@@ -134,7 +133,7 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
     // Small depot sales wait until a batch ends; clearing a productive route
     // would restart its supply plan even when the counter is next to the job.
     const detour=2*distance(p,bankFor(p))*data.tickMs/1000;
-    const detourWorth=profit>=Math.max(200,detour*Math.max(1,goal?.rate?.coins??1));
+    const detourWorth=profit>=Math.max(200,secondsToGold(detour,Math.max(1,planner.coinRate(p))));
     const idleAtBank=planner.nearBank(p)&&!p.route&&!p.path?.length;
     if(rows.length&&(idleAtBank||urgent||detourWorth)) {
       const bankRows=rows.filter(i=>i.sellFromBank>0).sort((a,b)=>
@@ -172,10 +171,8 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
         '仓库剩余物品均受保护或正在等待成交；保留当前物品目标，整理后继续',{capacityLimited:true});
       // All remaining stock is protected. Continue a coin-only task without
       // creating new item kinds, rather than buying shelves or deleting valuables.
-      const lv=planner.levels(p),choices=data.jobs.filter(j=>j.skill==='thieving'&&j.output.itemId===data.coinId&&
-        !j.inputs.length&&j.levelReq<=lv.thieving&&(!j.bonus||(p.bank[j.bonus.itemId]??0)>0));
-      choices.sort((a,b)=>b.output.qty/workEstimate(data,b,lv.thieving).seconds-
-        a.output.qty/workEstimate(data,a,lv.thieving).seconds);
+      // A bonus drop would add a new kind unless one is already shelved.
+      const choices=planner.goldJobs(p).map(row=>row.job).filter(j=>!j.bonus||(p.bank[j.bonus.itemId]??0)>0);
       const fixed=mode==='business'&&(mainJobId!=null||mainMonsterId!=null||goal?.fixedRecipeId!=null||goal?.fixedMonsterId!=null);
       const job=fixed?choices.find(j=>j.id===(mainJobId??goal?.fixedRecipeId)):choices[0];
       const site=job&&data.sites.find(s=>s.jobIds.includes(job.id));
