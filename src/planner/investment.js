@@ -12,7 +12,7 @@ export const PAYBACK_MARGIN=1.2;
 // A funding stretch on the best gold job lasts at most this long.
 export const FUNDING_CAP_SECONDS=3600;
 // An item is valued for at most a week of use (until outgrown, if sooner).
-export const USE_CAP_SECONDS=7*86400;
+export const USE_CAP_SECONDS=30*86400;
 const FUNDING_RETRY_SECONDS=6*3600,CACHE_SECONDS=60;
 
 // Seconds saved over `useSeconds` of play when progress per second rises

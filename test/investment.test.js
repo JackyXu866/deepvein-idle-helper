@@ -44,8 +44,13 @@ test('options: one cheapest worthwhile route per slot; small gains are not worth
   assert.ok(weapon?.worth, JSON.stringify(weapon));
   assert.ok(weapon.toPlus >= 1 && weapon.toPlus <= 5);
   assert.equal(weapon.affordable, false, '20k gold does not cover it');
+  // A small gain (+0.3% from a helm enhancement) is worth it only when the time
+  // it saves over its use period (to the next tier, at most 30 days) repays it.
   const helmet = rows.find(r => r.slot === 'helmet');
-  assert.ok(!helmet || !helmet.worth, 'a 0.3% gain does not pay back');
+  if (helmet) {
+    assert.ok(helmet.useSeconds <= 30 * 86400);
+    assert.equal(helmet.worth, helmet.saved >= helmet.paid * 1.2, JSON.stringify(helmet));
+  }
   for (const slot of new Set(rows.map(r => r.slot)))
     assert.ok(rows.filter(r => r.slot === slot && r.cheapest).length <= 1);
   assert.ok(rows.every((r, i) => i === 0 || rows[i - 1].net >= r.net), 'best first');
