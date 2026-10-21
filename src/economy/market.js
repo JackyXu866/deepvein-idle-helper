@@ -950,11 +950,24 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     }
     state.attempt=null;persist();
   }
+  // An attempt the game never carried out (refused before it was sent, or its
+  // item used elsewhere, e.g. converted into house points) shows no new order,
+  // no fill and, for a buy, no goods. Kept forever it blocked every trade: a
+  // four-day-old sale held off all purchases. After ten minutes with a fresh
+  // order list it is released.
+  function staleAttempt(p) {
+    const attempt=state.attempt;
+    if(!attempt||!ordersKnown||!(revision>attempt.revision)||now()-attempt.at<600000||(attempt.filled??0)>0)return false;
+    if(attempt.intent.t==='marketCancel')return orders.some(o=>o.id===attempt.intent.orderId);
+    if(orders.some(o=>!attempt.baselineIds.includes(o.id)&&matching(o,attempt.intent)))return false;
+    return !(attempt.intent.t==='marketBuy'&&quantity(p,attempt.intent.itemId)>(attempt.before?.quantity??0));
+  }
   function next(p,goal=null,profession='magic') {
     select(p);
     if(p.ironman){status=ironmanReason;return null;}
     if(state.attempt) {
       if(confirmed(null,p,state.attempt.intent))settled(p,state.attempt.intent);
+      else if(staleAttempt(p)){state.attempt=null;persist();status='上次交易没有执行（无新挂单、无成交），已解除等待，恢复比价';}
       else {status='交易结果待确认，暂不重发；继续自给';return null;}
     }
     if(!ordersKnown)return null;
