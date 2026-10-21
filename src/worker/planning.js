@@ -24,10 +24,18 @@ export const planningState=trainer=>Object.fromEntries(inputFields.map(key=>[key
 // Boss) while a calculation runs, and that must not discard the result.
 // The Boss countdown ticks every second; decisions only ask whether a Boss
 // rises within five minutes (trainer bossSoon), so only that is compared.
+// Market: what a decision must not race against: orders, the stored buy and
+// sell state (pending attempt, owned listings, purchases), cooldowns and
+// settings. Price refreshes, quote requests, scan timers and status text are
+// left out: they change every few seconds, partly by planning itself, and a
+// purchase re-checks the live book before it is sent.
+const MARKET_GUARD=['playerId','orders','ordersKnown','saved','cooldowns','procurement','salesEnabled','capacitySalesEnabled',
+  'pricing','buyback','taxBp','recentOwned','reviewOrderId'];
+export const marketGuard=runtime=>Object.fromEntries(MARKET_GUARD.map(key=>[key,runtime[key]]));
 export function planningGuard(trainer,planner,market,settings) {
   const boss=trainer.boss.status();
   return JSON.stringify([{...planningState(trainer),message:undefined},trainer.pending,trainer.recovery,trainer.awaitInitial,
-    {...boss,nextIn:undefined,soon:(boss.nextIn??Infinity)<=300},planner.farmingPreference(),planner.housingRuntime?.(),planner.masteryRuntime?.(),market.runtime(),settings],(key,value)=>
+    {...boss,nextIn:undefined,soon:(boss.nextIn??Infinity)<=300},planner.farmingPreference(),planner.housingRuntime?.(),planner.masteryRuntime?.(),marketGuard(market.runtime()),settings],(key,value)=>
     // A heartbeat alone does not invalidate an otherwise identical decision.
     key==='lastTick'||key==='snapshotTick'||key==='snapshotSequence'||key==='syncAfter'||key==='nextSync'||key==='lastSync'?undefined:
       value instanceof Map?[...value]:value);
@@ -97,13 +105,29 @@ export function runPlanning(data,input,inspectOnly=false) {
     engine:{...engineStatus(),simulated:Object.keys(simulated).length}};
 }
 
+// The Worker's market state, with what reached the page while it computed:
+// the newer quote, top of book and price feed win, the page's sent queries
+// stay, and a query the page has already answered is not asked again.
+export function mergeMarketRuntime(page,worker) {
+  if(!page||!worker||page.playerId!==worker.playerId)return worker;
+  const newest=(a,b)=>(b?.at??-Infinity)>(a?.at??-Infinity)?b:a;
+  const byNewest=(mine,theirs)=>{const out=new Map(theirs);for(const [id,v]of mine??[])out.set(id,newest(out.get(id),v));return out;};
+  const quotes=byNewest(page.quotes,worker.quotes),tops=byNewest(page.tops,worker.tops);
+  const answered=(id,since)=>(quotes.get(id)?.at??-Infinity)>=since||(tops.get(id)?.at??-Infinity)>=since;
+  const requests=new Map([...worker.requests??[]].filter(([id,r])=>!answered(id,r.at)));
+  for(const [id,r]of page.requests??[])requests.set(id,r);
+  const bookRequests=new Map(worker.bookRequests);
+  for(const [id,r]of page.bookRequests??[])bookRequests.set(id,r);
+  return {...worker,quotes,tops,requests,bookRequests,feed:newest(worker.feed,page.feed),
+    lastQuery:Math.max(page.lastQuery??-Infinity,worker.lastQuery??-Infinity),lastSync:Math.max(page.lastSync??-Infinity,worker.lastSync??-Infinity)};
+}
 export function applyPlanning(trainer,planner,economy,market,result,storage) {
   if(!result.active)trainer.pause(result.decision.message);
   for(const [key,value]of Object.entries(result.writes)) {
     if(!PLANNING_STORAGE_KEYS.includes(key))throw new Error('未知规划存储项');
     storage.setItem(key,value);
   }
-  planner.runtime(result.planner);economy.runtime(result.economy);market.runtime(result.market);
+  planner.runtime(result.planner);economy.runtime(result.economy);market.runtime(mergeMarketRuntime(market.runtime(),result.market));
   for(const key of decisionFields)trainer[key]=result.decision[key];
   // An error pause in the Worker: the page starts the gathering backup.
   if(!result.active&&trainer.pausedError&&!trainer.pausedError.backup)trainer.startBackup();
