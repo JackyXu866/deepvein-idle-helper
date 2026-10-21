@@ -195,12 +195,12 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       bookRequests.delete(id);cooldowns.set(id,now()+coolMs);
     }
     const itemIds=[...bookRequests].filter(([,r])=>r.sentAt==null).slice(0,64).map(([id])=>id);
-    if(itemIds.length&&slots(p)) {
+    if(itemIds.length&&slots(p,'buy')) {
       for(const id of itemIds)bookRequests.get(id).sentAt=now();
       lastQuery=now();return {t:'marketBooks',itemIds};
     }
     if([...requests.values()].some(request=>request.sentAt!=null&&now()-request.sentAt<waitMs))return null;
-    if(!slots(p))return null;
+    if(!slots(p,'buy'))return null;
     const priorityQuote=quotes.get(priorityItem);
     if(priorityItem!==null&&!hasOrder(priorityItem)&&(cooldowns.get(priorityItem)??0)<=now()&&
       (!priorityQuote||now()-priorityQuote.at>=8000)) {
@@ -366,7 +366,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
   }
   function scan(p,ids) {
     select(p);
-    if(!purchaseAllowance(p)||state.attempt||!slots(p))return [];
+    if(!purchaseAllowance(p)||state.attempt||!slots(p,'buy'))return [];
     const found=[];
     for(const id of new Set(ids.filter(purchasable))) {
       if(hasOrder(id)||(cooldowns.get(id)??0)>now())continue;
@@ -382,7 +382,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
   function marketUnitCost(p,id,qty=1) {
     select(p);const live=tops.get(id),rate=planner.coinRate?.(p);
     const top=live&&now()-live.at<60000?live:feedRow(id);
-    if(p.ironman||!purchasable(id)||!procurement?.enabled||state.attempt||hasOrder(id)||!slots(p)||
+    if(p.ironman||!purchasable(id)||!procurement?.enabled||state.attempt||hasOrder(id)||!slots(p,'buy')||
       (cooldowns.get(id)??0)>now()||!top||!(rate>0)||!(top.ask>0)||top.askQty<qty||
       top.ask*qty>purchaseAllowance(p))return Infinity;
     return top.ask/rate;
@@ -403,7 +403,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       ...book.bids.map(r=>r.price),...recent.map(r=>r.price));
   }
   function buy(p,id,qty,goal,label,reason,maxPrice=Infinity) {
-    if(p.ironman||p.enhance||p.held||p.raidHeld||p.queue?.length||!purchasable(id)||!valid(qty)||state.attempt||!slots(p)||hasOrder(id))return null;
+    if(p.ironman||p.enhance||p.held||p.raidHeld||p.queue?.length||!purchasable(id)||!valid(qty)||state.attempt||!slots(p,'buy')||hasOrder(id))return null;
     const capacity=inventoryBudget(data,planner,p,goal);
     if(capacity.freeSlots<=0&&!(p.bank[id]>0))return null;
     const book=quote(id);
@@ -423,7 +423,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     need={itemId:id,qty,at:now()};
     const listed=orders.find(o=>o.itemId===id&&o.side==='sell'&&state.owned[o.id]);
     if(listed){reviewOrderId=null;return atBank(p,{t:'marketCancel',orderId:listed.id},'撤回自有挂单 · 当前计划需要',true);}
-    if(!slots(p)||hasOrder(id)||(cooldowns.get(id)??0)>now())return null;
+    if(!slots(p,'buy')||hasOrder(id)||(cooldowns.get(id)??0)>now())return null;
     const book=quote(id);
     if(book.waiting)return wait('比较买成品、买原料与自给的实际耗时');
     if(book.fallback)return null;
@@ -600,8 +600,13 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     }
     return null;
   }
-  function slots(p) {
-    return ordersKnown&&orders.length<(p.marketOrderSlots??10)&&Object.keys(state.owned).length<3;
+  // Order slots: the game's own limit, plus at most three of the helper's own
+  // sell listings at once (they sit in slots for hours). A purchase at the
+  // lowest ask fills at once, so the helper's listings never block buying:
+  // three listings used to stop every purchase, an epic pan included.
+  function slots(p,side='sell') {
+    if(!ordersKnown||orders.length>=(p.marketOrderSlots??10))return false;
+    return side==='buy'||Object.keys(state.owned).length<3;
   }
   const hasOrder=id=>orders.some(o=>o.itemId===id);
   function saleDemand(p,book,price,floor) {
@@ -786,7 +791,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     need={itemId,qty,at:now()};
     const listed=orders.find(o=>o.itemId===itemId&&o.side==='sell'&&state.owned[o.id]);
     if(listed){reviewOrderId=null;return atBank(p,{t:'marketCancel',orderId:listed.id},'撤回自有挂单 · 当前制作需要',true);}
-    if(!slots(p)||hasOrder(itemId)||(cooldowns.get(itemId)??0)>now())return null;
+    if(!slots(p,'buy')||hasOrder(itemId)||(cooldowns.get(itemId)??0)>now())return null;
     const book=quote(itemId);
     if(book.waiting)return wait('查询当前缺口的卖盘，比较采购筹币时间与自制经验');
     if(book.fallback)return null;
@@ -830,7 +835,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
     if(procurement)return procurement.enabled?balancedPotion(p,itemId,goal,desiredQty,uncovered,worth):null;
     if(p.ironman||goal?.itemTarget&&goal.targetItemId===itemId||!valid(desiredQty)||!POTIONS.some(potion=>potion.itemId===itemId)||!tradable(itemId)||state.attempt||
       !planner.nearBank(p)||p.route||p.path?.length||p.enhance||p.held||p.raidHeld||p.queue?.length||
-      !slots(p)||hasOrder(itemId)||
+      !slots(p,'buy')||hasOrder(itemId)||
       (cooldowns.get(itemId)??0)>now())return null;
     const reserve=goal?.budget?.items?.[itemId]??0,coins=goal?.budget?.coins??0;
     const missing=Math.min(20,desiredQty)-Math.max(0,quantity(p,itemId)-reserve);
@@ -881,7 +886,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,autoSell=fa
       const capacity=inventoryBudget(data,planner,before);
       if(!procurement?.enabled||intent.t!=='marketBuy'||!purchasable(intent.itemId)||!valid(intent.qty)||!valid(intent.price)||
         !planner.nearBank(before)||before.route||before.path?.length||before.enhance||before.held||before.raidHeld||before.queue?.length||
-        capacity.freeSlots<=0&&!(before.bank[intent.itemId]>0)||!slots(before)||hasOrder(intent.itemId)||
+        capacity.freeSlots<=0&&!(before.bank[intent.itemId]>0)||!slots(before,'buy')||hasOrder(intent.itemId)||
         !book||now()-book.at>=ttl||!ask||intent.qty*intent.price>purchaseAllowance(before,{budget:{coins:plan.purchaseReserve??0}}))return false;
     } else if(plan?.consumablePurchase) {
       const restock=plan.potionRestock;

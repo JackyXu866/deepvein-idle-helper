@@ -90,3 +90,27 @@ test('the epic pan is bought at a task boundary even while the same cooking work
   const text = JSON.stringify([plan?.intent, plan?.label, plan?.reason]);
   assert.ok(plan?.intent?.t === 'marketBuy' && plan.intent.itemId === 363 + 3 * R || /实时卖盘/.test(plan?.reason ?? ''), text);
 });
+
+test('the helper\'s own three sell listings do not block a purchase', () => {
+  const planner = makePlanner(), d = planner.data, R = d.rarityScale, clock = 1_000_000_000;
+  planner.coinRate = () => 67000 / 3600;
+  planner.acquireEstimate = () => ({seconds: Infinity});
+  const store = new Map(), storage = {getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, v)};
+  const p = player(planner, {lastTick: 100000, coins: 5_000_000, levels: {cooking: 64}, x: d.banks[0].x, y: d.banks[0].y, path: null,
+    equipment: {pan: 363 + 2 * R}});
+  const listings = [[1, 2128, 16, 14800], [2, 52372, 1, 15200], [3, 1185, 2, 1200]].map(([id, itemId, qty, price]) =>
+    ({id, itemId, side: 'sell', price, qtyTotal: qty, qtyRemaining: qty}));
+  store.set('deepvein-market-v1', JSON.stringify({players: {[p.id]: {owned: Object.fromEntries(listings.map(o => [o.id, {...o, at: clock}])),
+    attempt: null, income: 0, spent: 0, fillKeys: []}}}));
+  const market = createMarket(d, planner, {now: () => clock, storage});
+  market.configureProcurement({enabled: true});
+  market.receive({tick: 100000, m: [{t: 'welcome', you: p, orders: listings}]});
+  const epic = 363 + 3 * R, items = {};
+  for (let r = 0; r <= 4; r++) for (let plus = 0; plus <= 5; plus++) items[363 + r * R + plus * d.plusScale] = {sellQty: 0};
+  items[epic] = {lowestSell: 64000, sellQty: 33};
+  market.setPriceFeed({generatedAt: new Date(clock).toISOString(), items}, clock);
+  const evaluate = id => ({before: 2, after: id === epic ? 2.3 : 2, seconds: 0, horizon: 86400});
+  const result = market.equipmentPurchase(p, {skill: 'cooking', horizon: 1800, budget: {coins: 0, items: {}}}, 'melee',
+    {ids: [363], score: () => 1, evaluate, currentId: p.equipment.pan});
+  assert.ok(result?.intent?.t === 'marketBuy' || /实时卖盘/.test(result?.reason ?? ''), JSON.stringify(result));
+});
