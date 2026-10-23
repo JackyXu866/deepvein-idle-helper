@@ -1,7 +1,7 @@
 import {PAIR_TIERS, RARITY_NAMES, cheapestEffect, rarityPower, tierPower, craftRecipe, setsAt, usableQualities} from './quality.js';
 import {combatEstimate} from './estimates.js';
 import {combatStats, formulaWork, perAction} from './rates.js';
-import {POTIONS, brewPower, foodEffects, foodHealing, potionRefillQty} from './supplies.js';
+import {POTIONS, brewPower, foodEffects, healAt, potionRefillQty} from './supplies.js';
 import {inventoryBudget} from './inventory.js';
 import {MAKE_BIAS} from './crafting.js';
 import {goldToSeconds, secondsToGold} from './gold.js';
@@ -240,8 +240,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
     .reduce((sum,damage)=>sum+damage,0)/monster.maxHit:0;
   const damageReduction=meanHit?1-rootedHit/meanHit:0;
   const enemyDps=monster?combatEstimate(data,monster,stats).enemyHit*(active('rooted')?rootedHit:meanHit)/(monster.speed*tick):0;
-  const bite=foodHealing(data,planner,p,foodId,p.eatAt??.5);
-  const healFor=power=>Math.max(1,bite.at(power));
+  const healFor=power=>Math.max(1,healAt(data,planner,p,foodId,p.eatAt??.5,power));
   const healing=healFor(brewPower(data,p,'nourish'));
   const foodValue=food?planner.saleValue(p,foodId):0;
   // A potion's worth is the share of time it saves (XP +10% = 1/11 of the

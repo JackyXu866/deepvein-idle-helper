@@ -72,18 +72,23 @@ const FOOD_HEALING=[1,1.2,1.5,2,3];
 export const foodEligible=(data,p,id)=>autoUsableMaterial(data,id)&&data.items[baseId(data,id)]?.heals>0&&
   rarityOf(data,id)<=(p.foodMaxTier??1);
 
-export function foodHealing(data,planner,p,itemId,eatAt=.5) {
-  const base=baseId(data,itemId),rarity=rarityOf(data,itemId);
-  const item=data.items[base];
-  if(!item?.heals)return {heal:0,currentHeal:0,at:()=>0,maxHp:0,rarity};
-  const raw=Math.max(1,Math.round(item.heals*(data.foodHealingMultipliers??FOOD_HEALING)[rarity]));
+// One bite at a nourish strength (+25% per power), capped by the gap between
+// full health and the eat-at threshold. 0 for something that does not heal.
+export function healAt(data,planner,p,itemId,eatAt=.5,nourish=0) {
+  const item=data.items[baseId(data,itemId)];
+  if(!item?.heals)return 0;
+  const raw=Math.max(1,Math.round(item.heals*(data.foodHealingMultipliers??FOOD_HEALING)[rarityOf(data,itemId)]));
   const maxHp=Math.floor(planner.level(p.skills.hitpoints)*(1+.005*(p.masteries?.hp??0)));
   const gap=Math.max(1,maxHp-Math.floor(maxHp*eatAt));
-  const meals=.025*(p.perks?.meals??0);
-  // One bite at a nourish strength (+25% per power), capped by the gap eaten into.
-  const at=nourish=>Math.min(gap,Math.floor(raw*(1+meals+.25*nourish)));
+  return Math.min(gap,Math.floor(raw*(1+.025*(p.perks?.meals??0)+.25*nourish)));
+}
+// Plain numbers only: this lands in plans sent between the Worker and the page.
+export function foodHealing(data,planner,p,itemId,eatAt=.5) {
+  const rarity=rarityOf(data,itemId);
+  if(!data.items[baseId(data,itemId)]?.heals)return {heal:0,currentHeal:0,maxHp:0,rarity};
+  const maxHp=Math.floor(planner.level(p.skills.hitpoints)*(1+.005*(p.masteries?.hp??0)));
   // Do not assume a timed healing buff survives the entire expedition.
-  return {heal:at(0),currentHeal:at(brewPower(data,p,'nourish')),at,maxHp,rarity};
+  return {heal:healAt(data,planner,p,itemId,eatAt,0),currentHeal:healAt(data,planner,p,itemId,eatAt,brewPower(data,p,'nourish')),maxHp,rarity};
 }
 
 export function combatSupplies(data,planner,p,estimate,options={}) {
