@@ -699,8 +699,33 @@ export function createPlanner(data) {
       // Crafts the stage needs at common XP. Every higher quality gives more,
       // so owned crafts of all qualities together reaching this number makes
       // the stage certain: one total, no separate common target.
-      const stageCrafts=job=>Math.max(1,Math.ceil(Math.max(1,
-        xpTo(p,skill,goal.target??lv[skill]+1))/jobEstimate(job).xp));
+      // Same-skill steps on the way count too: smelting the four bars of a
+      // pair of greaves is smithing XP as well (480 + 4 × 108). Only what
+      // still has to be made earns it; held stock does not.
+      const chainXp=(job,n)=>{
+        const stock={};
+        const walk=(j,runs,trail)=>{
+          let xp=runs*jobEstimate(j).xp;
+          for(const i of j.inputs) {
+            const need=i.qty*runs,have=stock[i.itemId]??=count(p,i.itemId),used=Math.min(need,have);
+            stock[i.itemId]=have-used;
+            const missing=need-used;
+            if(missing<=0||trail.includes(i.itemId))continue;
+            const maker=made(i.itemId).find(m=>m.skill===skill&&m.inputs.length&&!m.grow&&unlocked(m));
+            if(maker)xp+=walk(maker,missing/Math.max(1e-9,jobEstimate(maker).commonOutput),[...trail,i.itemId]);
+          }
+          return xp;
+        };
+        return walk(job,n,[job.output.itemId]);
+      };
+      const stageCraftCache=new Map();
+      const stageCrafts=job=>{
+        if(stageCraftCache.has(job))return stageCraftCache.get(job);
+        const needed=Math.max(1,xpTo(p,skill,goal.target??lv[skill]+1));
+        let low=1,high=Math.max(1,Math.ceil(needed/jobEstimate(job).xp));
+        while(low<high){const mid=Math.floor((low+high)/2);if(chainXp(job,mid)>=needed)high=mid;else low=mid+1;}
+        stageCraftCache.set(job,low);return low;
+      };
       // Commons to hold so that the total reaches the stage (quality crafts
       // already owned, including drops found while gathering, count).
       const stageBatch=job=>Math.max(1,stageCrafts(job)-ownedCrafts(job)+craftsAt(job,0));
