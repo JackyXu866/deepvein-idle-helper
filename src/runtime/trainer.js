@@ -217,6 +217,15 @@ export class Trainer {
     if(this.player)this.planner.watchMarket?.(this.player,[]);
     this.pause(`已选择${MODE_LABELS[mode]}，点击开始应用；先完成当前背包或批次`);
   }
+  // The next goal: a fresh choice, but a stage parked for a daily (or while
+  // waiting) comes back with its preparation when its skill is chosen again.
+  nextGoal(p,proposed=null) {
+    let goal=proposed??this.chooseGoal(p);
+    const waiting=this.waitingGoals[goal?.skill];
+    if(!goal?.quest&&!equipmentProject(goal)&&waiting?.craftPreparation)goal=waiting;
+    if(goal)delete this.waitingGoals[goal.skill];
+    return goal;
+  }
   chooseGoal(p) {
     if(this.planner.selectGoal)return this.planner.selectGoal(p,this.served,this.deferred,this.style,this.mode,this.mainTrade,this.mainJobId,this.mainMonsterId);
     return (this.planner.growthChooseGoal??this.planner.chooseGoal)(p,this.served,this.deferred,this.style);
@@ -1017,7 +1026,7 @@ export class Trainer {
       this.served.enhancing=++this.sequence;this.goal=null;this.plan=null;
     }
     // Reserve a fixed project's waiting batch before reviewing inventory sales.
-    if(!this.goal&&this.mode==='balanced'&&this.planner.observeDevelopment)this.goal=this.chooseGoal(p);
+    if(!this.goal&&this.mode==='balanced'&&this.planner.observeDevelopment)this.goal=this.nextGoal(p);
     const projectGoal=this.goal??(this.mode==='business'?
       this.waitingGoals[this.mainTrade==='combat'?professionSkill(this.style):this.mainTrade]??this.chooseGoal(p):null);
     const maintenanceGoal=reserveWaitingGoals(projectGoal,this.waitingGoals);
@@ -1087,16 +1096,24 @@ export class Trainer {
     }
     for(let attempt=0;attempt<this.data.skills.length;attempt++) {
       let proposedGoal=null;
-      const questsOpen=!this.goal?.hot&&this.goal?.quest?.period!=='daily'&&!this.goal?.craftPreparation&&!equipmentProject(this.goal)&&
+      const questsOpen=!this.goal?.hot&&this.goal?.quest?.period!=='daily'&&
         (this.bankedLoad||!this.planner.taskBoundary||this.planner.taskBoundary(p))&&
         this.planner.questRead?.(p).some(q=>!q.claimed&&q.remaining>0);
       if(questsOpen&&!hotActive) {
         // Dailies, then weeklies, are mandatory in every growth mode, including
         // a fixed trade. One quest goal is finished before the next weekly.
         proposedGoal=this.goal??this.chooseGoal(p);
-        const quest=!equipmentProject(proposedGoal)&&!proposedGoal?.craftPreparation&&
-          this.planner.questChooseGoal(p,proposedGoal,this.style,this.questDeferred);
-        if(quest&&(quest.quest.period==='daily'||!this.goal?.quest)){this.goal=quest;this.goalSince=now;}
+        // A daily resets every day, so it also interrupts a stage preparation
+        // or a gear project, which can run for days (it used to wait them out
+        // and miss every daily). That project is parked: its materials stay
+        // reserved and it resumes with its preparation afterwards. Weeklies
+        // still wait for it.
+        const project=!!proposedGoal?.craftPreparation||!!equipmentProject(proposedGoal);
+        const quest=this.planner.questChooseGoal(p,proposedGoal,this.style,this.questDeferred);
+        if(quest&&(quest.quest.period==='daily'||!project&&!this.goal?.quest)) {
+          if(project&&proposedGoal.skill&&!proposedGoal.quest)this.waitingGoals[proposedGoal.skill]=proposedGoal;
+          this.goal=quest;this.goalSince=now;
+        }
       } else if(questsOpen) {
         // A hot-skill window only delays a daily until it risks missing the reset.
         const quest=this.planner.questChooseGoal(p,this.goal,this.style,this.questDeferred);
@@ -1107,10 +1124,7 @@ export class Trainer {
       // Select the foreground project before optional farm investment can take
       // the first turn. Otherwise a low skill may never get a material budget.
       if (!this.goal) {
-        this.goal=proposedGoal??this.chooseGoal(p); this.goalSince=now;
-        const waiting=this.waitingGoals[this.goal?.skill];
-        if(!this.goal?.quest&&!equipmentProject(this.goal)&&waiting?.craftPreparation)this.goal=waiting;
-        if(this.goal)delete this.waitingGoals[this.goal.skill];
+        this.goal=this.nextGoal(p,proposedGoal); this.goalSince=now;
       }
       // A growing herb crop still belongs to its deferred potion project while
       // another skill is running. Preserve that demand until the project resumes.
