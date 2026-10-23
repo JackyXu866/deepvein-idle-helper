@@ -1044,8 +1044,10 @@ export function createPlanner(data) {
       // projects, crafting a piece or a standing upgrade goal, but still buys a
       // worthwhile piece on the market: it costs one bank visit, and filler can
       // fill days, so a much better tool repays itself there too. A bought
-      // piece is put on at the next boundary (ownedSwap).
-      if(goal.developmentFiller||goal.temporary&&!goal.upgrade?.priority) {
+      // piece is put on at the next boundary (ownedSwap). A quest too: it is
+      // short and mandatory, and a stage-gear project waiting on missing epic
+      // materials used to set every daily aside.
+      if(goal.quest||goal.developmentFiller||goal.temporary&&!goal.upgrade?.priority) {
         for(const slot of gearSlots(skill)) {
           const market=shop(slot,true);
           if(market?.intent||market?.marketWaiting)return market;
