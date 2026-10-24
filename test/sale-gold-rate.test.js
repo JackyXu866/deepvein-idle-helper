@@ -1,22 +1,35 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {planView} from '../src/planner/plan-view.js';
 import {makePlanner, player} from './helpers.js';
 
-// The gold rate counts jobs that earn by selling what they make: smelting
-// Cobalt bars that buyers take at 726 earns far more per second than thieving.
-test('the gold rate counts a processed product that sells', () => {
+// One income table: the plan tab's gold/hour column and the gold rate the
+// helper converts gold with are the same rows (planner.incomeRows).
+function setup(values = {}) {
   const planner = makePlanner(), d = planner.data;
-  const p = player(planner, {levels: {smithing: 79, mining: 88, thieving: 66}});
-  const direct = planner.goldJobs(p)[0].rate;
-  planner.marketUnitValue = (_p, id) => id === 43 ? 726 : null;
-  assert.ok(planner.coinRate(p) > direct * 2, `${planner.coinRate(p)} vs ${direct}`);
-  assert.equal(d.jobs.find(j => j.id === planner.saleJobs(p)[0].jobId).name, 'Cobalt bar');
+  planner.marketUnitValue = (_p, id) => values[id] ?? null;
+  const p = player(planner, {levels: {smithing: 79, mining: 88, thieving: 66}, x: d.banks[0].x, y: d.banks[0].y});
+  return {planner, d, p};
+}
+
+test('the gold rate is the best lasting row of the income table', () => {
+  const {planner, p} = setup();
+  const rows = planner.incomeRows(p, 'melee'), best = rows.find(r => r.goldRate);
+  assert.ok(best, 'a gold-rate row');
+  assert.equal(planner.coinRate(p), best.coins);
+  assert.ok(rows.every(r => r.goldRate || r.oneOff || r.coins <= best.coins), 'nothing lasting earns more');
 });
 
-test('common ore sold counts, with its bank trips; quality output does not', () => {
-  const planner = makePlanner(), d = planner.data;
-  const p = player(planner, {levels: {mining: 88, thieving: 66}});
-  planner.marketUnitValue = (_p, id) => id === 2 ? 66 : id === 1002 || id === 2002 ? 1e6 : null;
-  const tin = planner.saleJobs(p).find(r => d.jobs.find(j => j.id === r.jobId).output.itemId === 2);
-  assert.ok(tin && tin.rate > 0 && tin.rate < 1000, `tin at ${tin?.rate} gold/s, quality ore not counted`);
+test('what the gold column shows is what the gold rate uses', () => {
+  const {planner, p} = setup({2: 66, 2002: 4850});
+  planner.styleHint = 'melee';
+  const view = planView(planner.data, planner, {goal: null, style: 'melee', mode: 'balanced', deferred: {}}, p);
+  const shown = view.goldCandidates.find(r => r.goldRate);
+  assert.ok(shown, 'the gold-rate row is shown');
+  assert.equal(shown.coinsH, planner.coinRate(p) * 3600);
+});
+
+test('selling ore and the quality ore it rolls raises the gold rate', () => {
+  const base = setup(), sold = setup({2: 66, 1002: 180, 2002: 4850, 3002: 300000});
+  assert.ok(sold.planner.coinRate(sold.p) > base.planner.coinRate(base.p));
 });

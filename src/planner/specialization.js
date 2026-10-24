@@ -52,9 +52,13 @@ export function createSpecialization(data,planner) {
           if(quote?.qty===saleQty&&Number.isFinite(quote.net)&&quote.net>0){proceeds=quote.net;saleItems.push(itemId);}
         }
         // Gathered quality output (legendary included) and the bonus drop count
-        // at market value; they are kept, not sold.
+        // at market value; quality ore is sold (marketQuality), the rest kept.
         if(c.qualityPerAction&&actions>0) {
-          c.qualityPerAction.forEach((perAction,i)=>{proceeds+=value(itemId+(i+1)*data.rarityScale,perAction*actions);});
+          c.qualityPerAction.forEach((perAction,i)=>{
+            const id=itemId+(i+1)*data.rarityScale;
+            proceeds+=value(id,perAction*actions);
+            if(perAction>0&&marketQuality(data,id))saleItems.push(id);
+          });
           if(c.bonusPerAction)proceeds+=value(c.bonusPerAction.itemId,c.bonusPerAction.qty*actions);
         }
       }

@@ -1,11 +1,12 @@
 import {PROFESSIONS, canWear as canWearWith, gearRequirementOf, matchesProfessionWeapon, professionSkill, starterWeapon} from './professions.js';
 import {LEGENDARY, PAIR_TIERS, autoUsableMaterial, rarityPower, craftRecipe, mergeHold, potionSaleWorth, qualityHold, qualityWorth} from './quality.js';
 import {createLevels} from './levels.js';
-import {levelingGoal, planUseValue, saleProtectionReason} from './inventory.js';
+import {levelingGoal, planUseValue} from './inventory.js';
 import {createInputCost} from './input-cost.js';
+import {combatKey, jobKey} from './keys.js';
 import {combatSafe, combatStats, formulaWork, weaponStyle} from './rates.js';
 import {action, waiting} from './result.js';
-import {RARITY_NAMES, qualityName, bankTripSeconds, tradableBase, baseId, merchantPrice, mountScale, seedVendorPrice, distance, itemLabel, itemName, nearBank as nearBankAt, nearestBank as nearestBankTo, heldIds, ownedQty, packCapacity, packFree, packQty, plusOf, qualityPrefix, rarityOf, withoutItem} from './items.js';
+import {RARITY_NAMES, qualityName, bankTripSeconds, baseId, merchantPrice, mountScale, seedVendorPrice, distance, itemLabel, itemName, nearBank as nearBankAt, nearestBank as nearestBankTo, heldIds, ownedQty, packCapacity, packFree, packQty, plusOf, qualityPrefix, rarityOf, withoutItem} from './items.js';
 import {createCrafting, finishTaskReason} from './crafting.js';
 import {combatEstimate} from './estimates.js';
 import {combatSupplies, foodEligible} from './supplies.js';
@@ -1652,34 +1653,30 @@ export function createPlanner(data) {
       .map(job=>{const e=strategy.estimateWork(p,job);return {job,rate:e.coins/e.seconds};})
       .filter(row=>row.rate>0).sort((a,b)=>b.rate-a.rate);
   }
-  // Selling what a job makes earns gold too: its common output (ore, bars,
-  // planks, cooked food) at what buyers pay for an hour's output after tax,
-  // over the time to make it: gathering with its bank trips, crafting with its
-  // inputs gathered or bought. Quality output is a windfall, not a job.
-  // Computed once a game minute per state; it travels in the planner runtime.
-  let saleRates=null,computingSales=false;
-  function saleJobs(p) {
-    const lv=levels(p),key=JSON.stringify([p.id,lv,p.equipment,Math.floor(p.lastTick*data.tickMs/60000)]);
-    if(saleRates?.key===key)return saleRates.rows;
-    computingSales=true;
+  // The gold/hour comparison the plan tab shows, and the one gold rate: every
+  // candidate job priced by incomeChoices (its coins, what buyers take of its
+  // output after stock and tax, quality ore and drops at their buyers' price).
+  // A quality craft from held matched sets is a one-off batch, limited by that
+  // stock: listed, but not a rate. Computed once a game minute per state and
+  // carried in the planner runtime; while it is computed, gold converts at
+  // the direct gold jobs' rate.
+  let incomeRates=null,computingIncome=false;
+  function incomeRows(p,style=api.styleHint??'magic') {
+    const key=JSON.stringify([p.id,style,levels(p),p.equipment,Math.floor(p.lastTick*data.tickMs/60000)]);
+    if(incomeRates?.key===key)return incomeRates.rows;
+    computingIncome=true;
     try {
-      const rows=[];
-      for(const job of jobs.filter(j=>!j.grow&&lv[j.skill]>=j.levelReq&&sites.some(s=>s.jobIds.includes(j.id)))) {
-        const out=job.output.itemId;
-        if(out===data.coinId||!tradableBase(data,out)||saleProtectionReason(data,out))continue;
-        const seconds=job.inputs.length?api.inputCost.make(p,job,1,{credit:false,stock:{}}).seconds:
-          (()=>{const e=strategy.estimateWork(p,job),n=100,r=strategy.routeEstimate(p,job,n,{completeTrips:true,ignoreStock:true});
-            return r.seconds/Math.max(1e-9,e.commonOutput*n);})();
-        if(!(seconds>0)||!Number.isFinite(seconds))continue;
-        rows.push({jobId:job.id,rate:api.saleValue(p,out,Math.max(1,Math.floor(3600/seconds)))/seconds});
-      }
-      rows.sort((a,b)=>b.rate-a.rate);
-      saleRates={key,rows};return rows;
-    } finally {computingSales=false;}
+      const rows=(api.incomeChoices?.(p,api.candidates(p,style,{}),style)??[]).map(c=>({
+        key:c.monsterId!=null?combatKey(c.monsterId):jobKey(c.recipeId,c.rarity),recipeId:c.recipeId??null,
+        monsterId:c.monsterId??null,rarity:c.rarity??0,skill:c.skill,xp:c.rate.xp,coins:c.rate.coins,oneOff:c.rarity>0}))
+        .sort((a,b)=>b.coins-a.coins);
+      const best=rows.find(r=>!r.oneOff&&r.coins>0);
+      if(best)best.goldRate=true;
+      incomeRates={key,rows};return rows;
+    } finally {computingIncome=false;}
   }
-  // The one gold rate: the best direct gold job or the best job whose product
-  // sells. While the sale rates are being worked out, the direct jobs alone.
-  const coinRate=p=>Math.max(0,goldJobs(p)[0]?.rate??0,computingSales?0:saleJobs(p)[0]?.rate??0);
+  const coinRate=p=>computingIncome?Math.max(0,goldJobs(p)[0]?.rate??0):
+    incomeRows(p).find(r=>r.goldRate)?.coins??Math.max(0,goldJobs(p)[0]?.rate??0);
   const api={level,levels,thresholds,maxLevel,xpTo,trainedSkills,balancedChooseGoal,plan:planAtBoundary,planItemTarget,itemTargetChoices,count,base,nearBank,carriedBatch,equipmentStats,farmPlots,farmFields,farmFieldCount,harvest,harvestOnly,professionUpgrade,equipmentStatus,gearTargets,plannedQualityGear,plannedGearReserve,farmStatus,
     hotFollowSkills:HOT_FOLLOW_SKILLS.slice(),hotSkillAt:tick=>hotSkillAt(data,tick),hotWindows:(tick,count=4)=>hotWindows(data,tick,count),
     setFarmingPreference,farmingPreference,
@@ -1696,7 +1693,7 @@ export function createPlanner(data) {
     acquireEstimate:(p,id,qty,style='magic')=>rarity(id)>0?api.crafting.estimate(
       withoutItem(p,id),id,qty,{buy:true}):
       strategy.routeEstimate(p,{itemId:id},qty,{style}),
-    goldJobs,saleJobs,coinRate,
+    goldJobs,incomeRows,coinRate,
     // What one unit would sell for, net of tax: the market's sale layers, else the merchant.
     saleValue:(p,id,qty=1)=>api.marketUnitValue?.(p,id,qty)??merchantPrice(data,id)});
   const growth=createProgression(data,api);
@@ -1718,8 +1715,8 @@ export function createPlanner(data) {
     masteryChooseGoal:mastery.chooseGoal,masteryCompleted:mastery.completed,masterySkipped:mastery.skipped,
     masteryStatus:mastery.status,masteryRuntime:mastery.runtime,resetMastery:mastery.reset,
     runtime(value) {
-      if(value) {({farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote}=value);farmPolicy=value.farmPolicy??null;specialization.runtime(value.specialization);growth.runtime(value.development);housing.runtime(value.housing);investments.runtime(value.investments);mastery.runtime(value.mastery);if(value.efficiency)strategy.efficiencyRuntime(value.efficiency);if('saleRates' in value)saleRates=value.saleRates;}
-      return {farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote,farmPolicy,specialization:specialization.runtime(),development:growth.runtime(),housing:housing.runtime(),investments:investments.runtime(),mastery:mastery.runtime(),efficiency:strategy.efficiencyRuntime(),saleRates};
+      if(value) {({farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote}=value);farmPolicy=value.farmPolicy??null;specialization.runtime(value.specialization);growth.runtime(value.development);housing.runtime(value.housing);investments.runtime(value.investments);mastery.runtime(value.mastery);if(value.efficiency)strategy.efficiencyRuntime(value.efficiency);if('incomeRates' in value)incomeRates=value.incomeRates;}
+      return {farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote,farmPolicy,specialization:specialization.runtime(),development:growth.runtime(),housing:housing.runtime(),investments:investments.runtime(),mastery:mastery.runtime(),efficiency:strategy.efficiencyRuntime(),incomeRates};
     },
     selectGoal(p,served,deferred,style,mode='balanced',mainTrade='auto',mainJobId=null,mainMonsterId=null) {
       if(mode!=='business'&&mode!=='balanced'&&!(mode==='experience'&&this.profitFloor>0))this.watchMarket?.(p,[]);

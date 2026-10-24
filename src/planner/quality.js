@@ -57,13 +57,18 @@ export function setsByTier(data,job,count) {
 // Is this item made by a recipe (processed), rather than gathered, grown or dropped?
 export const processed=(data,id)=>data.jobs.some(j=>j.output.itemId===baseId(data,id)&&j.inputs.length&&!j.grow);
 
-// Rare surplus that may be sold: only processed items (bars, planks, cut gems,
-// quest output), never raw materials; not potions (valued by their effect),
-// food or gear (their own rules), and never legendary or enhanced pieces.
-// Sold on the market only, at recent same-quality trades.
+// Mined ore (not coal, which every bar needs at every quality).
+export const minedOre=(data,id)=>baseId(data,id)!==COAL_ID&&
+  data.jobs.some(j=>j.skill==='mining'&&!j.inputs.length&&!j.grow&&j.output.itemId===baseId(data,id));
+// Rare surplus that may be sold: processed items (bars, planks, cut gems,
+// quest output) and mined ore; not other raw materials, potions (valued by
+// their effect), food or gear (their own rules), and never legendary or
+// enhanced pieces. Sold on the market only, at recent same-quality trades,
+// and only what nothing holds (planned gear, brews) and the plan would not
+// rather use (inventory.planUseValue).
 export function marketQuality(data,id) {
   const tier=rarityOf(data,id),base=baseId(data,id);
-  return tier>0&&tier<LEGENDARY&&id%data.plusScale===id&&processed(data,id)&&!data.items[base]?.heals&&
+  return tier>0&&tier<LEGENDARY&&id%data.plusScale===id&&(processed(data,id)||minedOre(data,id))&&!data.items[base]?.heals&&
     !data.gear.some(g=>g.itemId===base)&&!data.jobs.some(j=>j.skill==='herblore'&&j.output.itemId===base);
 }
 

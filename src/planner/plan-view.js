@@ -46,10 +46,16 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
   let xpSkill = null, xpAcross = false, xpCandidates = [], goldCandidates = [], frontier = [];
   try {
     const list = planner.candidates(p, style, trainer.deferred ?? {});
-    const priced = new Map((planner.incomeChoices?.(p, list, style) ?? []).map(c => [keyOf(c), c.rate.coins]));
+    // One income table: the very rows the gold rate is read from (incomeRows),
+    // so the gold column is what the helper works with.
+    const income = planner.incomeRows?.(p, style) ?? [];
+    const priced = new Map(income.map(r => [r.key, r.coins]));
+    const chosen = c => goal != null && (goal.monsterId != null ? goal.monsterId === c.monsterId : goal.recipeId != null && goal.recipeId === c.recipeId);
     const rows = list.map(c => ({key: keyOf(c), label: label(c), skill: c.skill, skillName: NAMES[c.skill] ?? c.skill, xpH: c.rate.xp * 3600,
-      coinsH: (priced.get(keyOf(c)) ?? c.rate.coins) * 3600, source: planner.rateSource?.(p, keyOf(c)) ?? 'formula',
-      chosen: goal != null && (goal.monsterId != null ? goal.monsterId === c.monsterId : goal.recipeId != null && goal.recipeId === c.recipeId)}));
+      coinsH: (priced.get(keyOf(c)) ?? c.rate.coins) * 3600, source: planner.rateSource?.(p, keyOf(c)) ?? 'formula', chosen: chosen(c)}));
+    const incomeView = income.map(r => ({key: r.key, label: `${label(r)}${r.goldRate ? '（金币效率）' : r.oneOff ? '（库存批次，一次性）' : ''}`,
+      skill: r.skill, skillName: NAMES[r.skill] ?? r.skill, xpH: r.xp * 3600, coinsH: r.coins * 3600,
+      source: planner.rateSource?.(p, r.key) ?? 'formula', chosen: chosen(r), goldRate: !!r.goldRate, oneOff: r.oneOff}));
     frontier = profitFrontier(rows);
     const top = (sorted, keep) => {
       const shown = sorted.slice(0, 8), chosen = keep.find(r => r.chosen);
@@ -61,7 +67,11 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
     xpSkill = xpAcross || goal?.quest || goal?.itemTarget ? null : goal?.mainSkill ?? goal?.skill ?? null;
     const compared = xpAcross ? rows : rows.filter(r => r.skill === xpSkill);
     xpCandidates = top([...compared].sort((a, b) => b.xpH - a.xpH), compared);
-    goldCandidates = top([...rows].sort((a, b) => b.coinsH - a.coinsH), rows);
+    goldCandidates = top(incomeView, incomeView);
+    if (!goldCandidates.some(r => r.goldRate)) {
+      const rate = incomeView.find(r => r.goldRate);
+      if (rate) goldCandidates.push(rate);
+    }
   } catch { /* A planner failure must not hide the rest of the panel. */ }
 
   let mastery = null;

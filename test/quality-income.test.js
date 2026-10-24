@@ -18,7 +18,7 @@ test('a measured quality factor scales every quality threshold', () => {
   assert.ok(Math.abs(lucky.bonusOutput - lucky.success * job.bonus.chance) < 1e-12, 'bonus drop per action');
 });
 
-test('gathering gold/h counts every quality and the bonus drop at market value; nothing of it is sold', () => {
+test('gathering gold/h counts every quality and the bonus drop at market value; quality ore below legendary is sold', () => {
   const planner = makePlanner(), d = planner.data, job = meteoric(d), R = d.rarityScale, ore = job.output.itemId;
   const prices = {[ore + R]: 360, [ore + 2 * R]: 2500, [ore + 3 * R]: 70000, [ore + 4 * R]: 12_400_000, [job.bonus.itemId]: 5000};
   planner.marketUnitValue = (_p, id) => prices[id] ?? 0;
@@ -31,7 +31,7 @@ test('gathering gold/h counts every quality and the bonus drop at market value; 
   const [choice] = planner.incomeChoices(p, [candidate], 'melee');
   const expected = 10000 * (0.2 * 360 + 0.02 * 2500 + 0.001 * 70000 + 0.0001 * 12_400_000 + 0.005 * 5000);
   assert.ok(Math.abs(choice.marketProceeds - expected) < 1e-6, `${choice.marketProceeds} vs ${expected}`);
-  assert.deepEqual(choice.saleItems, [], 'quality output and gems are valued, not sold');
+  assert.deepEqual(choice.saleItems, [ore + R, ore + 2 * R, ore + 3 * R], 'quality ore is sold (not legendary); the gem bonus is kept');
 });
 
 test('legendary ore is valued but kept', () => {
