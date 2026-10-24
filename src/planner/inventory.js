@@ -2,7 +2,7 @@ import {canWear, gearRequirementOf, professionSkill, statsDominate} from './prof
 import {fitsSlot, shieldless} from './gear.js';
 import {POTION_SALE_RATIO, autoUsableMaterial, craftRecipe, marketPotion, marketQuality} from './quality.js';
 import {cropReserve, herbloreNeeds} from './farming.js';
-import {COAL_ID, baseId, foodCarry, itemLabel, merchantPrice, plusOf, rarityOf, stockQty, tradableBase} from './items.js';
+import {COAL_ID, baseId, foodCarry, itemLabel, merchantPrice, plusOf, rarityOf, tradableBase} from './items.js';
 
 // Read-only budgets and quotes; economy.js turns verified surplus into actions.
 // Vendor, storage and worn-enhancement rules checked in index-DeoJ7Jh9.js.
@@ -93,25 +93,6 @@ export function inventoryBudget(data, planner, p, goal=null,consuming=false) {
   for(const [id,tier]of recipes) {
     const original=data.jobs.find(j=>j.id===id),job=original&&craftRecipe(data,original,tier);
     if(job)for(const input of job.inputs)material(input.itemId,input.qty*WORKING_STOCK);
-  }
-  // Leveling is XP first: the quality stock of a leveling stage's own chain
-  // (uncommon cobalt and bars for cobalt greaves: 1.5x XP per craft, and per
-  // coal mined) goes into the stage, not on sale. Gold is a cost there anyway.
-  const chainStock=(id,trail=[])=>{
-    if(trail.includes(id))return;
-    const tier=rarityOf(data,id);
-    reserve(id,stockQty(p,id));
-    const source=data.jobs.find(j=>j.output.itemId===planner.base(id)&&j.inputs.length&&!j.grow&&levels[j.skill]>=j.levelReq);
-    const recipe=source&&craftRecipe(data,source,tier);
-    if(recipe)for(const i of recipe.inputs)if(rarityOf(data,i.itemId)>0)chainStock(i.itemId,[...trail,id]);
-  };
-  for(const plan of plans.filter(levelingGoal)) {
-    const jobId=plan.craftPreparation?.jobId??plan.recipes?.[plan.skill]??plan.recipeId;
-    const job=data.jobs.find(j=>j.id===jobId&&j.skill===plan.skill&&j.inputs.length&&!j.grow);
-    if(job)for(const tier of [1,2,3]) {
-      const recipe=craftRecipe(data,job,tier);
-      if(recipe)for(const i of recipe.inputs)if(rarityOf(data,i.itemId)>0)chainStock(i.itemId);
-    }
   }
   function material(id,qty,trail=[]) {
     reserve(id,qty);
