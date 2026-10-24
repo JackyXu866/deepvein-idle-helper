@@ -2705,7 +2705,7 @@ import {itemLabel, packQty} from '../planner/items.js';
     fill('[data-plan-candidates]',JSON.stringify([view.xpSkill,view.xpAcross,view.xpCandidates,view.goldCandidates]),()=>[
       ...(view.xpAcross?table('经验优先：全部技能按经验/时比较',['任务','技能','经验/时','来源'],view.xpCandidates,
         c=>[c.skillName,fmt(c.xpH)]):
-        view.xpSkill?table(`${view.xpSkillName}：同技能内按经验/时比较`,['任务','经验/时','金币/时','来源'],view.xpCandidates,
+        view.xpSkill?table(`${view.xpSkillName}：同技能内按经验/时比较${view.xpBasis==='stage'?'（选配方所用：整阶段，含采集原料）':view.xpBasis==='batch'?'（选配方所用：本批）':''}`,['任务','经验/时','金币/时','来源'],view.xpCandidates,
           c=>[fmt(c.xpH),fmt(c.coinsH)]):[]),
       ...table('全部技能按金币/时比较',['任务','技能','金币/时','来源'],view.goldCandidates,c=>[c.skillName,fmt(c.coinsH)])]);
     fill('[data-plan-quests]',JSON.stringify(view.quests),()=>view.quests.length?view.quests.map(q=>el('p',{className:'muted',

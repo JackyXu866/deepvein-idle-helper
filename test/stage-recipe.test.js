@@ -22,6 +22,23 @@ test('a stage prepared with a much weaker recipe switches to the better one', ()
   assert.ok(goal.craftPreparation.amount < 6000, `Lobster cooks for the stage: ${goal.craftPreparation.amount}`);
 });
 
+test('the plan tab\'s XP table shows the stage choice\'s own ratings, with ★ on what runs', async () => {
+  const {planView} = await import('../src/planner/plan-view.js');
+  const planner = makePlanner(), d = planner.data, R = d.rarityScale;
+  const p = player(planner, {levels: {cooking: 64, fishing: 66}, coins: 1.7e6, hp: 100, x: d.banks[0].x, y: d.banks[0].y,
+    path: null, activity: 'idle', equipment: {pan: 363 + 2 * R}, bank: {20: 21901, 25: 453}});
+  const goal = {skill: 'cooking', target: 65, growth: true, development: true, stage: 65, budget: {coins: 0, items: {}},
+    craftPreparation: {jobId: 61, amount: 37622}, recipes: {cooking: 61}, recipeRarities: {cooking: 0}, recipeLevels: {cooking: 64}, recipeId: 61};
+  planner.plan(p, goal, 'melee');
+  const view = planView(d, planner, {goal, style: 'melee', mode: 'balanced', deferred: {}}, p);
+  const ratings = planner.recipeRatings();
+  assert.equal(view.xpBasis, 'stage');
+  assert.equal(view.xpCandidates[0].xpH, ratings.rows[0].xp * 3600, 'the numbers the choice used');
+  const starred = view.xpCandidates.find(r => r.chosen);
+  assert.match(starred.label, /lobster/i, 'the recipe it switched to, not where the project started');
+  assert.match(view.goal.via, /lobster/i);
+});
+
 test('a stage already on the best recipe keeps its preparation', () => {
   const goal = cook(66);
   assert.equal(goal.recipes.cooking, 66);

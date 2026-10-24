@@ -7,6 +7,11 @@ const MODE_LAYERS = {balanced: '自主发展计划', experience: '经验优先',
 const BOSS_PHASES = new Set(['ready', 'saving', 'moving', 'attacking', 'fighting', 'dead', 'ended', 'resuming']);
 
 const keyOf = c => c.monsterId != null ? combatKey(c.monsterId) : jobKey(c.recipeId, c.rarity);
+// The recipe (and quality) or monster a goal is actually running.
+const running = goal => !goal ? null : goal.monsterId != null ? {monsterId: goal.monsterId} :
+  (goal.craftPreparation?.jobId ?? goal.recipes?.[goal.skill] ?? goal.recipeId) == null ? null :
+  {recipeId: goal.craftPreparation?.jobId ?? goal.recipes?.[goal.skill] ?? goal.recipeId,
+    rarity: goal.craftPreparation ? goal.craftPreparation.rarity ?? 0 : goal.recipeRarities?.[goal.skill] ?? 0};
 
 // Best XP/hour for each gold/hour floor: the Pareto frontier of the
 // candidates, as a short list of suggestions (at most `limit`, spread out).
@@ -48,14 +53,18 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
   // Experience is not comparable between skills (each has its own XP scale and
   // level table), so XP is ranked only within the skill being levelled toward
   // its next unlock. Gold is comparable everywhere and is ranked across skills.
-  let xpSkill = null, xpAcross = false, xpCandidates = [], goldCandidates = [], frontier = [];
+  let xpSkill = null, xpAcross = false, xpBasis = null, xpCandidates = [], goldCandidates = [], frontier = [];
   try {
     const list = planner.candidates(p, style, trainer.deferred ?? {});
     // One income table: the very rows the gold rate is read from (incomeRows),
     // so the gold column is what the helper works with.
     const income = planner.incomeRows?.(p, style) ?? [];
     const priced = new Map(income.map(r => [r.key, r.coins]));
-    const chosen = c => goal != null && (goal.monsterId != null ? goal.monsterId === c.monsterId : goal.recipeId != null && goal.recipeId === c.recipeId);
+    // ★ marks what is actually running: the recipe and quality the recipe
+    // choice went with (goal.recipeId is only where the project started).
+    const run = running(goal);
+    const chosen = c => run != null && (run.monsterId != null ? run.monsterId === c.monsterId :
+      run.recipeId === c.recipeId && run.rarity === (c.rarity ?? 0));
     const rows = list.map(c => ({key: keyOf(c), label: label(c), skill: c.skill, skillName: NAMES[c.skill] ?? c.skill, xpH: c.rate.xp * 3600,
       coinsH: (priced.get(keyOf(c)) ?? c.rate.coins) * 3600, source: planner.rateSource?.(p, keyOf(c)) ?? 'formula', chosen: chosen(c)}));
     const incomeView = income.map(r => ({key: r.key, label: `${label(r)}${r.goldRate ? '（金币效率）' : r.oneOff ? '（库存批次，一次性）' : ''}`,
@@ -70,8 +79,23 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
     // 经验优先 deliberately trades skills against each other on raw XP.
     xpAcross = trainer.mode === 'experience';
     xpSkill = xpAcross || goal?.quest || goal?.itemTarget ? null : goal?.mainSkill ?? goal?.skill ?? null;
-    const compared = xpAcross ? rows : rows.filter(r => r.skill === xpSkill);
-    xpCandidates = top([...compared].sort((a, b) => b.xpH - a.xpH), compared);
+    // Within the goal's skill: the recipe choice's own ratings (whole stage
+    // with its gathering, or the batch score), not a separate estimate.
+    const ratings = planner.recipeRatings?.();
+    if (!xpAcross && xpSkill && ratings?.skill === xpSkill && ratings.playerId === p.id) {
+      xpBasis = ratings.basis;
+      const rated = ratings.rows.map(r => {const key = jobKey(r.recipeId, r.rarity);
+        return {key, label: label(r), skill: xpSkill, skillName: NAMES[xpSkill] ?? xpSkill, xpH: r.xp * 3600,
+          coinsH: (priced.get(key) ?? 0) * 3600, source: planner.rateSource?.(p, key) ?? 'formula',
+          chosen: r.recipeId === ratings.chosen.recipeId && r.rarity === ratings.chosen.rarity};});
+      xpCandidates = top(rated, rated);
+    } else {
+      // 经验优先 picks among the jobs meeting the profit floor (when any do).
+      const floor = xpAcross ? planner.profitFloor ?? 0 : 0;
+      const pool = xpAcross ? rows : rows.filter(r => r.skill === xpSkill);
+      const compared = floor > 0 && pool.some(r => r.coinsH >= floor) ? pool.filter(r => r.coinsH >= floor) : pool;
+      xpCandidates = top([...compared].sort((a, b) => b.xpH - a.xpH), compared);
+    }
     goldCandidates = top(incomeView, incomeView);
     if (!goldCandidates.some(r => r.goldRate)) {
       const rate = incomeView.find(r => r.goldRate);
@@ -113,6 +137,6 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
       goal.quest ? {label: `${goal.quest.period === 'daily' ? '每日任务' : '每周任务'} · ${label(goal.quest.monsterId != null ? {monsterId: goal.quest.monsterId} : {recipeId: goal.quest.jobId})}`,
         target: null, via: null, reason: goal.reason ?? null} :
       {label: goal.skill ? NAMES[goal.skill] ?? goal.skill : null, target: goal.target ?? null,
-        via: goal.monsterId != null ? label(goal) : goal.recipeId != null ? jobName(goal.recipeId) : null, reason: goal.reason ?? null}) : null,
-    xpSkill, xpSkillName: xpSkill ? NAMES[xpSkill] ?? xpSkill : null, xpAcross, xpCandidates, goldCandidates, frontier, investments, funding, quests, perks, mastery};
+        via: running(goal) ? label(running(goal)) : null, reason: goal.reason ?? null}) : null,
+    xpSkill, xpSkillName: xpSkill ? NAMES[xpSkill] ?? xpSkill : null, xpAcross, xpBasis, xpCandidates, goldCandidates, frontier, investments, funding, quests, perks, mastery};
 }

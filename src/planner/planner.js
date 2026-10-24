@@ -169,6 +169,8 @@ export function createPlanner(data) {
   const seedCount = (p,job) => held(p).filter(id=>base(id)===job.inputs[0].itemId).reduce((n,id)=>n+count(p,id),0)+
     Object.entries(p.overflow??{}).filter(([id])=>base(+id)===job.inputs[0].itemId).reduce((n,[,qty])=>n+qty,0);
   let farmingChoice={mode:'auto',jobId:null};
+  // The last recipe choice's ratings, for the plan tab (train()).
+  let recipeRatings=null;
   // Harvest timing settings and the current batch's delay draw (automation-policy.js).
   let farmPolicy=null;
   const automation=()=>normalizeAutomation(api.automation);
@@ -878,6 +880,13 @@ export function createPlanner(data) {
       // clearly better (it used to flip to whichever scored highest that minute).
       const levelled=changed&&!goal.specialization&&(!cached||outscores(score(choices[0]),score(cached)));
       const job=quality??stageBase??prepared??(betterQuality||betterSupply||levelled?choices[0]:(cached??choices[0]));
+      // What the plan tab's XP table shows: the very ratings this choice used
+      // (whole stage with its gathering for a stage plan, else the batch
+      // score), and the recipe and quality it went with.
+      if(!trail.length&&skill===goal.skill)recipeRatings={playerId:p.id,skill,basis:stagePlan?'stage':'batch',
+        chosen:{recipeId:job.id,rarity:job.rarity??0},
+        rows:(stagePlan?choices.filter(j=>!j.rarity&&j.inputs.length&&!j.grow).map(j=>({recipeId:j.id,rarity:0,xp:stageRate(j)})):
+          choices.map(j=>({recipeId:j.id,rarity:j.rarity??0,xp:score(j)}))).sort((a,b)=>b.xp-a.xp)};
       goal.recipeLevels[skill]=lv[skill];
       goal.recipes[skill]=job.id;
       goal.recipeRarities[skill]=job.rarity??0;
@@ -1751,7 +1760,7 @@ export function createPlanner(data) {
     acquireEstimate:(p,id,qty,style='magic')=>rarity(id)>0?api.crafting.estimate(
       withoutItem(p,id),id,qty,{buy:true}):
       strategy.routeEstimate(p,{itemId:id},qty,{style}),
-    goldJobs,incomeRows,coinRate,stageSupply,stageCraftCount,questQualitySets,
+    goldJobs,incomeRows,coinRate,stageSupply,stageCraftCount,questQualitySets,recipeRatings:()=>recipeRatings,
     // What one unit would sell for, net of tax: the market's sale layers, else the merchant.
     saleValue:(p,id,qty=1)=>api.marketUnitValue?.(p,id,qty)??merchantPrice(data,id)});
   const growth=createProgression(data,api);
