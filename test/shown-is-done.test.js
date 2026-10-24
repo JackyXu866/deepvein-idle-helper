@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {profitFrontier} from '../src/planner/plan-view.js';
 import {createMarket} from '../src/economy/market.js';
+import {planEnhancement} from '../src/planner/enhancement.js';
+import {combatEstimate} from '../src/planner/estimates.js';
+import {combatStats} from '../src/planner/rates.js';
 import {makePlanner, player} from './helpers.js';
 
 // What the panel shows must be what the helper does.
@@ -50,6 +53,50 @@ test('the farm status names the crop harvest would sow: one the plan needs first
   const p = player(planner, {levels: {farming: 30}});
   const goal = {skill: 'cooking', budget: {coins: 0, items: {[needed.output.itemId]: 10}}};
   assert.equal(planner.farmStatus(p, goal).selectedName, needed.name);
+});
+
+// A melee fighter in Cobalt (as in investment.test.js).
+function fighter() {
+  const planner = makePlanner(), d = planner.data;
+  planner.watchMarket = () => {};
+  const find = (slot, name) => d.gear.find(g => g.slot === slot && d.items[g.itemId].name.startsWith(name)).itemId;
+  const p = player(planner, {levels: {melee: 62, defence: 60, hitpoints: 62, mining: 55, smithing: 62, thieving: 50}, coins: 20000, hp: 600,
+    equipment: {weapon: find('weapon', 'Cobalt blade'), helmet: find('helmet', 'Cobalt helm'), pickaxe: find('pickaxe', 'Cobalt')},
+    activity: 'idle', path: null, held: false});
+  return {planner, d, p, find};
+}
+
+test('gear is rated with the food each kill costs: armour that only blocks hits is worth something', () => {
+  const {planner, d, p} = fighter();
+  // The hardest monster still kept fed; a Cobalt plate (38 defence, 13 accuracy).
+  const monster = planner.combatOptions(p, 'melee').map(c => c.monster).filter(m => planner.combatRate(p, 'melee', m.id) > 0)
+    .sort((a, b) => b.maxHit - a.maxHit)[0];
+  const plate = d.gear.find(g => g.slot === 'body' && d.items[g.itemId].name === 'Cobalt plate').itemId;
+  const worn = {...p.equipment, body: plate};
+  const bare = planner.combatRate(p, 'melee', monster.id), armoured = planner.combatRate(p, 'melee', monster.id, worn);
+  // Kill speed alone (the accuracy) is a smaller gain: the rest is food not needed.
+  const killRate = equipment => {const e = combatEstimate(d, monster, combatStats(d, planner, p, 'melee', equipment)); return e.mainXp / e.seconds;};
+  assert.ok(armoured / bare > killRate(worn) / killRate(p.equipment) + 1e-6, `${bare} -> ${armoured}`);
+});
+
+test('the investment table prices enhanced copies on the market, which the buy step may then buy', () => {
+  const planner = makePlanner(), d = planner.data, P = d.plusScale;
+  const plus5 = 326 + 5 * P; // common Bone gloves +5
+  planner.marketAsk = (_p, id) => id === plus5 ? 60000 : null;
+  const p = player(planner, {levels: {thieving: 66, crafting: 72}, coins: 8_000_000, equipment: {gloves: 50325},
+    route: {jobId: 242, siteId: 82, limit: 0, onFull: 'bank', phase: 'working'}, activity: 'working', path: null});
+  const rows = planner.investmentOptions(p, 'melee', {skill: 'thieving', recipeId: 242}).filter(r => r.slot === 'gloves');
+  assert.ok(rows.some(r => r.id === plus5 && r.source === '市场'), JSON.stringify(rows.map(r => [r.id, r.source, r.net])));
+});
+
+test('enhancing follows the table: a worthwhile enhancement is not dropped by a separate stats check', () => {
+  const {planner, d, p} = fighter();
+  p.coins = 5_000_000; p.bank[d.shardId] = 10000;
+  const rows = planner.investmentOptions(p, 'melee', null);
+  const pick = rows.find(r => r.kind === 'enhance' && r.cheapest && r.affordable);
+  const result = planEnhancement(d, planner, p, 'melee', null);
+  if (pick) assert.equal(result.enhancement?.slot, pick.slot, JSON.stringify([pick.label, result.reason]));
+  else assert.ok(!result.enhancement, result.reason);
 });
 
 test('a potion left unbought because every ask is above its value names that reason', () => {

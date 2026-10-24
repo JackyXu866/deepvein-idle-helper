@@ -2,7 +2,7 @@ import {autoUsableMaterial, pricePerEffect, rarityPower, usableQualities} from '
 import {action, waiting} from '../planner/result.js';
 import {POTIONS, foodEffects, foodHealing} from '../planner/supplies.js';
 import {inventoryBudget, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
-import {goldToSeconds, maxPrice, payback, secondsToGold} from '../planner/gold.js';
+import {goldToSeconds, maxPrice, secondsToGold} from '../planner/gold.js';
 import {bankTripSeconds, dayTicks as dayTicksOf, playerQueued, distance, itemLabel, itemName, merchantPrice, minListPrice, netProceeds, plusOf, rarityOf, reachableQty, stockQty, tradableBase} from '../planner/items.js';
 import {MARKET_HISTORY_KEY, createMarketHistory} from './market-history.js';
 
@@ -474,38 +474,22 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     if(!self||seconds>(goal?.horizon??1800)||Number.isFinite(self.seconds)&&seconds>=self.seconds)return null;
     return buy(p,id,amount,goal,'市场补齐当前需求',`采购资金时间与往返约 ${Math.ceil(seconds)} 秒，自给${Number.isFinite(self.seconds)?`约 ${Math.ceil(self.seconds)} 秒`:'暂不可达'}`,ask.price);
   }
-  function equipmentPurchase(p,goal,profession,{ids,score,evaluate,currentId=null,selfOptions=[]}) {
+  // Buys the piece the investment table picked (`row`, passed by the planner)
+  // once its live ask is confirmed at no more than the table's price: the table
+  // already weighed every quality, enhancement, making it and enhancing the worn
+  // piece by one payback rule. `ids`: the pieces whose quotes are watched (every
+  // quality and +0..+5) so the table can price them.
+  function equipmentPurchase(p,goal,profession,{ids,row=null}) {
     select(p);if(!ids.length||!purchaseAllowance(p,goal))return null;
     const scanKey=JSON.stringify([profession,p.equipment,planner.levels(p)]);
     if(equipmentScan?.key!==scanKey)equipmentScan={key:scanKey,startedAt:now()};
-    const bases=[...ids].sort((a,b)=>score(b)-score(a)).slice(0,3);
-    if(currentId!=null&&ids.includes(planner.base(currentId))&&!bases.includes(planner.base(currentId)))bases.push(planner.base(currentId));
-    const candidates=bases.flatMap(id=>variants(id).flatMap(quality=>Array.from({length:6},(_,plus)=>quality+plus*data.plusScale)));
-    const books=scan(p,candidates),rate=planner.coinRate?.(p);if(!(rate>0))return null;
-    const baseline=evaluate(bases[0]);
-    if(!baseline)return null;
-    // Judged over the time the piece will be worn, as the payback check below
-    // and the investment table are. A fixed two hours made a gear purchase
-    // that costs about an hour of gold never come out ahead, so a worthwhile
-    // epic tool the table marked "值得，可做" was never bought.
-    const horizon=Math.max(7200,goal?.horizon??0,baseline.horizon??0);
-    const self=planner.acquireEstimate(p,bases[0],1,profession);
-    const benchmark=Math.max(baseline.before*horizon,baseline.after*Math.max(0,horizon-self.seconds),
-      ...selfOptions.map(option=>evaluate(option.id).after*Math.max(0,horizon-option.seconds)));
-    const choices=books.filter(top=>top.ask<=purchaseAllowance(p,goal)).map(top=>{
-      const improvement=evaluate(top.itemId),seconds=goldToSeconds(top.ask,rate)+improvement.seconds;
-      return {...top,improvement,value:improvement.after*Math.max(0,horizon-seconds)};
-    }).filter(c=>c.improvement.after>c.improvement.before&&c.value>benchmark&&
-      // Shared payback rule (investment.js): the price, as time at the gold rate,
-      // must be repaid by the time saved while the piece is worn.
-      payback({gold:c.ask,seconds:c.improvement.seconds,coinRate:rate,before:c.improvement.before,
-        after:c.improvement.after,useSeconds:c.improvement.horizon??horizon}).worth)
-      .sort((a,b)=>b.value-a.value||a.ask-b.ask);
-    if(choices.length) {
-      const best=choices[0],result=buy(p,best.itemId,1,goal,'市场升级装备',
-        `比较品质与强化后的实际效率，预计提升 ${Math.round((best.improvement.after/Math.max(.001,best.improvement.before)-1)*100)}%；优于当前自制方案`,best.ask);
-      if(result?.intent?.t==='marketBuy')result.equipmentItemId=best.itemId;
-      return result;
+    const candidates=ids.flatMap(id=>variants(id).flatMap(quality=>Array.from({length:6},(_,plus)=>quality+plus*data.plusScale)));
+    scan(p,candidates);
+    if(row&&row.gold<=purchaseAllowance(p,goal)) {
+      const result=buy(p,row.id,1,goal,'市场升级装备',`投资表首选：${row.label}，约 ${(row.paid/3600).toFixed(1)} 小时金币，`+
+        `使用期内省约 ${(row.saved/3600).toFixed(1)} 小时（效率 +${Math.round(row.gain*100)}%）`,row.gold);
+      if(result?.intent?.t==='marketBuy')result.equipmentItemId=row.id;
+      if(result)return result;
     }
     // Optional investment quotes must never gate productive work. With many
     // qualities/slots, early quotes can expire before the last query finishes;

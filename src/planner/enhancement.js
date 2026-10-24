@@ -81,9 +81,12 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
     if(goal?.enhancement&&goal.enhancement.itemId!==itemId)continue;
     const quote=enhanceQuote(data,planner,p,itemId),after=planner.equipmentStats(itemId+data.plusScale);
     const target=planner.equipmentStats(itemId%data.plusScale+ENHANCEMENT_BASELINE*data.plusScale);
-    // Rounded attributes can stay unchanged for one step on the way to +5.
-    // Only cross that step when the baseline improves this same worn item.
-    if(!better(after,gear)&&!(planner.enhancementTraining&&better(target,gear)))continue;
+    // The investment table decides whenever it is available (its rate, its
+    // stopping point, every other way to improve the slot): what it shows is
+    // what runs. Without it, stats: rounded attributes can stay unchanged for
+    // one step on the way to +5; cross it only when +5 improves this piece.
+    const rows=planner.investmentOptions?.(p,style,goal)??null;
+    if(!rows&&!better(after,gear)&&!(planner.enhancementTraining&&better(target,gear)))continue;
     const stopped=planner.enhancementTraining?.blocked(p,itemId,slot);
     if(stopped){deferredReason=stopped;continue;}
     const prior=goal?.enhancement;
@@ -93,7 +96,6 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
     // Gold as time (investment.js): enhance only when reaching the best stopping
     // point pays back within the piece's use, and no other way to improve this
     // slot (a rarer copy, another piece) pays back better.
-    const rows=planner.investmentOptions?.(p,style,goal)??null;
     const row=rows?.find(r=>r.slot===slot&&r.kind==='enhance'&&r.current===itemId);
     if(rows) {
       if(!row?.worth) {
@@ -112,9 +114,10 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
     if(quote.gold>p.coins-otherCoins||quote.shards>planner.count(p,data.shardId)-otherShards) {
       deferredReason=`${row?.label??'强化'} 值得做，金币或碎片还不够：等待筹资，保留换装和补给预算`;continue;
     }
-    // Equip an attainable tier upgrade first. Do not pay to enhance a piece
-    // being replaced now or at the immediately upcoming level milestone.
-    const replacement=[...data.gear.map(g=>g.itemId),...owned].some(id=>{
+    // Without the table: equip an attainable tier upgrade first. Do not pay to
+    // enhance a piece being replaced now or at the immediately upcoming level
+    // milestone. (The table already weighs those pieces and the time to the next tier.)
+    const replacement=!rows&&[...data.gear.map(g=>g.itemId),...owned].some(id=>{
       const g=planner.equipmentStats(id),job=recipe(id);
       if(!relevant(g)||g.slot!==slot||!better(g,gear))return false;
       return nearlyWearable(id)&&(owned.includes(id)||job&&job.levelReq<=(lv[job.skill]??1)+1);
@@ -122,9 +125,10 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
     if(replacement)continue;
     const currentJob=data.jobs.find(j=>j.id===p.route?.jobId);
     const priority=slot==='weapon'?0:data.toolSkills[slot]===currentJob?.skill?1:data.toolSkills[slot]?2:3;
-    options.push({itemId,slot,quote,priority,otherCoins,otherShards});
+    options.push({itemId,slot,quote,priority,otherCoins,otherShards,net:row?.net??null});
   }
-  options.sort((a,b)=>a.priority-b.priority||a.quote.gold-b.quote.gold||a.itemId-b.itemId);
+  // The table's order (largest net saving first) when it decided; else by slot.
+  options.sort((a,b)=>(a.net!=null&&b.net!=null?b.net-a.net:0)||a.priority-b.priority||a.quote.gold-b.quote.gold||a.itemId-b.itemId);
   const chosen=options[0];
   if(!chosen)return {intent:null,blocked:true,label:'强化暂缓',
     reason:deferredReason};

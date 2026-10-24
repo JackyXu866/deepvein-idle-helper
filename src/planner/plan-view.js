@@ -118,7 +118,7 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
   try {
     investments = (planner.investmentOptions?.(p, style, goal) ?? []).slice(0, 8).map(r => ({label: r.label, kind: r.kind,
       gold: r.gold, paidHours: r.paid / 3600, savedHours: r.saved / 3600, useHours: r.useSeconds / 3600, gain: r.gain,
-      worth: r.worth, cheapest: r.cheapest, affordable: r.affordable, source: r.source,
+      worth: r.worth, cheapest: r.cheapest, affordable: r.affordable, source: r.source, project: !!r.project,
       funding: goal?.funding?.key === `${r.kind}:${r.id}`}));
   } catch { investments = []; }
   const funding = goal?.funding ? {label: goal.funding.label, gold: goal.funding.gold,

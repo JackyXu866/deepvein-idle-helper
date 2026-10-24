@@ -2718,7 +2718,7 @@ import {itemLabel, packQty} from '../planner/items.js';
       [el('table',{className:'plan-table'},[el('thead',{},[el('tr',{},['项目','花费','赚钱','省下','结论'].map(text=>el('th',{textContent:text})))]),
         el('tbody',{},view.investments.map(r=>el('tr',{},[el('td',{textContent:`${translateGameText(r.label)}${r.source?`（${r.source}）`:''}`}),
           el('td',{textContent:`${fmt(r.gold)} 金币`}),el('td',{textContent:hours(r.paidHours)}),el('td',{textContent:hours(r.savedHours)}),
-          el('td',{textContent:r.funding?'筹资中':!r.worth?'不值得':!r.cheapest?'有更省的':r.affordable?'值得，可做':'值得，待筹资'})])))])]:
+          el('td',{textContent:r.funding?'筹资中':r.project?'进行中（阶段装备）':!r.worth?'不值得':!r.cheapest?'有更省的':r.affordable?'值得，可做':'值得，待筹资'})])))])]:
       [el('p',{className:'muted',textContent:'暂无能提升在用装备的投资（或缺少金币收入估算）'})]);
     const perks=view.perks,mastery=view.mastery;
     set('[data-plan-points]',[

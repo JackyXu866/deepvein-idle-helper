@@ -4,7 +4,7 @@ import {createLevels} from './levels.js';
 import {levelingGoal, planUseValue} from './inventory.js';
 import {createInputCost} from './input-cost.js';
 import {combatKey, jobKey} from './keys.js';
-import {combatSafe, combatStats, formulaWork, weaponStyle} from './rates.js';
+import {combatSafe, combatStats, weaponStyle} from './rates.js';
 import {action, waiting} from './result.js';
 import {RARITY_NAMES, qualityName, bankTripSeconds, baseId, merchantPrice, mountScale, seedVendorPrice, distance, itemLabel, itemName, nearBank as nearBankAt, nearestBank as nearestBankTo, heldIds, ownedQty, packCapacity, packFree, packQty, plusOf, qualityPrefix, rarityOf, withoutItem} from './items.js';
 import {createCrafting, finishTaskReason} from './crafting.js';
@@ -72,6 +72,27 @@ export function createPlanner(data) {
     const same=!g.style||g.style===style;
     if (g.slot==='weapon') return (g.accuracy+2*g.strength)/(g.speed??4)*(g.twoHanded?1.3:1);
     return (same?1:-1)*(g.accuracy+2*g.strength)+g.defence*.5+(g.luck??0);
+  }
+  // One kill with the food it costs and the restocking that food needs: what
+  // fight() ranks monsters by, and what combat gear is rated by (defence
+  // shows up as less food to make).
+  function combatTiming(p,m,stats,{horizon=strategy.horizon,excludeFoodIds=[]}={}) {
+    const estimate=combatEstimate(data,m,stats),zone=zones.find(z=>z.monsterId===m.id);
+    const supplies=combatSupplies(data,api,p,estimate,{zone,monster:m,foodItemId:0,excludeFoodIds,horizon,
+      supplyCost:id=>strategy.supplyCost(p,id)});
+    const unitCost=strategy.supplyCost(p,supplies.foodItemId);
+    const foodSeconds=estimate.damage/supplies.heal*(Number.isFinite(unitCost)?unitCost:0);
+    return {estimate,zone,supplies,foodSeconds,seconds:estimate.seconds+foodSeconds+supplies.restockSeconds};
+  }
+  // Main-skill XP per second against a monster wearing `equipment`, by the
+  // game formulas; 0 when that fight is unsafe or cannot be kept fed.
+  function combatRate(p,style,monsterId,equipment=p.equipment) {
+    const m=monsters.find(x=>x.id===monsterId),lv=levels(p);
+    if(!m||!zones.some(z=>z.monsterId===m.id))return 0;
+    const stats=combatStats(data,api,p,style,equipment,lv);
+    if(!combatSafe(lv,stats,m))return 0;
+    const t=combatTiming({...p,equipment},m,stats);
+    return t.supplies.sustainable?t.estimate.mainXp/t.seconds:0;
   }
     const wait = reason => waiting('等待当前任务',reason);
   const blocked = reason => ({intent:null,label:'需要处理',reason,blocked:true});
@@ -304,7 +325,7 @@ export function createPlanner(data) {
       Number(b.id===preferredJobId)-Number(a.id===preferredJobId);
     const crops=stocks?stocks.map(row=>row.job):[...eligible].sort(rank);
     const busy=stocks&&!crops.length?busyCrop(p,eligible):null;
-    return {eligible,demanded,crops,busy};
+    return {eligible,demanded,rank,crops,busy};
   }
   function harvest(p,preferredJobId,goal=null,style='magic',completedLoad=false) {
     farmState(p);
@@ -315,7 +336,7 @@ export function createPlanner(data) {
       .sort((a,b)=>a.readyAt-b.readyAt);
     const fields=farmFields(p),empty=fields.filter(s=>!p.plots?.[s.id]&&!chosenField(p,s));
     const stocks=farmStockMode(p)?farmingStocks(data,p,levels(p),goal,thresholds):null;
-    const {eligible,demanded,crops:ordered,busy}=cropOrder(p,goal,stocks,preferredJobId);
+    const {eligible,demanded,rank,crops:ordered,busy}=cropOrder(p,goal,stocks,preferredJobId);
     let crops=busy?[busy]:ordered;
     // Native errands harvest every ripe plot, then sow only the route's crop.
     // A selected crop without seeds can therefore collect the old batch safely.
@@ -1012,13 +1033,11 @@ export function createPlanner(data) {
     // bank visit, and a legendary piece stays with the player while worn.
     // Filler and temporary work used to skip gear entirely, so a legendary
     // shield in the bank was never put on while fighting as filler.
+    // Rated as the investment table rates it (its 已持有 row is this choice).
     function ownedSwap(skill) {
-      const worn=new Set(Object.values(p.equipment).filter(Number.isFinite));
       for(const slot of gearSlots(skill)) {
-        const current=p.equipment[slot];
-        const fits=id=>canWear(id)&&fitsSlot(gear.get(base(id)),slot,skill,profession);
-        const best=held(p).filter(id=>!worn.has(id)&&fits(id)).sort((a,b)=>gearScore(b,skill)-gearScore(a,skill)||b-a)[0];
-        if(best==null||current!=null&&fits(current)&&gearScore(best,skill)<=gearScore(current,skill))continue;
+        const current=p.equipment[slot],best=api.ownedBest(p,profession,goal,slot);
+        if(best==null)continue;
         const result=equip(best);
         result.reason=`已持有更好的 ${fullName(best)}，换下 ${current!=null?fullName(current):'空位'}：只需一趟仓库，${rarity(best)===LEGENDARY?'传说装备穿上仍归你':'不另外制作或购买'}`;
         return result;
@@ -1038,13 +1057,19 @@ export function createPlanner(data) {
         return ids.filter(id=>Number.isFinite(api.crafting.estimate(p,id,1,
           {reserve:goal.budget?.items,coins:goal.budget?.coins,buy:true}).seconds));
       };
-      // `marketOnly`: the pieces it could craft are no benchmark (filler never crafts them).
-      const shop=(slot,marketOnly=false)=>api.marketEquipment?.(p,goal,profession,{
-        currentId:p.equipment[slot],
-        selfOptions:marketOnly?[]:rareCrafts(slot).map(id=>({id,seconds:api.crafting.estimate(p,id,1,{reserve:goal.budget?.items,coins:goal.budget?.coins,buy:true}).seconds})),
-        ids:data.gear.filter(g=>fitsSlot(g,slot,skill,profession)&&canWear(g.itemId)&&
-          gearScore(g.itemId+4*data.rarityScale+5*data.plusScale,skill)>gearScore(p.equipment[slot],skill)).map(g=>g.itemId),
-        score:id=>gearScore(id,skill),evaluate:id=>upgradeReturn(id,slot,skill,true,true)});
+      // A market buy is the investment table's pick for the slot, when that pick
+      // is bought (not made, enhanced or already held). `marketOnly` (filler,
+      // which never crafts): the best worthwhile market row. The quotes of the
+      // likeliest pieces are watched so the table can price them.
+      const shop=(slot,marketOnly=false)=>{
+        const rows=(api.investmentOptions?.(p,profession,goal)??[]).filter(r=>r.slot===slot&&r.worth);
+        const row=marketOnly?rows.filter(r=>r.source==='市场').sort((a,b)=>b.net-a.net)[0]:rows.find(r=>r.cheapest);
+        const current=p.equipment[slot],watched=data.gear.filter(g=>fitsSlot(g,slot,skill,profession)&&canWear(g.itemId)&&
+          gearScore(g.itemId+4*data.rarityScale+5*data.plusScale,skill)>gearScore(current,skill)).map(g=>g.itemId)
+          .sort((a,b)=>gearScore(b,skill)-gearScore(a,skill)).slice(0,3);
+        if(current!=null&&gear.has(base(current))&&!watched.includes(base(current)))watched.push(base(current));
+        return api.marketEquipment?.(p,goal,profession,{ids:watched,row:row?.source==='市场'?row:null});
+      };
       // Filler and temporary work (thieving while crops grow) skips gear
       // projects, crafting a piece or a standing upgrade goal, but still buys a
       // worthwhile piece on the market: it costs one bank visit, and filler can
@@ -1122,7 +1147,7 @@ export function createPlanner(data) {
       }
       return null;
     }
-    function upgradeReturn(id,slot,skill,owned,workRate=false) {
+    function upgradeReturn(id,slot,skill,owned) {
       const recipe=made(base(id)).sort((a,b)=>a.levelReq-b.levelReq)[0],next={...p,equipment:{...p.equipment,[slot]:id}};
       // Native equipping a two-handed weapon removes the shield.
       if (slot==='weapon'&&equipmentStats(id)?.twoHanded) next.equipment.shield=null;
@@ -1136,39 +1161,17 @@ export function createPlanner(data) {
       const stageReady=Number.isFinite(owned?0:preparation.seconds)&&(stageUpgrade||!(preparation.unlocks?.length));
       const equipmentTrip=nearBank(p)||p.pack.some(i=>i.itemId===id)?0:bankTripSeconds(data,p);
       const cost=(owned?0:preparation.seconds)+equipmentTrip+data.tickMs/1000;
-      // Both sides of the swap by the game formula: a measurement exists only
-      // for the worn set and carries potions and house bonuses.
-      let before=0,after=0,enabling=false;
-      if (attacks.includes(skill)) strategy.byFormula(()=>{
+      // Both sides of the swap by the investment table's rate (the game
+      // formulas; combat with the food each kill costs): a measurement exists
+      // only for the worn set and carries potions and house bonuses.
+      let before=api.gearRate(p,profession,goal,slot,p.equipment[slot]??null),after=api.gearRate(p,profession,goal,slot,id),enabling=false;
+      if (attacks.includes(skill)) {
         const oldOptions=strategy.combatOptions(p,profession),newOptions=strategy.combatOptions(next,profession);
-        for (const c of oldOptions) {
-          const old=strategy.routeEstimate(p,{monsterId:c.monster.id},20,{style:profession});
-          before=Math.max(before,c.xp*20/old.seconds);
-        }
-        for (const c of newOptions) {
-          const upgraded=strategy.routeEstimate(next,{monsterId:c.monster.id},20,{style:profession});
-          // Equipment should improve combat progress and survival. Crediting
-          // more cooking XP for eating more food would reward weaker gear.
-          after=Math.max(after,c.xp*20/upgraded.seconds);
-        }
+        // A first profession weapon: nothing to compare against yet.
         enabling=!oldOptions.length&&newOptions.length>0;
-      });
-      else {
-        const task=jobs.find(j=>j.id===goal.recipes?.[skill])??jobs.filter(j=>j.skill===skill&&unlocked(j)&&!j.grow)
-          .sort((a,b)=>jobEstimate(b).xp/jobEstimate(b).seconds-jobEstimate(a).xp/jobEstimate(a).seconds)[0];
-        if (!task) return {affordable:false,seconds:cost,payback:Infinity};
-        // A bought tool speeds its own action only. The route estimate also
-        // counts gathering the inputs (Shrimp held for a planned batch count as
-        // still to be caught), which diluted a pan's +13.5% to +3.4%, so a
-        // worthwhile epic pan was never bought: market purchases are judged on
-        // the work itself, as the investment table is. A tool to be made keeps
-        // the route estimate, which weighs its own gathering against the gain.
-        const work=state=>{const e=formulaWork(data,api,state,task,lv);return e.seconds>0?e.xp/e.seconds:0;};
-        strategy.byFormula(()=>{
-          before=workRate?work(p):strategy.routeEstimate(p,task,50).rate?.xp??0;
-          after=workRate?work(next):strategy.routeEstimate(next,task,50).rate?.xp??0;
-        });
+        if(enabling)after=Math.max(0,...newOptions.map(c=>combatRate(next,profession,c.monster.id)));
       }
+      else if(!(after>0)&&!(before>0)) return {affordable:false,seconds:cost,payback:Infinity};
       // A missing profession weapon is an enabling investment, not a return
       // percentage against an unrelated combat style.
       if (enabling) return {affordable:goal.growth||stageUpgrade?stageReady:Number.isFinite(cost)&&cost<=horizon,
@@ -1221,13 +1224,8 @@ export function createPlanner(data) {
       const choices=safeMonsters.filter(m=>(!fixedMonster||m.id===fixedMonster.id)&&zones.some(z=>z.monsterId===m.id)&&
         (requiredItem===null||requiredItem===data.shardId||m.drop===requiredItem&&(m.dropChance??1)>0||
           (goal.itemTarget||goal.mastery)&&m.bonus?.itemId===requiredItem&&m.bonus.chance>0)).map(m=>{
-        const estimate=combatEstimate(data,m,stats);
-        const zone=zones.find(z=>z.monsterId===m.id);
-        const supplies=combatSupplies(data,api,p,estimate,{zone,monster:m,foodItemId:0,
-          excludeFoodIds:goal.itemTarget?[goal.targetItemId]:[],
-          horizon:goal.horizon??strategy.horizon,supplyCost:id=>strategy.supplyCost(p,id)});
-        const unitCost=strategy.supplyCost(p,supplies.foodItemId);
-        const foodSeconds=estimate.damage/supplies.heal*(Number.isFinite(unitCost)?unitCost:0);
+        const {estimate,zone,supplies,foodSeconds}=combatTiming(p,m,stats,{horizon:goal.horizon??strategy.horizon,
+          excludeFoodIds:goal.itemTarget?[goal.targetItemId]:[]});
         const bank=nearestBank(zone),tickSeconds=data.tickMs/1000;
         const windowKills=Math.max(1,supplies.horizonKills);
         const approach=p.route?.zoneId===zone.id?0:(distance(p,bank)+distance(bank,zone))*tickSeconds/windowKills;
@@ -1432,16 +1430,19 @@ export function createPlanner(data) {
       }
     };
     return slots.filter(slot=>slot!=='shield'||profession!=='melee_twohand').map(slot=>{
-      const current=p.equipment[slot],score=id=>gearScore(id,data.toolSkills[slot]??skill);
+      // Rated as the investment table rates gear; ties (an amulet's luck) by stats.
+      const current=p.equipment[slot],stats=id=>gearScore(id,data.toolSkills[slot]??skill);
+      const rate=id=>api.gearRate(p,profession,null,slot,id??null);
+      const compare=(a,b)=>rate(b)-rate(a)||stats(b)-stats(a);
       const matches=id=>{const g=gear.get(base(id));return g?.slot===slot&&
         (slot!=='weapon'||matchesProfessionWeapon(g,profession))&&(!g.style||g.style===skill);};
-      const better=id=>current==null||!matches(current)||score(id)>score(current);
+      const better=id=>current==null||!matches(current)||compare(id,current)<0;
       const variant=g=>[0,1,2,3].map(r=>g.itemId+r*data.rarityScale).find(better)??null;
       const candidates=[...new Set([...data.gear.filter(g=>matches(g.itemId)).map(variant).filter(id=>id!=null),
         ...owned.filter(id=>matches(id)&&better(id))])].filter(id=>id!==current);
       const wearable=id=>canWearWith(data,lv,id);
-      const available=candidates.filter(wearable).sort((a,b)=>score(b)-score(a)||a-b);
-      const future=candidates.filter(id=>!wearable(id)).sort((a,b)=>gearRequirement(a).level-gearRequirement(b).level||score(b)-score(a));
+      const available=candidates.filter(wearable).sort((a,b)=>compare(a,b)||a-b);
+      const future=candidates.filter(id=>!wearable(id)).sort((a,b)=>gearRequirement(a).level-gearRequirement(b).level||compare(a,b));
       // The quality to plan for a target piece: the highest (up to epic) that
       // is owned or whose quality materials are all held, whatever the crafting
       // level today (that only decides when it is made); without such
@@ -1760,7 +1761,7 @@ export function createPlanner(data) {
     acquireEstimate:(p,id,qty,style='magic')=>rarity(id)>0?api.crafting.estimate(
       withoutItem(p,id),id,qty,{buy:true}):
       strategy.routeEstimate(p,{itemId:id},qty,{style}),
-    goldJobs,incomeRows,coinRate,stageSupply,stageCraftCount,questQualitySets,recipeRatings:()=>recipeRatings,
+    gearScore,combatRate,goldJobs,incomeRows,coinRate,stageSupply,stageCraftCount,questQualitySets,recipeRatings:()=>recipeRatings,
     // What one unit would sell for, net of tax: the market's sale layers, else the merchant.
     saleValue:(p,id,qty=1)=>api.marketUnitValue?.(p,id,qty)??merchantPrice(data,id)});
   const growth=createProgression(data,api);
@@ -1800,6 +1801,9 @@ export function createPlanner(data) {
     questReroll:quests.reroll,questOverview:quests.overview,
     perkOverview:p=>perkOverview(p),
     investmentOptions:(p,style,goal)=>investments.options(p,style,goal),fundingEnded:(p,goal)=>investments.fundingEnded(p,goal),
+    // One gear rating for the table and every gear decision (investment.js).
+    gearRate:(p,style,goal,slot,id)=>investments.gearRate(p,style,goal,slot,id),
+    ownedBest:(p,style,goal,slot)=>investments.ownedBest(p,style,goal,slot),
     fundingGoal:(p,style,deferred,goal)=>investments.fundingGoal(p,style,deferred,goal),
     chooseFallback:(p,goal,style)=>chooseFallback(data,api,p,goal,style)});
 }
