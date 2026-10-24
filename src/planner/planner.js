@@ -1,6 +1,7 @@
 import {PROFESSIONS, canWear as canWearWith, gearRequirementOf, matchesProfessionWeapon, professionSkill, starterWeapon} from './professions.js';
 import {LEGENDARY, PAIR_TIERS, autoUsableMaterial, rarityPower, craftRecipe, mergeHold, potionSaleWorth, qualityHold, qualityWorth} from './quality.js';
 import {createLevels} from './levels.js';
+import {levelingGoal} from './inventory.js';
 import {createInputCost} from './input-cost.js';
 import {combatSafe, combatStats, formulaWork, weaponStyle} from './rates.js';
 import {action, waiting} from './result.js';
@@ -776,9 +777,12 @@ export function createPlanner(data) {
         }
         batchLimits.set(job.id,low);return low;
       }
+      // Leveling this skill is XP first: a quality craft is made for its XP even
+      // when its quality inputs would sell for more (qualityWorth).
+      const xpFirst=levelingGoal(goal)&&skill===goal.skill;
       const choices = jobs.filter(j=>j.skill===skill && (fixed==null||j.id===fixed) && (!j.grow||allowedCrop(j)) && unlocked(j) && siteFor(j))
         .flatMap(job=>!goal.itemTarget&&!goal.quest&&!goal.upgrade&&job.inputs.length&&!job.grow?
-          [job,...[1,2,3,4].map(tier=>craftRecipe(data,job,tier)).filter(j=>j&&trainingLimit(j)>0&&qualityWorth(data,api,p,job,j.rarity).ok)]:[job])
+          [job,...[1,2,3,4].map(tier=>craftRecipe(data,job,tier)).filter(j=>j&&trainingLimit(j)>0&&(xpFirst||qualityWorth(data,api,p,job,j.rarity).ok))]:[job])
         .filter(j=>fixed!=null||trainingLimit(j)>0);
       const neededXp = Math.max(1,xpTo(p,skill,target));
       const scores=new Map();
