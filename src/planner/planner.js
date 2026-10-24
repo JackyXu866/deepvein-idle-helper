@@ -1719,7 +1719,7 @@ export function createPlanner(data) {
     try {
       const rows=(api.incomeChoices?.(p,api.candidates(p,style,{}),style)??[]).map(c=>({
         key:c.monsterId!=null?combatKey(c.monsterId):jobKey(c.recipeId,c.rarity),recipeId:c.recipeId??null,
-        monsterId:c.monsterId??null,rarity:c.rarity??0,skill:c.skill,xp:c.rate.xp,coins:c.rate.coins,oneOff:c.rarity>0}))
+        monsterId:c.monsterId??null,rarity:c.rarity??0,skill:c.skill,xp:c.rate.xp,coins:c.rate.coins,oneOff:c.rarity>0,saleItems:c.saleItems??[]}))
         .sort((a,b)=>b.coins-a.coins);
       const best=rows.find(r=>!r.oneOff&&r.coins>0);
       if(best)best.goldRate=true;

@@ -63,6 +63,8 @@ test('funding: a worthwhile unaffordable step is funded on the best gold job, ca
   assert.ok(goal?.funding, 'funding goal');
   assert.ok(goal.funding.gold > p.coins);
   assert.ok(goal.rate.coins > 0, 'a gold job');
+  const rate = planner.incomeRows(p, 'melee').find(r => r.goldRate);
+  assert.equal(goal.monsterId ?? goal.recipeId, rate.monsterId ?? rate.recipeId, 'the job that sets the gold rate the payback used');
   assert.equal(goal.funding.until - p.lastTick, Math.ceil(3600 * 1000 / d.tickMs), 'one hour at most');
   assert.ok(goal.target > 99, 'ends on gold or time, not on a level');
   // Ending short sets that improvement aside; the next one may be funded instead.

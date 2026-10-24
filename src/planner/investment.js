@@ -158,10 +158,13 @@ export function createInvestments(data,planner) {
     const row=options(p,style,goal).find(r=>r.cheapest&&!r.affordable&&r.gold>0&&
       !(fundingDeferred[fundingKey(r)]>p.lastTick));
     if(!row)return null;
-    // Earned on the gold job whose rate priced the payback; the best income
-    // route only when that job is set aside.
-    const candidates=planner.candidates(p,style,deferred),gold=planner.goldJobs?.(p)[0]?.job;
-    const choice=candidates.find(c=>c.recipeId===gold?.id&&!c.rarity)??(planner.incomeChoices?.(p,candidates,style)??[])[0];
+    // Earned on the job that sets the gold rate (the gold table's top lasting
+    // row), the rate that priced the payback; the next lasting row when that
+    // skill is set aside. Its sale items go with it, so the income is real.
+    const candidates=planner.candidates(p,style,deferred);
+    const match=r=>candidates.find(c=>!c.rarity&&(r.monsterId!=null?c.monsterId===r.monsterId:c.recipeId===r.recipeId));
+    const income=(planner.incomeRows?.(p,style)??[]).filter(r=>!r.oneOff&&r.coins>0).map(r=>[r,match(r)]).find(([,c])=>c);
+    const choice=income?{...income[1],saleItems:income[0].saleItems}:null;
     if(!choice)return null;
     const ticks=Math.ceil(FUNDING_CAP_SECONDS*1000/data.tickMs);
     return {...choice,target:planner.thresholds.length,funding:{key:fundingKey(row),gold:row.gold,label:row.label,until:p.lastTick+ticks},
