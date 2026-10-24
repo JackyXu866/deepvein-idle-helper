@@ -1652,11 +1652,11 @@ export function createPlanner(data) {
       .map(job=>{const e=strategy.estimateWork(p,job);return {job,rate:e.coins/e.seconds};})
       .filter(row=>row.rate>0).sort((a,b)=>b.rate-a.rate);
   }
-  // Selling what a job makes earns gold too: a processed common product (bars,
+  // Selling what a job makes earns gold too: its common output (ore, bars,
   // planks, cooked food) at what buyers pay for an hour's output after tax,
-  // over the time to make it with its inputs gathered or bought. Raw materials
-  // are kept, not sold, and quality output is a windfall, not a job. Computed
-  // once a game minute per state; it travels in the planner runtime.
+  // over the time to make it: gathering with its bank trips, crafting with its
+  // inputs gathered or bought. Quality output is a windfall, not a job.
+  // Computed once a game minute per state; it travels in the planner runtime.
   let saleRates=null,computingSales=false;
   function saleJobs(p) {
     const lv=levels(p),key=JSON.stringify([p.id,lv,p.equipment,Math.floor(p.lastTick*data.tickMs/60000)]);
@@ -1664,10 +1664,12 @@ export function createPlanner(data) {
     computingSales=true;
     try {
       const rows=[];
-      for(const job of jobs.filter(j=>j.inputs.length&&!j.grow&&lv[j.skill]>=j.levelReq&&sites.some(s=>s.jobIds.includes(j.id)))) {
+      for(const job of jobs.filter(j=>!j.grow&&lv[j.skill]>=j.levelReq&&sites.some(s=>s.jobIds.includes(j.id)))) {
         const out=job.output.itemId;
-        if(!tradableBase(data,out)||saleProtectionReason(data,out))continue;
-        const seconds=api.inputCost.make(p,job,1,{credit:false,stock:{}}).seconds;
+        if(out===data.coinId||!tradableBase(data,out)||saleProtectionReason(data,out))continue;
+        const seconds=job.inputs.length?api.inputCost.make(p,job,1,{credit:false,stock:{}}).seconds:
+          (()=>{const e=strategy.estimateWork(p,job),n=100,r=strategy.routeEstimate(p,job,n,{completeTrips:true,ignoreStock:true});
+            return r.seconds/Math.max(1e-9,e.commonOutput*n);})();
         if(!(seconds>0)||!Number.isFinite(seconds))continue;
         rows.push({jobId:job.id,rate:api.saleValue(p,out,Math.max(1,Math.floor(3600/seconds)))/seconds});
       }
