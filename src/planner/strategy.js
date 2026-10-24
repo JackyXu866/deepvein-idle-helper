@@ -121,9 +121,11 @@ export function createStrategy(data, planner) {
       for (const [id,n] of Object.entries(p.bank)) stock[id]=n;
       for (const i of p.pack) stock[i.itemId]=(stock[i.itemId]??0)+i.qty;
     }
-    // Owned materials are not free: what they would sell for is charged against
-    // the route's gold (stockValue). Spending budgets use the coins alone.
-    let seconds=0,xp=0,coins=0,position=p,unlocks=[],marketCoins=0,stockValue=0;
+    // Gold is what the route earns and spends: coins and market purchases.
+    // Owned materials are not charged at their market price (that made every
+    // craft look like millions lost an hour); whether to sell them instead is
+    // the sale review's question (inventory.planUseValue).
+    let seconds=0,xp=0,coins=0,position=p,unlocks=[],marketCoins=0;
     const purchases={};
     const travel=to=>{
       if (includeTravel) seconds+=distance(position,to)*tick;
@@ -167,7 +169,6 @@ export function createStrategy(data, planner) {
       if(!autoUsableMaterial(data,id))return false;
       budget[id]=(budget[id]??0)+Math.ceil(quantity);
       const used=Math.max(0,Math.min(quantity,stock[id]??0));stock[id]=(stock[id]??0)-used;
-      if(used>0&&id!==data.coinId)stockValue+=used*planner.saleValue(p,id,Math.ceil(used));
       const missing=quantity-used;
       if (missing<1e-7) return true;
       if (trail.includes(id)) return false;
@@ -271,8 +272,7 @@ export function createStrategy(data, planner) {
       ok=!!c&&fight(c,amount);
     } else if (root) ok=work(root,amount,[root.output.itemId]);
     if (!ok||!Number.isFinite(seconds)) return invalid();
-    const net=coins-stockValue;
-    return {seconds,xp,coins:net,stockValue,rate:{xp:xp/Math.max(1,seconds),coins:net/Math.max(1,seconds)},
+    return {seconds,xp,coins,rate:{xp:xp/Math.max(1,seconds),coins:coins/Math.max(1,seconds)},
       budget:{coins:Math.max(0,-coins-marketCoins),items:budget},recipes,supplyRecipes,unlocks,purchases};
   }
   function candidates(p,style='magic',deferred={},options={}) {

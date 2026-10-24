@@ -19,9 +19,10 @@ export function createInputCost(data,planner) {
   // One decision's state: the stock still unspent, the trained skills, and
   // the per-skill XP rates (memoised). buyOnly: inputs only from stock or
   // the market (for work that cannot gather on the way, such as a potion brew).
-  function context(p,{style=planner.styleHint??'magic',stock,credit=true,grow=null,buyOnly=false}={}) {
+  // trained: the skills whose XP counts, when not the profession's.
+  function context(p,{style=planner.styleHint??'magic',stock,credit=true,trained=null,grow=null,buyOnly=false}={}) {
     return {p,lv:planner.levels(p),stock:stock??stockMap(p),grow,buyOnly,rates:new Map(),coinRate:planner.coinRate?.(p)??0,
-      trained:new Set(credit?planner.trainedSkills?.(style)??[]:[]),
+      trained:new Set(!credit?[]:trained??planner.trainedSkills?.(style)??[]),
       trip:bankTripSeconds(data,p)};
   }
   // XP per second of the best unlocked work in a skill (what its XP is worth).

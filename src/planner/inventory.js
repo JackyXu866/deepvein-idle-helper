@@ -64,6 +64,48 @@ export function saleProtectionReason(data,id,marketEquipment=false) {
 // target, business focus or 补精通: its XP comes before gold.
 export const levelingGoal=goal=>!!(goal?.development||goal?.growth)&&!goal.quest&&!goal.itemTarget&&
   !goal.specialization&&!goal.mastery&&!goal.funding;
+// What one unit of a quality item is worth to the current leveling plan, in
+// gold: the stage time it saves, at the gold rate. Going into the stage's
+// recipe chain at its quality, it brings its share of that craft's XP (and of
+// what the craft goes on to make) for its share of the crafting time; without
+// it the stage earns that XP at the chain's real rate, gathering included.
+// 0 when the plan does not use it. Sold only for more than this.
+const chainRates=new Map();
+export function planUseValue(data,planner,p,goal,id) {
+  const tier=rarityOf(data,id);
+  if(!tier||!levelingGoal(goal)||!planner.inputCost)return 0;
+  const jobId=goal.craftPreparation?.jobId??goal.recipes?.[goal.skill]??goal.recipeId;
+  const root=data.jobs.find(j=>j.id===jobId&&j.skill===goal.skill&&j.inputs.length&&!j.grow);
+  if(!root)return 0;
+  const key=JSON.stringify([p.id,root.id,p.skills?.[goal.skill],Math.floor(p.lastTick*data.tickMs/60000)]);
+  if(!chainRates.has(key)) {
+    if(chainRates.size>=16)chainRates.delete(chainRates.keys().next().value);
+    const chain=planner.inputCost.recipe(p,root,100,{trained:[goal.skill],stock:{}});
+    chainRates.set(key,chain.seconds>0?chain.xp/chain.seconds:0);
+  }
+  const chainRate=chainRates.get(key);
+  if(!(chainRate>0))return 0;
+  // XP and crafting seconds carried by one unit of `id` going into `job` at
+  // this quality, with `xp`/`time` per unit of `job`'s output carried on.
+  const share=(job,xp,time,trail)=>{
+    const recipe=craftRecipe(data,job,tier);
+    if(!recipe)return null;
+    const e=planner.estimateWork(p,recipe),units=recipe.inputs.filter(i=>rarityOf(data,i.itemId)===tier).reduce((n,i)=>n+i.qty,0);
+    if(!units)return null;
+    const unitXp=(e.xp+xp*e.commonOutput)/units,unitTime=(e.seconds+time*e.commonOutput)/units;
+    for(const input of recipe.inputs.filter(i=>rarityOf(data,i.itemId)===tier)) {
+      if(input.itemId===id)return {xp:unitXp,time:unitTime};
+      if(trail.includes(input.itemId))continue;
+      const maker=data.jobs.find(j=>j.output.itemId===baseId(data,input.itemId)&&j.skill===goal.skill&&j.inputs.length&&!j.grow);
+      const found=maker&&share(maker,unitXp,unitTime,[...trail,input.itemId]);
+      if(found)return found;
+    }
+    return null;
+  };
+  const use=share(root,0,0,[root.output.itemId]);
+  if(!use)return 0;
+  return Math.max(0,use.xp/chainRate-use.time)*(planner.coinRate?.(p)??0);
+}
 export function inventoryBudget(data, planner, p, goal=null,consuming=false) {
   const levels=planner.levels(p), items={...goal?.budget?.items};
   const capacity=p.unlimitedBank||(p.brews?.blessing??0)>p.lastTick?Infinity:
@@ -145,6 +187,10 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
   p.pack.forEach(i=>add(i.itemId,i.qty,'pack'));
   Object.values(p.equipment).forEach(id=>add(id,1,'worn'));
   Object.entries(p.overflow??{}).forEach(([id,qty])=>add(Number(id),qty,'overflow'));
+  // What the current batch makes or uses (any quality) is judged when it ends.
+  const routeJob=p.route&&!p.route.errand?data.jobs.find(j=>j.id===p.route.jobId):null;
+  const batchBases=new Set(routeJob?[routeJob.output.itemId,...routeJob.inputs.map(i=>i.itemId)]:[]);
+  const batchItem=id=>batchBases.has(baseId(data,id));
   const {ids:locked,variants:lockedVariants}=lockedGear(data,p,goal);
   const requirement=g=>gearRequirementOf(data,g.itemId).level;
   const wearable=g=>canWear(data,lv,g.itemId);
@@ -176,7 +222,14 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
     if(protectedReason)reason=protectedReason;
     else if(locked.has(id)||lockedVariants.has(id%data.plusScale))reason='装备方案／当前打造或强化目标';
     else if(potionSale){keep=0;reason=`稀有药水的买单价超过同等药效最便宜来源的 ${POTION_SALE_RATIO} 倍：只挂市场出售，自用较便宜的药水`;}
-    else if(marketOnly&&!g){keep=0;reason='稀有加工品：保留清单以外的按同品质近期成交价只挂市场，不转系统回收';}
+    else if(marketOnly&&!g&&batchItem(id)){keep=total;reason='当前批次正在制作或使用它：批次结束后再决定是否出售';}
+    else if(marketOnly&&!g) {
+      // Sold only for more than the current plan gains by using it.
+      const use=planUseValue(data,planner,p,goal,id),price=planner.saleValue?.(p,id,total)??0,rate=planner.coinRate?.(p)??0;
+      if(use>0&&use>=price){keep=total;reason=`留给当前练级：每件约省 ${Math.round(rate>0?use/rate:0)} 秒（约 ${Math.round(use)} 金币），高于售价约 ${Math.round(price)}`;}
+      else {keep=0;reason='稀有加工品：保留清单以外的按同品质近期成交价只挂市场，不转系统回收'+
+        (use>0?`；售价约 ${Math.round(price)} 高于留给练级的价值约 ${Math.round(use)}`:'');}
+    }
     else if(marketOnly) {
       keep=row.worn;
       if(superseded(id))reason='已持有同款更高品质／强化的一件；按原品质和强化等级仅售市场';

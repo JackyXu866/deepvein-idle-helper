@@ -1,11 +1,11 @@
 import {PROFESSIONS, canWear as canWearWith, gearRequirementOf, matchesProfessionWeapon, professionSkill, starterWeapon} from './professions.js';
 import {LEGENDARY, PAIR_TIERS, autoUsableMaterial, rarityPower, craftRecipe, mergeHold, potionSaleWorth, qualityHold, qualityWorth} from './quality.js';
 import {createLevels} from './levels.js';
-import {levelingGoal} from './inventory.js';
+import {levelingGoal, planUseValue, saleProtectionReason} from './inventory.js';
 import {createInputCost} from './input-cost.js';
 import {combatSafe, combatStats, formulaWork, weaponStyle} from './rates.js';
 import {action, waiting} from './result.js';
-import {RARITY_NAMES, qualityName, bankTripSeconds, baseId, merchantPrice, mountScale, seedVendorPrice, distance, itemLabel, itemName, nearBank as nearBankAt, nearestBank as nearestBankTo, heldIds, ownedQty, packCapacity, packFree, packQty, plusOf, qualityPrefix, rarityOf, withoutItem} from './items.js';
+import {RARITY_NAMES, qualityName, bankTripSeconds, tradableBase, baseId, merchantPrice, mountScale, seedVendorPrice, distance, itemLabel, itemName, nearBank as nearBankAt, nearestBank as nearestBankTo, heldIds, ownedQty, packCapacity, packFree, packQty, plusOf, qualityPrefix, rarityOf, withoutItem} from './items.js';
 import {createCrafting, finishTaskReason} from './crafting.js';
 import {combatEstimate} from './estimates.js';
 import {combatSupplies, foodEligible} from './supplies.js';
@@ -777,12 +777,15 @@ export function createPlanner(data) {
         }
         batchLimits.set(job.id,low);return low;
       }
-      // Leveling this skill is XP first: a quality craft is made for its XP even
-      // when its quality inputs would sell for more (qualityWorth).
-      const xpFirst=levelingGoal(goal)&&skill===goal.skill;
+      // Leveling this skill: a quality craft is made when its quality inputs save
+      // the stage more than they sell for (the sale review's own rule); otherwise
+      // the gold check (qualityWorth).
+      const leveling=levelingGoal(goal)&&skill===goal.skill;
+      const worthUsing=j=>leveling?j.inputs.filter(i=>rarity(i.itemId)>0)
+        .every(i=>planUseValue(data,api,p,goal,i.itemId)>=(api.saleValue(p,i.itemId,1)??0)):qualityWorth(data,api,p,j.original??jobs.find(o=>o.id===j.id),j.rarity).ok;
       const choices = jobs.filter(j=>j.skill===skill && (fixed==null||j.id===fixed) && (!j.grow||allowedCrop(j)) && unlocked(j) && siteFor(j))
         .flatMap(job=>!goal.itemTarget&&!goal.quest&&!goal.upgrade&&job.inputs.length&&!job.grow?
-          [job,...[1,2,3,4].map(tier=>craftRecipe(data,job,tier)).filter(j=>j&&trainingLimit(j)>0&&(xpFirst||qualityWorth(data,api,p,job,j.rarity).ok))]:[job])
+          [job,...[1,2,3,4].map(tier=>craftRecipe(data,job,tier)).filter(j=>j&&trainingLimit(j)>0&&worthUsing(j))]:[job])
         .filter(j=>fixed!=null||trainingLimit(j)>0);
       const neededXp = Math.max(1,xpTo(p,skill,target));
       const scores=new Map();
@@ -1649,6 +1652,32 @@ export function createPlanner(data) {
       .map(job=>{const e=strategy.estimateWork(p,job);return {job,rate:e.coins/e.seconds};})
       .filter(row=>row.rate>0).sort((a,b)=>b.rate-a.rate);
   }
+  // Selling what a job makes earns gold too: a processed common product (bars,
+  // planks, cooked food) at what buyers pay for an hour's output after tax,
+  // over the time to make it with its inputs gathered or bought. Raw materials
+  // are kept, not sold, and quality output is a windfall, not a job. Computed
+  // once a game minute per state; it travels in the planner runtime.
+  let saleRates=null,computingSales=false;
+  function saleJobs(p) {
+    const lv=levels(p),key=JSON.stringify([p.id,lv,p.equipment,Math.floor(p.lastTick*data.tickMs/60000)]);
+    if(saleRates?.key===key)return saleRates.rows;
+    computingSales=true;
+    try {
+      const rows=[];
+      for(const job of jobs.filter(j=>j.inputs.length&&!j.grow&&lv[j.skill]>=j.levelReq&&sites.some(s=>s.jobIds.includes(j.id)))) {
+        const out=job.output.itemId;
+        if(!tradableBase(data,out)||saleProtectionReason(data,out))continue;
+        const seconds=api.inputCost.make(p,job,1,{credit:false,stock:{}}).seconds;
+        if(!(seconds>0)||!Number.isFinite(seconds))continue;
+        rows.push({jobId:job.id,rate:api.saleValue(p,out,Math.max(1,Math.floor(3600/seconds)))/seconds});
+      }
+      rows.sort((a,b)=>b.rate-a.rate);
+      saleRates={key,rows};return rows;
+    } finally {computingSales=false;}
+  }
+  // The one gold rate: the best direct gold job or the best job whose product
+  // sells. While the sale rates are being worked out, the direct jobs alone.
+  const coinRate=p=>Math.max(0,goldJobs(p)[0]?.rate??0,computingSales?0:saleJobs(p)[0]?.rate??0);
   const api={level,levels,thresholds,maxLevel,xpTo,trainedSkills,balancedChooseGoal,plan:planAtBoundary,planItemTarget,itemTargetChoices,count,base,nearBank,carriedBatch,equipmentStats,farmPlots,farmFields,farmFieldCount,harvest,harvestOnly,professionUpgrade,equipmentStatus,gearTargets,plannedQualityGear,plannedGearReserve,farmStatus,
     hotFollowSkills:HOT_FOLLOW_SKILLS.slice(),hotSkillAt:tick=>hotSkillAt(data,tick),hotWindows:(tick,count=4)=>hotWindows(data,tick,count),
     setFarmingPreference,farmingPreference,
@@ -1665,7 +1694,7 @@ export function createPlanner(data) {
     acquireEstimate:(p,id,qty,style='magic')=>rarity(id)>0?api.crafting.estimate(
       withoutItem(p,id),id,qty,{buy:true}):
       strategy.routeEstimate(p,{itemId:id},qty,{style}),
-    goldJobs,coinRate:p=>Math.max(0,goldJobs(p)[0]?.rate??0),
+    goldJobs,saleJobs,coinRate,
     // What one unit would sell for, net of tax: the market's sale layers, else the merchant.
     saleValue:(p,id,qty=1)=>api.marketUnitValue?.(p,id,qty)??merchantPrice(data,id)});
   const growth=createProgression(data,api);
@@ -1687,8 +1716,8 @@ export function createPlanner(data) {
     masteryChooseGoal:mastery.chooseGoal,masteryCompleted:mastery.completed,masterySkipped:mastery.skipped,
     masteryStatus:mastery.status,masteryRuntime:mastery.runtime,resetMastery:mastery.reset,
     runtime(value) {
-      if(value) {({farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote}=value);farmPolicy=value.farmPolicy??null;specialization.runtime(value.specialization);growth.runtime(value.development);housing.runtime(value.housing);investments.runtime(value.investments);mastery.runtime(value.mastery);if(value.efficiency)strategy.efficiencyRuntime(value.efficiency);}
-      return {farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote,farmPolicy,specialization:specialization.runtime(),development:growth.runtime(),housing:housing.runtime(),investments:investments.runtime(),mastery:mastery.runtime(),efficiency:strategy.efficiencyRuntime()};
+      if(value) {({farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote}=value);farmPolicy=value.farmPolicy??null;specialization.runtime(value.specialization);growth.runtime(value.development);housing.runtime(value.housing);investments.runtime(value.investments);mastery.runtime(value.mastery);if(value.efficiency)strategy.efficiencyRuntime(value.efficiency);if('saleRates' in value)saleRates=value.saleRates;}
+      return {farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote,farmPolicy,specialization:specialization.runtime(),development:growth.runtime(),housing:housing.runtime(),investments:investments.runtime(),mastery:mastery.runtime(),efficiency:strategy.efficiencyRuntime(),saleRates};
     },
     selectGoal(p,served,deferred,style,mode='balanced',mainTrade='auto',mainJobId=null,mainMonsterId=null) {
       if(mode!=='business'&&mode!=='balanced'&&!(mode==='experience'&&this.profitFloor>0))this.watchMarket?.(p,[]);

@@ -99,12 +99,11 @@ test('quality drops found while preparing do not interrupt the stage', () => {
   assert.notEqual(plan.intent?.rarity, 1);
 });
 
-test('gold per hour charges owned materials at what they would sell for', () => {
+test('gold per hour does not charge owned materials at their market price', () => {
   const {planner, d, bar} = smith(0);
   const [copper, tin] = bar.inputs.map(i => i.itemId);
   const est = planner.routeEstimate(player(planner, {levels: {smithing: 20}, bank: {[copper]: 500, [tin]: 500}}), bar, 50, {});
-  assert.ok(est.stockValue > 0);
-  assert.ok(Math.abs(est.coins - (-est.stockValue)) < 1e-6, 'smelting earns no coins itself: net is minus the ore value');
-  assert.ok(est.rate.coins < 0);
+  assert.equal(est.coins, 0, 'smelting from owned ore neither earns nor spends coins');
+  assert.equal(est.rate.coins, 0);
   assert.ok(est.budget.coins === 0, 'owned ore is not a purchase budget');
 });
