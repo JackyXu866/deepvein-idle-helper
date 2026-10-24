@@ -697,36 +697,17 @@ export function createPlanner(data) {
           craftRecipe(data,job,tier)?api.crafting.available(p,job,tier,qualityReserve(),5000):0);
         return batchLimits.get(key);
       };
-      const ownedCrafts=job=>PAIR_TIERS.reduce((n,tier)=>n+craftsAt(job,tier),0);
-      // Crafts the stage needs at common XP. Every higher quality gives more,
-      // so owned crafts of all qualities together reaching this number makes
-      // the stage certain: one total, no separate common target.
-      // Same-skill steps on the way count too: smelting the four bars of a
-      // pair of greaves is smithing XP as well (480 + 4 × 108). Only what
-      // still has to be made earns it; held stock does not.
-      const chainXp=(job,n)=>{
-        const stock={};
-        const walk=(j,runs,trail)=>{
-          let xp=runs*jobEstimate(j).xp;
-          for(const i of j.inputs) {
-            const need=i.qty*runs,have=stock[i.itemId]??=count(p,i.itemId),used=Math.min(need,have);
-            stock[i.itemId]=have-used;
-            const missing=need-used;
-            if(missing<=0||trail.includes(i.itemId))continue;
-            const maker=made(i.itemId).find(m=>m.skill===skill&&m.inputs.length&&!m.grow&&unlocked(m));
-            if(maker)xp+=walk(maker,missing/Math.max(1e-9,jobEstimate(maker).commonOutput),[...trail,i.itemId]);
-          }
-          return xp;
-        };
-        return walk(job,n,[job.output.itemId]);
-      };
+      // Owned crafts the stage counts: commons, and each quality only when its
+      // inputs are worth using (the same rule that keeps or sells them).
+      const ownedCrafts=job=>PAIR_TIERS.reduce((n,tier)=>n+(tier===0||!levelingGoal(goal)||
+        worthUsingQuality(p,goal,craftRecipe(data,job,tier))?craftsAt(job,tier):0),0);
+      // Crafts the stage needs at common XP (stageCraftCount). Every higher
+      // quality gives more, so owned crafts of all qualities together reaching
+      // this number makes the stage certain: one total, no separate common target.
       const stageCraftCache=new Map();
       const stageCrafts=job=>{
-        if(stageCraftCache.has(job))return stageCraftCache.get(job);
-        const needed=Math.max(1,xpTo(p,skill,goal.target??lv[skill]+1));
-        let low=1,high=Math.max(1,Math.ceil(needed/jobEstimate(job).xp));
-        while(low<high){const mid=Math.floor((low+high)/2);if(chainXp(job,mid)>=needed)high=mid;else low=mid+1;}
-        stageCraftCache.set(job,low);return low;
+        if(!stageCraftCache.has(job))stageCraftCache.set(job,stageCraftCount(p,skill,goal.target??lv[skill]+1,job));
+        return stageCraftCache.get(job);
       };
       // Commons to hold so that the total reaches the stage (quality crafts
       // already owned, including drops found while gathering, count).
@@ -782,8 +763,7 @@ export function createPlanner(data) {
       // the stage more than they sell for (the sale review's own rule); otherwise
       // the gold check (qualityWorth).
       const leveling=levelingGoal(goal)&&skill===goal.skill;
-      const worthUsing=j=>leveling?j.inputs.filter(i=>rarity(i.itemId)>0)
-        .every(i=>planUseValue(data,api,p,goal,i.itemId)>=(api.saleValue(p,i.itemId,1)??0)):qualityWorth(data,api,p,j.original??jobs.find(o=>o.id===j.id),j.rarity).ok;
+      const worthUsing=j=>leveling?worthUsingQuality(p,goal,j):qualityWorth(data,api,p,jobs.find(o=>o.id===j.id),j.rarity).ok;
       const choices = jobs.filter(j=>j.skill===skill && (fixed==null||j.id===fixed) && (!j.grow||allowedCrop(j)) && unlocked(j) && siteFor(j))
         .flatMap(job=>!goal.itemTarget&&!goal.quest&&!goal.upgrade&&job.inputs.length&&!job.grow?
           [job,...[1,2,3,4].map(tier=>craftRecipe(data,job,tier)).filter(j=>j&&trainingLimit(j)>0&&worthUsing(j))]:[job])
@@ -1660,6 +1640,69 @@ export function createPlanner(data) {
   // stock: listed, but not a rate. Computed once a game minute per state and
   // carried in the planner runtime; while it is computed, gold converts at
   // the direct gold jobs' rate.
+  // Crafts of `job` that take `skill` to `target`. Same-skill steps on the
+  // way count too: smelting the four bars of a pair of greaves is smithing XP
+  // as well (480 + 4 × 108). Only what still has to be made earns it; held
+  // stock does not. The stage, its size in messages and its reserve use this.
+  function stageCraftCount(p,skill,target,job) {
+    const lv=levels(p),needed=Math.max(1,xpTo(p,skill,target));
+    const makerOf=id=>jobs.find(m=>m.output.itemId===base(id)&&m.skill===skill&&m.inputs.length&&!m.grow&&lv[m.skill]>=m.levelReq);
+    const chainXp=n=>{
+      const stock={};
+      const walk=(j,runs,trail)=>{
+        let xp=runs*strategy.estimateWork(p,j,lv).xp;
+        for(const i of j.inputs) {
+          const need=i.qty*runs,have=stock[i.itemId]??=count(p,i.itemId),used=Math.min(need,have);
+          stock[i.itemId]=have-used;
+          const missing=need-used,maker=missing>0&&!trail.includes(i.itemId)&&makerOf(i.itemId);
+          if(maker)xp+=walk(maker,missing/Math.max(1e-9,strategy.estimateWork(p,maker,lv).commonOutput),[...trail,i.itemId]);
+        }
+        return xp;
+      };
+      return walk(job,n,[job.output.itemId]);
+    };
+    let low=1,high=Math.max(1,Math.ceil(needed/strategy.estimateWork(p,job,lv).xp));
+    while(low<high){const mid=Math.floor((low+high)/2);if(chainXp(mid)>=needed)high=mid;else low=mid+1;}
+    return low;
+  }
+  // A leveling goal uses a quality recipe only when every quality input saves
+  // the stage more than it sells for (inventory.planUseValue): the one rule
+  // for the stage's count, its reserve, the recipe choice and the sale review.
+  const worthUsingQuality=(p,goal,recipe)=>!!recipe&&recipe.inputs.filter(i=>rarityOf(data,i.itemId)>0)
+    .every(i=>planUseValue(data,api,p,goal,i.itemId)>=(api.saleValue(p,i.itemId,1)??0));
+  // Everything a leveling stage counts as its supply, kept from sale: every
+  // input along its chain for the crafts still to do (any quality's common
+  // parts included), and the quality stock it counts (worth using).
+  function stageSupply(p,goal) {
+    const items={};
+    if(!levelingGoal(goal))return items;
+    const lv=levels(p),jobId=goal.craftPreparation?.jobId??goal.recipes?.[goal.skill]??goal.recipeId;
+    const root=jobs.find(j=>j.id===jobId&&j.skill===goal.skill&&j.inputs.length&&!j.grow);
+    if(!root)return items;
+    const n=goal.craftPreparation?.amount??stageCraftCount(p,goal.skill,goal.target??lv[goal.skill]+1,root);
+    const add=(id,qty)=>{items[id]=Math.max(items[id]??0,Math.ceil(qty));};
+    const recipeOf=id=>{const maker=jobs.find(j=>j.output.itemId===base(id)&&j.inputs.length&&!j.grow&&lv[j.skill]>=j.levelReq);
+      return maker&&craftRecipe(data,maker,rarityOf(data,id));};
+    const walk=(recipe,runs,trail)=>{
+      for(const i of recipe.inputs) {
+        add(i.itemId,i.qty*runs);
+        const r=!trail.includes(i.itemId)&&recipeOf(i.itemId);
+        if(r)walk(r,i.qty*runs/Math.max(1e-9,r.output.qty),[...trail,i.itemId]);
+      }
+    };
+    walk(root,n,[root.output.itemId]);
+    const held=(id,trail)=>{
+      if(trail.includes(id))return;
+      add(id,count(p,id));
+      const r=recipeOf(id);
+      if(r)for(const i of r.inputs)if(rarityOf(data,i.itemId)>0)held(i.itemId,[...trail,id]);
+    };
+    for(const tier of PAIR_TIERS.filter(t=>t>0)) {
+      const recipe=craftRecipe(data,root,tier);
+      if(worthUsingQuality(p,goal,recipe))for(const i of recipe.inputs)if(rarityOf(data,i.itemId)>0)held(i.itemId,[]);
+    }
+    return items;
+  }
   let incomeRates=null,computingIncome=false;
   function incomeRows(p,style=api.styleHint??'magic') {
     const key=JSON.stringify([p.id,style,levels(p),p.equipment,Math.floor(p.lastTick*data.tickMs/60000)]);
@@ -1693,7 +1736,7 @@ export function createPlanner(data) {
     acquireEstimate:(p,id,qty,style='magic')=>rarity(id)>0?api.crafting.estimate(
       withoutItem(p,id),id,qty,{buy:true}):
       strategy.routeEstimate(p,{itemId:id},qty,{style}),
-    goldJobs,incomeRows,coinRate,
+    goldJobs,incomeRows,coinRate,stageSupply,stageCraftCount,
     // What one unit would sell for, net of tax: the market's sale layers, else the merchant.
     saleValue:(p,id,qty=1)=>api.marketUnitValue?.(p,id,qty)??merchantPrice(data,id)});
   const growth=createProgression(data,api);

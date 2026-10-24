@@ -45,6 +45,18 @@ test('bars that sell for more than they save the stage are sold, not crafted', (
   assert.equal(reviewInventory(d, planner, p, goal, 'melee').items.find(r => r.itemId === UBAR).sell, 14);
 });
 
+test('a leveling stage keeps every common material it needs, and only that', () => {
+  const {planner, d, p, goal} = smith(1e6);
+  const supply = planner.stageSupply(p, goal), crafts = planner.stageCraftCount(p, 'smithing', 85, d.jobs.find(j => j.id === 133));
+  assert.equal(supply[43], crafts * 4, 'four bars a pair of greaves');
+  assert.equal(supply[7], crafts * 4, 'and the cobalt for them');
+  const rich = {...p, bank: {...p.bank, 7: crafts * 4 + 1000}};
+  planner.marketUnitValue = (_p, id) => ({[UBAR]: 1e6, 7: 150})[id] ?? null;
+  const ore = reviewInventory(d, planner, rich, goal, 'melee').items.find(r => r.itemId === 7);
+  assert.equal(ore.keep, crafts * 4, ore.reason);
+  assert.equal(ore.sell, 1000, 'only what the stage does not need is sold');
+});
+
 test('what the current batch makes or uses is judged after the batch', () => {
   const {planner, d, p, goal} = smith(1e6);
   const working = {...p, route: {jobId: 44, siteId: 1, limit: 100, onFull: 'bank'}};

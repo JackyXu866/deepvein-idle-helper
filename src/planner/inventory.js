@@ -131,6 +131,9 @@ export function inventoryBudget(data, planner, p, goal=null,consuming=false) {
       recipes.set(plan.recipeId,job?.inputs.length&&!job.grow?plan.mastery?.rarity??0:0);
     }
   }
+  // A leveling stage keeps everything it counts as its supply (planner.stageSupply).
+  for(const plan of plans.filter(levelingGoal))
+    for(const [id,qty]of Object.entries(planner.stageSupply?.(p,plan)??{}))reserve(Number(id),qty);
   for(let route=p.route;route;route=route.after)if(route.jobId!=null)recipes.set(route.jobId,route===p.route?p.workRarity??route.rarity??0:route.rarity??0);
   for(const [id,tier]of recipes) {
     const original=data.jobs.find(j=>j.id===id),job=original&&craftRecipe(data,original,tier);
@@ -224,11 +227,12 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
     else if(potionSale){keep=0;reason=`稀有药水的买单价超过同等药效最便宜来源的 ${POTION_SALE_RATIO} 倍：只挂市场出售，自用较便宜的药水`;}
     else if(marketOnly&&!g&&batchItem(id)){keep=total;reason='当前批次正在制作或使用它：批次结束后再决定是否出售';}
     else if(marketOnly&&!g) {
-      // Sold only for more than the current plan gains by using it.
-      const use=planUseValue(data,planner,p,goal,id),price=planner.saleValue?.(p,id,total)??0,rate=planner.coinRate?.(p)??0;
-      if(use>0&&use>=price){keep=total;reason=`留给当前练级：每件约省 ${Math.round(rate>0?use/rate:0)} 秒（约 ${Math.round(use)} 金币），高于售价约 ${Math.round(price)}`;}
-      else {keep=0;reason='稀有加工品：保留清单以外的按同品质近期成交价只挂市场，不转系统回收'+
-        (use>0?`；售价约 ${Math.round(price)} 高于留给练级的价值约 ${Math.round(use)}`:'');}
+      // Kept exactly as far as a plan counts it (budget: a leveling stage's
+      // supply, planned gear, brews); the rest is sold.
+      const reserved=Math.min(total,budget.items[id]??0);
+      keep=reserved;
+      reason=reserved>=total?'计划要用（练级阶段计入、计划装备或药水），保留':
+        `稀有加工品／矿石：计划不用的 ${total-reserved} 件按同品质近期成交价只挂市场，不转系统回收`;
     }
     else if(marketOnly) {
       keep=row.worn;
