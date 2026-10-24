@@ -32,6 +32,26 @@ test('the business-trade status preview leaves the trade focus as it was', () =>
   assert.equal(JSON.stringify(planner.runtime().specialization), before);
 });
 
+test('the sale list marks exactly what maintenance sells under the current settings', async () => {
+  const {createEconomy} = await import('../src/economy/economy.js');
+  const planner = makePlanner(), d = planner.data;
+  const economy = createEconomy(d, planner, {autoSell: false, capacitySales: false, sellCrafted: true});
+  const bar = d.jobs.find(j => j.name === 'Bronze bar').output.itemId, ore = d.jobs.find(j => j.skill === 'mining' && j.levelReq === 1).output.itemId;
+  const p = player(planner, {levels: {smithing: 10}, bank: {[bar]: 300, [ore]: 300}});
+  const rows = economy.review(p, null, 'melee').items;
+  assert.equal(rows.find(r => r.itemId === bar).autoSold, true, 'crafted surplus is sold with 出售制作品 on');
+  assert.equal(rows.find(r => r.itemId === ore).autoSold, false, 'raw surplus is not, with everyday selling off');
+});
+
+test('the farm status names the crop harvest would sow: one the plan needs first', () => {
+  const planner = makePlanner(), d = planner.data;
+  const crops = d.jobs.filter(j => j.grow && j.levelReq <= 30).sort((a, b) => b.xp / b.grow - a.xp / a.grow);
+  const needed = crops.at(-1);
+  const p = player(planner, {levels: {farming: 30}});
+  const goal = {skill: 'cooking', budget: {coins: 0, items: {[needed.output.itemId]: 10}}};
+  assert.equal(planner.farmStatus(p, goal).selectedName, needed.name);
+});
+
 test('a potion left unbought because every ask is above its value names that reason', () => {
   const planner = makePlanner(), d = planner.data;
   let clock = 1_000_000_000;

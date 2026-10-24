@@ -1,4 +1,5 @@
 import {SCRIPT_BUILT, SCRIPT_DISTRIBUTION, SCRIPT_VERSION} from '../version.js';
+import {reserveWaitingGoals} from '../planner/inventory.js';
 import {GAME_DATA} from '../data/game-data.js';
 import {parsePublicClient} from '../vendor/acorn.js';
 import {PLANNING_WORKER_SOURCE} from '../worker/source.js';
@@ -2748,11 +2749,11 @@ import {itemLabel, packQty} from '../planner/items.js';
     inspectPlanning();
     const p=trainer.player, lv=p?planner.levels(p):null;
     const itemTarget=trainer.itemTargetStatus(),targetChoices=planner.itemTargetChoices();
-    const review=p?(background?planningView?.review:economy.review(p,trainer.goal,trainer.style)):null;
+    const review=p?(background?planningView?.review:economy.review(p,reserveWaitingGoals(trainer.goal,trainer.waitingGoals),trainer.style)):null;
     const metrics=trainer.telemetry.summary();
     const marketText=market.summary();
     const crops=p?planner.farmPlots(p):[], ready=crops.filter(c=>c.readyAt<=p.lastTick).length;
-    const farming=p?(background?planningView?.farming:planner.farmStatus(p,trainer.goal)):null;
+    const farming=p?(background?planningView?.farming:planner.farmStatus(p,reserveWaitingGoals(trainer.goal,trainer.waitingGoals))):null;
     const preference=planner.farmingPreference(),choices=farmingChoices(p),selectedCrop=choices.find(j=>j.id===preference.jobId);
     // What is in each field and why, then the next crop to plant and why.
     const farmText=farming?[
@@ -3153,7 +3154,9 @@ import {itemLabel, packQty} from '../planner/items.js';
       `观测经验 ${Math.round(metrics.xpPerHour)}/时 · 净金币 ${Math.round(metrics.coinsPerHour)}/时\n`+
       `工作 ${Math.round(metrics.activeSeconds/60)} 分钟 · 空闲 ${Math.round(metrics.idleSeconds/60)} 分钟`;
     panel.querySelector('[data-inventory]').textContent=review?review.items.sort((a,b)=>b.sell-a.sell).map(i=>
-      `${i.name}：${autoSell||capacitySales?`${autoSell?'':'仅满仓时：'}留 ${i.keep}，可卖候选 ${i.sell}${i.sell>i.sellFromBank?'（部分需先存仓）':''}`:`不自动出售，计划保留量 ${i.keep}`}\n${i.reason}`
+      // Marked by the rule maintenance sells by (economy.saleRows), not by the switches alone.
+      `${i.name}：留 ${i.keep}，${i.sell>0?i.autoSold?`现在会卖 ${i.sell}${i.sell>i.sellFromBank?'（部分需先存仓）':''}（实际按买单与挂单量分批）`:
+        `可卖 ${i.sell}，${autoSell?'':capacitySales?'仅满仓时卖':'当前设置不卖'}`:'不卖'}\n${i.reason}`
     ).join('\n\n'):'等待角色库存';
     panel.querySelector('[data-enhancement]').textContent=review?review.enhancements.map(e=>
       `${e.name} +${e.fromPlus}→+${e.toPlus}：${e.recommendation}\n${e.benefit}\n${e.gold} 金币 + ${e.shards} 碎片；成功率 ${(e.chance*100).toFixed(1)}%${e.affordable?'':'；当前材料不足'}`

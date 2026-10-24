@@ -15,7 +15,41 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
   let lastGoal=null,lastPlayer=null,lastStyle=null,lastMode=null,lastMain=null,lastJob=null,lastMonster=null,investmentGoal=null,gearDeferredUntil=0,recovery=null;
   planner.pendingEquipmentPlan=(p,style)=>p.id===lastPlayer&&style===lastStyle?investmentGoal:null;
   const budget=(p,goal)=>inventoryBudget(data,planner,p,goal);
-  const review=(p,goal,style='magic')=>reviewInventory(data,planner,p,goal,style);
+  // The goal whose budget protects stock: the current goal (or, across a
+  // reconnect or goal-selection gap, the last one) with a pending equipment
+  // project's budget merged in. Maintenance sells by it, and the sale list
+  // shown is reviewed with it, so what is listed is what would be sold.
+  function protectionGoal(p,goal) {
+    const protection=goal??(p.id===lastPlayer?lastGoal:null);
+    if(!investmentGoal||p.id!==lastPlayer)return protection;
+    const current=budget(p,protection),invest=budget(p,investmentGoal),items={...current.items};
+    for(const [id,qty]of Object.entries(invest.items))items[id]=Math.max(items[id]??0,qty);
+    return {...protection,upgrade:investmentGoal.upgrade,
+      recipes:{...protection?.recipes,...investmentGoal.recipes},budget:{coins:current.coins+invest.coins,items}};
+  }
+  // The reviewed rows maintenance sells: every one for sale with 比价出售 on
+  // (or, with 满仓清理, when the bank is full); otherwise crafted training
+  // surplus and the goal's sale items (a task chosen for its sale income),
+  // with the usual keep amounts and protections. Of gear, one copy of the
+  // highest rarity that could still be an upgrade is kept; other rarity or
+  // enhanced copies go to the market only.
+  function saleRows(goal,inspected,capacity) {
+    const capacitySale=autoSell!==true&&capacitySales===true&&capacity.freeSlots<=0;
+    const craftedSurplus=sellCrafted===true&&autoSell!==true&&!capacitySale?
+      inspected.items.filter(i=>i.sell>0&&(i.marketOnly||i.itemId===planner.base(i.itemId))&&craftedIds.has(planner.base(i.itemId))).map(i=>i.itemId):[];
+    const profitItems=new Set([...(goal?.saleItems??[]),...craftedSurplus]);
+    const profitSale=autoSell!==true&&!capacitySale&&profitItems.size>0;
+    const rows=autoSell===true||capacitySale?inspected.items.filter(i=>i.sell>0):
+      profitSale?inspected.items.filter(i=>i.sell>0&&profitItems.has(i.itemId)):[];
+    return {capacitySale,profitItems,profitSale,rows};
+  }
+  // The sale list shown: the same protection and the same sale rule, each row
+  // marked whether maintenance sells it now (`autoSold`).
+  function review(p,goal,style='magic') {
+    const protection=protectionGoal(p,goal),inspected=reviewInventory(data,planner,p,protection,style);
+    const sold=new Set(saleRows(goal,inspected,budget(p,protection)).rows.map(i=>i.itemId));
+    return {...inspected,items:inspected.items.map(i=>({...i,autoSold:sold.has(i.itemId)}))};
+  }
   const bankFor=p=>nearestBank(data,p);
   const atBank=(p,intent,label,reason,extra={})=>planner.nearBank(p)?action(intent,label,reason,extra):
     action({t:'walk',...bankFor(p).approach},'整理库存 · 前往仓库',reason||label,extra);
@@ -36,13 +70,7 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
     if(upgrading||goal?.itemTarget)investmentGoal=null;
     if(goal)lastGoal=goal;
     // Preserve the in-flight supply budget across a reconnect/goal-selection gap.
-    let protection=goal??lastGoal;
-    if(investmentGoal) {
-      const current=budget(p,protection),invest=budget(p,investmentGoal),items={...current.items};
-      for(const [id,qty]of Object.entries(invest.items))items[id]=Math.max(items[id]??0,qty);
-      protection={...protection,upgrade:investmentGoal.upgrade,
-        recipes:{...protection?.recipes,...investmentGoal.recipes},budget:{coins:current.coins+invest.coins,items}};
-    }
+    const protection=protectionGoal(p,goal);
     // An ordinary inventory detour would overwrite the game's saved farm errand.
     // Capacity emergencies are the only reason to interrupt that trip.
     const capacity=budget(p,protection);
@@ -113,20 +141,9 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
         goal.budget.coins=Math.max(0,goal.budget.coins-goal.enhancement.gold);delete goal.enhancement;
       }
     }
-    const inspected=review(p,protection,style),reserve=inspected.budget;
-    const capacitySale=autoSell!==true&&capacitySales===true&&capacity.freeSlots<=0;
-    // A task chosen for its sale income sells those outputs even with everyday
-    // selling off; the usual keep amounts and protections still apply.
-    // Crafted training output above plan needs, working stock and reserves.
-    // Of gear, one copy of the highest rarity that could still be an upgrade is
-    // kept; other rarity/enhanced copies go to the market only.
-    const craftedSurplus=sellCrafted===true&&autoSell!==true&&!capacitySale?
-      inspected.items.filter(i=>i.sell>0&&(i.marketOnly||i.itemId===planner.base(i.itemId))&&craftedIds.has(planner.base(i.itemId))).map(i=>i.itemId):[];
-    const profitItems=new Set([...(goal?.saleItems??[]),...craftedSurplus]);
-    const profitSale=autoSell!==true&&!capacitySale&&profitItems.size>0;
+    const inspected=reviewInventory(data,planner,p,protection,style),reserve=inspected.budget;
+    const {capacitySale,profitItems,profitSale,rows}=saleRows(goal,inspected,capacity);
     const saleFlags=capacitySale?{capacitySale:true}:profitSale?{profitSale:true}:{};
-    const rows=autoSell===true||capacitySale?inspected.items.filter(i=>i.sell>0):
-      profitSale?inspected.items.filter(i=>i.sell>0&&profitItems.has(i.itemId)):[];
     let deferredSale=null;
     const profit=rows.reduce((n,i)=>n+i.sellFromBank*i.vendorUnit,0);
     const urgent=reserve.pressure||p.coins<reserve.coins;

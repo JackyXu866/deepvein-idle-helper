@@ -290,6 +290,20 @@ export function createPlanner(data) {
     if (farmPlayerId===p.id) return;
     farmPlayerId=p.id;farmSearch=null;farmRetryAt=0;farmDelayReason=null;farmTarget=null;farmTargetReason=null;farmQuote=null;
   }
+  // Crops in the order harvest sows them: those the plan still needs first,
+  // then farming XP per tick, then the preferred one; with crop stocks, their
+  // rows' order, or a crop with seeds held to keep the fields busy. The farm
+  // status names the same crop.
+  function cropOrder(p,goal,stocks,preferredJobId=null) {
+    const eligible=jobs.filter(j=>j.grow&&allowedCrop(j)&&level(p.skills.farming)>=j.levelReq);
+    const demanded=j=>stocks?stocks.some(row=>row.job.id===j.id&&row.plannedMissing>0):
+      (goal?.budget?.items?.[j.output.itemId]??0)>count(p,j.output.itemId);
+    const rank=(a,b)=>Number(demanded(b))-Number(demanded(a))||b.xp/b.grow-a.xp/a.grow||
+      Number(b.id===preferredJobId)-Number(a.id===preferredJobId);
+    const crops=stocks?stocks.map(row=>row.job):[...eligible].sort(rank);
+    const busy=stocks&&!crops.length?busyCrop(p,eligible):null;
+    return {eligible,demanded,crops,busy};
+  }
   function harvest(p,preferredJobId,goal=null,style='magic',completedLoad=false) {
     farmState(p);
     farmDelayReason=manualFarmReason(p);
@@ -298,15 +312,9 @@ export function createPlanner(data) {
     const plots=farmPlots(p), ready=plots.filter(f=>f.readyAt<=p.lastTick)
       .sort((a,b)=>a.readyAt-b.readyAt);
     const fields=farmFields(p),empty=fields.filter(s=>!p.plots?.[s.id]&&!chosenField(p,s));
-    const eligible=jobs.filter(j=>j.grow&&allowedCrop(j)&&level(p.skills.farming)>=j.levelReq);
     const stocks=farmStockMode(p)?farmingStocks(data,p,levels(p),goal,thresholds):null;
-    const demanded=j=>stocks?stocks.some(row=>row.job.id===j.id&&row.plannedMissing>0):
-      (goal?.budget?.items?.[j.output.itemId]??0)>count(p,j.output.itemId);
-    const rank=(a,b)=>Number(demanded(b))-Number(demanded(a))||b.xp/b.grow-a.xp/a.grow||
-      Number(b.id===preferredJobId)-Number(a.id===preferredJobId);
-    let crops=stocks?stocks.map(row=>row.job):eligible.sort(rank);
-    const busy=stocks&&!crops.length?busyCrop(p,eligible):null;
-    if(busy)crops=[busy];
+    const {eligible,demanded,crops:ordered,busy}=cropOrder(p,goal,stocks,preferredJobId);
+    let crops=busy?[busy]:ordered;
     // Native errands harvest every ripe plot, then sow only the route's crop.
     // A selected crop without seeds can therefore collect the old batch safely.
     const selected=crops[0]??manualFarmJob();
@@ -493,7 +501,7 @@ export function createPlanner(data) {
           sage?'保留当前计划金币，等待可负担的商人或市场采购':'市场暂未购得，未找到已核实的自采来源');
       if(farmingChoice.mode==='auto'&&naturalBreak&&(empty.length||ready.length)) {
         const neededGrowth=Math.min(Infinity,...plots.filter(f=>f.readyAt>p.lastTick&&demanded(f.job)).map(f=>f.job.grow));
-        const temporary=(stocks?stocks.map(row=>row.job):eligible).find(j=>(hasSeed(p,j)||ready.some(f=>f.job.id===j.id))&&
+        const temporary=ordered.find(j=>(hasSeed(p,j)||ready.some(f=>f.job.id===j.id))&&
           (demanded(j)||j.grow<=neededGrowth));
         if(temporary) {
           farmDelayReason+=`；临时种植 ${temporary.name}，继续补齐目标 ${selected.name} 种子`;
@@ -1586,9 +1594,8 @@ export function createPlanner(data) {
     farmState(p);
     const fields=farmFields(p),plots=farmPlots(p),empty=fields.filter(s=>!p.plots?.[s.id]).length;
     const stocks=farmStockMode(p)?farmingStocks(data,p,levels(p),goal,thresholds):null;
-    const best=farmingChoice.mode==='manual'?manualFarmJob():farmTarget??
-      (stocks?stocks[0]?.job:
-        jobs.filter(j=>j.grow&&level(p.skills.farming)>=j.levelReq).sort((a,b)=>b.xp/b.grow-a.xp/a.grow)[0]);
+    const order=cropOrder(p,goal,stocks);
+    const best=farmingChoice.mode==='manual'?manualFarmJob():farmTarget??order.busy??order.crops[0];
     // One line per crop in the fields, with the reason it is there.
     const groups=new Map();
     for(const plot of plots) {

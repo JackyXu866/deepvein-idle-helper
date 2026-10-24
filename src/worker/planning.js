@@ -1,4 +1,5 @@
 import {createEnhancementTraining} from '../planner/enhancement.js';
+import {reserveWaitingGoals} from '../planner/inventory.js';
 import {createPlanner} from '../planner/planner.js';
 import {createEconomy} from '../economy/economy.js';
 import {createMarket} from '../economy/market.js';
@@ -92,11 +93,11 @@ export function runPlanning(data,input,inspectOnly=false) {
   if(!inspectOnly)trainer.advance(input.deferBoss);
   const p=trainer.player;
   const view={
-    review:input.details.inventory?economy.review(p,trainer.goal,trainer.style):null,
+    review:input.details.inventory?economy.review(p,reserveWaitingGoals(trainer.goal,trainer.waitingGoals),trainer.style):null,
     equipment:input.details.equipment?planner.equipmentStatus(p,trainer.style):null,
     growth:trainer.mode==='balanced'?planner.growthStatus(p,trainer.style,trainer.deferred):null,
     business:trainer.mode==='business'?planner.specializationStatus(p,trainer.style,trainer.mainTrade,trainer.mainJobId,trainer.mainMonsterId):null,
-    farming:planner.farmStatus(p,trainer.goal),
+    farming:planner.farmStatus(p,reserveWaitingGoals(trainer.goal,trainer.waitingGoals)),
     plan:input.details.plan?planView(data,planner,trainer,p,{boss:input.boss,engineApi:engineApi()}):null
   };
   return {decision:Object.fromEntries(decisionFields.map(key=>[key,trainer[key]])),active:trainer.active,proposal,commands,
