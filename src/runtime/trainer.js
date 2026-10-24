@@ -348,7 +348,8 @@ export class Trainer {
       result.remainingMinutes=Math.max(0,result.remainingMinutes-finishSeconds/60);
       result.reason='当前批次未完成';return result;
     }
-    const candidate=this.planner.specialistChooseGoal?.(p,this.served,this.deferred,this.style,target.skill==='combat'?'combat':target.skill);
+    // A preview: the status must not reset the business focus it reports on.
+    const candidate=(this.planner.specialistPreviewGoal??this.planner.specialistChooseGoal)?.(p,this.served,this.deferred,this.style,target.skill==='combat'?'combat':target.skill);
     const routeSeconds=this.hotRouteSeconds(p,candidate)+finishSeconds;
     if(result.remainingMinutes-routeSeconds/60<this.hotFollow.minMinutes) {
       result.reason='剩余不足 '+this.hotFollow.minMinutes+' 分钟';return result;

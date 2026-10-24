@@ -17,8 +17,13 @@ export function profitFrontier(rows, limit = 5) {
   for (const r of sorted) if (r.xpH > bestXp) { frontier.push(r); bestXp = r.xpH; }
   frontier.reverse(); // ascending gold: [max XP first ... most gold last]
   const maxXp = frontier[0]?.xpH ?? 0;
-  const points = frontier.map((r, i) => ({floor: i === 0 ? 0 : Math.max(0, Math.floor(r.coinsH / 100) * 100),
-    label: r.label, xpH: r.xpH, coinsH: r.coinsH, loss: maxXp > 0 ? 1 - r.xpH / maxXp : 0}));
+  // Each button shows what that floor actually picks: the highest-XP job
+  // earning at least the (rounded) floor, the helper's own rule.
+  const bestAt = floor => sorted.filter(r => r.coinsH >= floor).sort((a, b) => b.xpH - a.xpH || b.coinsH - a.coinsH)[0];
+  const points = frontier.map((r, i) => {
+    const floor = i === 0 ? 0 : Math.max(0, Math.floor(r.coinsH / 100) * 100), pick = bestAt(floor) ?? r;
+    return {floor, label: pick.label, xpH: pick.xpH, coinsH: pick.coinsH, loss: maxXp > 0 ? 1 - pick.xpH / maxXp : 0};
+  });
   if (points.length <= limit) return points;
   const picked = [points[0]];
   for (let i = 1; i < limit - 1; i++) picked.push(points[Math.round(i * (points.length - 1) / (limit - 1))]);
@@ -96,7 +101,7 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
     minutesLeft: Math.max(0, Math.ceil((goal.funding.until - p.lastTick) * data.tickMs / 60000))} : null;
 
   let quests = [], perks = null;
-  try { quests = planner.questOverview?.(p, style) ?? []; } catch { quests = []; }
+  try { quests = planner.questOverview?.(p, style, trainer.questDeferred ?? {}) ?? []; } catch { quests = []; }
   try { perks = planner.perkOverview?.(p, goal, style) ?? null; } catch { perks = null; }
 
   return {layer, mode: trainer.mode, profitFloor: planner.profitFloor ?? 0,

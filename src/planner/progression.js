@@ -182,8 +182,8 @@ export function createProgression(data,planner) {
     best.reason=`发展计划：${purpose}，${lv[best.skill]} → ${best.target} 级；`+
       `各技能保持在最低 ${lowest} 级以上 ${BAND} 级以内；`+
       (best.unlockNames.length?`解锁 ${best.unlockNames.join('、')}；`:'')+
-      (Number.isFinite(best.projectSeconds)?`按现有供料条件约 ${Math.max(1,Math.ceil(best.projectSeconds/60))} 分钟；`:'先补齐装备与供料条件；')+
-      (best.incomeRate>0?`可持续收入估计 ${Math.round(best.incomeRate*60)} 金币/分；`:'')+
+      // No time or income figure here: this text stays while the project runs,
+      // and the stage plan's own message carries the current numbers.
       '先准备本计划装备和整批材料，达标后再选下一项';
     alternatives=choices.filter(c=>c.skill!==best.skill).slice(0,3).map(c=>({skill:c.skill,target:c.target,seconds:c.projectSeconds}));
     best.developmentFiller=Object.keys(parked).length>0;

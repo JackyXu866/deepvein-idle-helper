@@ -1,5 +1,4 @@
 import {professionSkill} from './professions.js';
-import {PAIR_TIERS} from './quality.js';
 import {formulaWork, perAction, weaponStyle} from './rates.js';
 import {dayTicks as dayTicksOf} from './items.js';
 
@@ -52,8 +51,8 @@ export function createQuests(data,planner) {
     // Held matched quality sets count too (progress takes any quality); only
     // the rest needs the common supply chain.
     const crafts=Math.ceil(q.remaining/success);
-    const held=job&&job.inputs.length&&!job.grow?Math.min(crafts,PAIR_TIERS.filter(t=>t>0)
-      .reduce((n,t)=>n+(planner.crafting?.available?.(p,job,t,{},crafts)??0),0)):0;
+    // The same quality sets the quest's execution would use (questQualitySets).
+    const held=job?Math.min(crafts,planner.questQualitySets?.(p,job,crafts,style)?.n??0):0;
     const rest=crafts-held;
     const estimate=rest>0?planner.routeEstimate(p,job??{monsterId:q.monsterId},rest,{style,buyInputs:true,credit:false}):
       {seconds:0,xp:0,coins:0,budget:{coins:0,items:{}},recipes:{[skill]:job.id},supplyRecipes:{},purchases:{}};
@@ -112,10 +111,13 @@ export function createQuests(data,planner) {
     return !q||q.claimed||q.remaining===0;
   }
   // For the plan panel: every open quest with its estimate or refusal reason.
-  function overview(p,style='magic') {
+  // `deferred`: the trainer's set-aside quests (key -> until, ms), which
+  // chooseGoal skips; shown as such, not as ready to do.
+  function overview(p,style='magic',deferred={}) {
     return read(p).filter(q=>!q.claimed).map(q=>{
       const base={key:q.key,period:q.period,title:title(q)??q.id,done:q.done,goal:q.goal,remaining:q.remaining};
       if(!q.remaining)return {...base,status:'可领取'};
+      if(deferred[q.key])return {...base,status:`暂缓至 ${new Date(deferred[q.key]).toLocaleTimeString()}（等待条件变化，到时重新安排）`};
       const check=feasibility(p,q,style);
       return check.ok?{...base,status:'可完成',seconds:check.seconds,buys:Object.keys(check.estimate?.purchases??{}).length}:
         {...base,status:check.reason};

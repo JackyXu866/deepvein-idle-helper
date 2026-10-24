@@ -194,7 +194,7 @@ export function createHousing(data,planner) {
       const first=donors.find(d=>d.itemId===conversions[0].itemId);
       return action({t:'convertHouse',...conversions[0]},`准备${roomName(room.id)}升级 · 转换 ${itemLabel(data,conversions[0].itemId)} × ${conversions[0].qty}`,
         `还需 ${missing} 点，本批材料售价合计约 ${Math.ceil(cost)} 金币；先用每点最便宜的（本项约 ${(first.unit/first.each).toFixed(1)} 金币/点）；`+
-        (room.id==='storeroom'?'仓库紧张，优先增加仓位':'按七天有效挂机、分摊各职业使用时间估算收益')+'；保留原计划材料、口粮和稀有物品');
+        (room.id==='storeroom'?'仓库紧张，优先增加仓位':'按 30 天有效挂机、分摊各职业使用时间估算收益')+'；保留原计划材料、口粮和稀有物品');
     }
     return null;
   }

@@ -1377,10 +1377,7 @@ export function createPlanner(data) {
       // Progress counts any quality. When the common recipe cannot be made from
       // stock now, held matched quality sets finish it first, rarest first; with
       // commons in stock, those are used and the rare materials kept.
-      const reserve=plannedGearReserve(p,profession);
-      const sets=job&&job.inputs.length&&!job.grow&&api.crafting.available(p,job,0,reserve,1)<1?
-        PAIR_TIERS.filter(t=>t>0&&qualityWorth(data,api,p,job,t).ok).map(t=>({recipe:craftRecipe(data,job,t),n:api.crafting.available(p,job,t,reserve,quest.remaining)}))
-          .find(s=>s.recipe&&s.n>0):null;
+      const sets=job&&questQualitySets(p,job,quest.remaining,profession);
       result=quest.kind==='kill'?fight(style):sets?batch(sets.recipe,Math.min(quest.remaining,sets.n)):batch(job,quest.remaining);
       if(sets)result.reason=`任务计入任何品质：普通配方暂缺原料，先用已有的 ${RARITY_NAMES[sets.recipe.rarity]}配对做 ${Math.min(quest.remaining,sets.n)} 次；${result.reason||result.label}`;
     } else if(goal.itemTarget) {
@@ -1640,6 +1637,17 @@ export function createPlanner(data) {
   // stock: listed, but not a rate. Computed once a game minute per state and
   // carried in the planner runtime; while it is computed, gold converts at
   // the direct gold jobs' rate.
+  // Held quality sets a quest craft uses: only when the common recipe cannot be
+  // made at all, the first quality worth using whose sets are held (planned
+  // gear's materials kept). The quest board's estimate counts the same.
+  function questQualitySets(p,job,remaining,profession=api.styleHint??'magic') {
+    if(!job.inputs.length||job.grow)return null;
+    const reserve=plannedGearReserve(p,profession);
+    if(api.crafting.available(p,job,0,reserve,1)>=1)return null;
+    return PAIR_TIERS.filter(t=>t>0&&qualityWorth(data,api,p,job,t).ok)
+      .map(t=>({recipe:craftRecipe(data,job,t),n:api.crafting.available(p,job,t,reserve,remaining)}))
+      .find(s=>s.recipe&&s.n>0)??null;
+  }
   // Crafts of `job` that take `skill` to `target`. Same-skill steps on the
   // way count too: smelting the four bars of a pair of greaves is smithing XP
   // as well (480 + 4 × 108). Only what still has to be made earns it; held
@@ -1736,7 +1744,7 @@ export function createPlanner(data) {
     acquireEstimate:(p,id,qty,style='magic')=>rarity(id)>0?api.crafting.estimate(
       withoutItem(p,id),id,qty,{buy:true}):
       strategy.routeEstimate(p,{itemId:id},qty,{style}),
-    goldJobs,incomeRows,coinRate,stageSupply,stageCraftCount,
+    goldJobs,incomeRows,coinRate,stageSupply,stageCraftCount,questQualitySets,
     // What one unit would sell for, net of tax: the market's sale layers, else the merchant.
     saleValue:(p,id,qty=1)=>api.marketUnitValue?.(p,id,qty)??merchantPrice(data,id)});
   const growth=createProgression(data,api);
@@ -1753,7 +1761,7 @@ export function createPlanner(data) {
     observeDevelopment:growth.observe,resetDevelopment:growth.reset,developmentRuntime:growth.runtime,developmentStalled:growth.stalled,
     resumeDevelopment:growth.resumeReady,
     incomeChoices:specialization.incomeChoices,
-    specialistChooseGoal:specialization.chooseGoal,specializationStatus:specialization.status,
+    specialistChooseGoal:specialization.chooseGoal,specialistPreviewGoal:specialization.previewGoal,specializationStatus:specialization.status,
     resetSpecialization:specialization.reset,
     masteryChooseGoal:mastery.chooseGoal,masteryCompleted:mastery.completed,masterySkipped:mastery.skipped,
     masteryStatus:mastery.status,masteryRuntime:mastery.runtime,resetMastery:mastery.reset,

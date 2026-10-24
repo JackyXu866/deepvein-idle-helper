@@ -173,9 +173,13 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
       const pick=options[0]??{t:0,n:needed,cost:supplyCosts(itemId,needed,0)};
       const short=pick.n,cost=pick.cost,round=n=>Number.isFinite(n)?Math.round(n).toLocaleString('en-US'):'—';
       const buyPerEffect=cheapestEffect(data,planner,p,itemId);
-      const why=`自制每瓶约 ${round(cost.brew)}（药效 ×${power(pick.t)}），市场每份药效最低约 ${round(buyPerEffect)}${cost.training?'；含炼药练级省下的时间':''}`;
+      // The message shows exactly what is compared: per unit of effect, brewing
+      // up to MAKE_BIAS times the market price still brews (the herblore XP).
+      const brewPerEffect=cost.brew/power(pick.t);
+      const why=`自制每份药效约 ${round(brewPerEffect)}（每瓶 ${round(cost.brew)}，药效 ×${power(pick.t)}），`+
+        `市场每份药效最低约 ${round(buyPerEffect)}，不超过其 ${MAKE_BIAS} 倍就自制${cost.training?'；含炼药练级省下的时间':''}`;
       // With neither price known, brew what the held ingredients make, else buy.
-      const brewing=cost.brew/power(pick.t)<=buyPerEffect*MAKE_BIAS||!Number.isFinite(cost.brew)&&!Number.isFinite(buyPerEffect);
+      const brewing=brewPerEffect<=buyPerEffect*MAKE_BIAS||!Number.isFinite(cost.brew)&&!Number.isFinite(buyPerEffect);
       if(brewing&&!cost.missing.length) {
         const own=brew(itemId,name,short,why,pick.t);if(own)return own;
         if(Number.isFinite(cost.brew)){report('brew',`药水未喝：${name}自制更便宜（${why}），换任务或返仓时开做`);continue;}
@@ -185,7 +189,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
         report('brew',`药水未喝：${name}自制更便宜（${why}），返仓时买原料`);continue;
       }
       const refill=restock(itemId,desired,uncovered,worth);if(refill)return refill;
-      const status=planner.potionStatus?.(p,itemId,goal,desired);
+      const status=planner.potionStatus?.(p,itemId,goal,desired,worth);
       report(status?.key??'stock',status?.message??`药水未喝：${itemName(data,itemId)}库存不足，当前无法安全补货`);
     }
     return null;

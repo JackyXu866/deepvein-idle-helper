@@ -534,18 +534,26 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     }).filter(c=>c.qty>0&&Number.isFinite(c.value)).sort((a,b)=>a.value-b.value||a.itemId-b.itemId);
     return choices[0]??null;
   }
-  function potionStatus(p,itemId,goal=null,desiredQty=1) {
+  // Why no potion was bought, from the same offers and limits the purchase
+  // (balancedPotion) uses: the price feed counts, and so does the value cap.
+  function potionStatus(p,itemId,goal=null,desiredQty=1,worth=null) {
     select(p);
     const name=itemName(data,planner.base(itemId));
     if(!procurement?.enabled)return {key:'procurement-off',message:`药水未喝：${name}库存不足，按收益采购已关闭`};
     if(p.ironman)return {key:'procurement-off',message:`药水未喝：${name}库存不足，铁人角色不采购市场药水`};
     if(!planner.nearBank(p)||p.route||p.path?.length||playerQueued(p))
       return {key:'route',message:`药水未喝：${name}库存不足，当前路线或位置不在安全补货边界`};
-    if(!(purchaseAllowance(p,goal)>0))return {key:'budget',message:`药水未喝：${name}库存不足，采购预算不足`};
-    const fresh=variants(itemId).some(id=>{const top=tops.get(id);return top&&now()-top.at<60000&&top.ask>0;});
-    const queried=variants(itemId).some(id=>bookRequests.has(id));
-    if(!fresh)return {key:'quote',message:`药水未喝：${name}库存不足，正在等待有效卖盘报价`};
-    if(!queried&&desiredQty>0)return {key:'budget',message:`药水未喝：${name}暂无符合当前预算的卖盘`};
+    const allowance=purchaseAllowance(p,goal);
+    if(!(allowance>0))return {key:'budget',message:`药水未喝：${name}库存不足，采购预算不足`};
+    if(state.attempt||!slots(p,'buy'))return {key:'quote',message:`药水未喝：${name}库存不足，上一笔交易待确认或挂单栏已满`};
+    const offers=scan(p,variants(itemId));
+    if(!offers.length)return {key:'quote',message:variants(itemId).some(id=>bookRequests.has(id))?
+      `药水未喝：${name}库存不足，正在等待有效卖盘报价`:`药水未喝：${name}暂无卖盘`};
+    const cheapest=offers.reduce((a,b)=>pricePerEffect(data,a.ask,a.itemId)<=pricePerEffect(data,b.ask,b.itemId)?a:b);
+    const cap=potionCap(itemId,cheapest.itemId,worth);
+    if(offers.every(o=>o.ask>potionCap(itemId,o.itemId,worth)))
+      return {key:'budget',message:`药水未喝：${name}卖盘最低 ${cheapest.ask} 高于药效价值上限约 ${Math.floor(cap)}（${Number.isFinite(worth)&&worth>0?'按省下的时间折算':'无法估算省时，按基础价值 3 倍'}）`};
+    if(offers.every(o=>o.ask>allowance))return {key:'budget',message:`药水未喝：${name}卖盘最低 ${cheapest.ask} 超出采购预算 ${Math.floor(allowance)}`};
     return {key:'quote',message:`药水未喝：${name}暂无可用报价`};
   }
   // The most one bottle of this quality may cost. With a known worth (the

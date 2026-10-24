@@ -2843,7 +2843,7 @@ import {itemLabel, packQty} from '../planner/items.js';
     if(document.activeElement!==floorInput)floorInput.value=String(profitFloor);
     if(planDetailsWanted()) {
       let view=null;
-      try{view=background?planningView?.plan??null:p?planView(GAME_DATA,planner,trainer,p):null;}catch{view=null;}
+      try{view=background?planningView?.plan??null:p?planView(GAME_DATA,planner,trainer,p,{boss:trainer.boss.status()}):null;}catch{view=null;}
       renderPlan(view);if(trainer.mode==='experience')renderSuggestions(view);
     }
     panel.querySelector('[data-main-trade]').value=trainer.mainTrade;

@@ -232,5 +232,11 @@ export function createSpecialization(data,planner) {
     if(value) ({owner,profession,selection,selectedJob,selectedMonster,focus,pausedUntil}=value);
     return {owner,profession,selection,selectedJob,selectedMonster,focus,pausedUntil};
   }
-  return {chooseGoal,status,reset,runtime,incomeChoices};
+  // What chooseGoal would pick, leaving the focus and pauses as they were: a
+  // status shown on screen must not change what the next real choice keeps.
+  function previewGoal(...args) {
+    const saved=structuredClone(runtime());
+    try {return chooseGoal(...args);} finally {runtime(saved);}
+  }
+  return {chooseGoal,previewGoal,status,reset,runtime,incomeChoices};
 }
