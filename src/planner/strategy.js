@@ -126,7 +126,10 @@ export function createStrategy(data, planner) {
     // craft look like millions lost an hour); whether to sell them instead is
     // the sale review's question (inventory.planUseValue).
     let seconds=0,xp=0,coins=0,position=p,unlocks=[],marketCoins=0;
-    const purchases={};
+    // `owned`: how much of the stock held at the start the route uses up (not
+    // what it makes and uses on the way), for callers that do price it: the
+    // gold table charges it at what it would sell for.
+    const purchases={},owned={},startStock={...stock};
     const travel=to=>{
       if (includeTravel) seconds+=distance(position,to)*tick;
       position=to;
@@ -169,6 +172,8 @@ export function createStrategy(data, planner) {
       if(!autoUsableMaterial(data,id))return false;
       budget[id]=(budget[id]??0)+Math.ceil(quantity);
       const used=Math.max(0,Math.min(quantity,stock[id]??0));stock[id]=(stock[id]??0)-used;
+      const own=Math.min(used,startStock[id]??0);
+      if(own>0){startStock[id]-=own;owned[id]=(owned[id]??0)+own;}
       const missing=quantity-used;
       if (missing<1e-7) return true;
       if (trail.includes(id)) return false;
@@ -273,7 +278,7 @@ export function createStrategy(data, planner) {
     } else if (root) ok=work(root,amount,[root.output.itemId]);
     if (!ok||!Number.isFinite(seconds)) return invalid();
     return {seconds,xp,coins,rate:{xp:xp/Math.max(1,seconds),coins:coins/Math.max(1,seconds)},
-      budget:{coins:Math.max(0,-coins-marketCoins),items:budget},recipes,supplyRecipes,unlocks,purchases};
+      budget:{coins:Math.max(0,-coins-marketCoins),items:budget},recipes,supplyRecipes,unlocks,purchases,owned};
   }
   function candidates(p,style='magic',deferred={},options={}) {
     const skill=professionSkill(style);
