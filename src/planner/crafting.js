@@ -25,42 +25,59 @@ export function createCrafting(data,planner) {
   }
   // Whether making `id` beats buying it at `buySeconds` (its price as time).
   const makeBeatsBuying=(p,id,qty,buySeconds,goal=null)=>fromBought(p,id,qty,goal).seconds<=buySeconds*MAKE_BIAS;
+  // Recipes making each base (any level), found once per data.
+  const makers=new Map();
+  for(const j of data.jobs)if(j.inputs.length&&!j.grow) {
+    if(!makers.has(j.output.itemId))makers.set(j.output.itemId,[]);
+    makers.get(j.output.itemId).push(j);
+  }
   function estimate(p,id,qty,{reserve={},buy=false,coins=0}={}) {
-    const stock=stockMap(p),levels=planner.levels(p);
-    const keep={...reserve};
-    const locked=lockedGear(data,p);
-    for(const key of Object.keys(stock))
-      if(locked.ids.has(+key)||locked.variants.has(+key%data.plusScale))keep[key]=Math.max(keep[key]??0,1);
-    for(const [key,n]of Object.entries(keep))stock[key]=Math.max(0,(stock[key]??0)-n);
+    const levels=planner.levels(p),locked=lockedGear(data,p);
+    // Bank and pack less what is reserved (one of each locked gear piece),
+    // read in place: only what this estimate uses is recorded, in `changes`,
+    // and a failed branch is undone from the log. Copying the whole bank at
+    // every step made this the slowest part of a plan for a large bank.
+    const keep=key=>Math.max(reserve[key]??0,locked.ids.has(key)||locked.variants.has(key%data.plusScale)?1:0);
+    const changes=new Map(),log=[];
+    const get=key=>changes.has(key)?changes.get(key):Math.max(0,(p.bank[key]??0)+packQty(p,key)-keep(key));
+    const put=(key,value)=>{log.push([key,changes.has(key),changes.get(key)]);changes.set(key,value);};
+    const undo=mark=>{while(log.length>mark){const [key,had,value]=log.pop();if(had)changes.set(key,value);else changes.delete(key);}};
+    const stockNow=()=>{
+      const out={};
+      for(const key of new Set([...Object.keys(p.bank).map(Number),...p.pack.map(i=>i.itemId),...changes.keys()]))out[key]=get(key);
+      return out;
+    };
     let money=0;
+    const rates=new Map(),trips=new Map();
     function supply(itemId,amount,trail=[]) {
       if(!autoUsableMaterial(data,itemId))return Infinity;
-      const used=Math.min(amount,stock[itemId]??0);stock[itemId]=(stock[itemId]??0)-used;
+      const used=Math.min(amount,get(itemId));put(itemId,get(itemId)-used);
       const missing=amount-used;if(missing<=0)return 0;
       if(trail.includes(itemId)||itemId>=data.plusScale)return Infinity;
       const tier=rarityOf(data,itemId),base=planner.base(itemId);
-      const job=data.jobs.find(j=>j.output.itemId===base&&j.inputs.length&&!j.grow&&levels[j.skill]>=j.levelReq);
+      const job=(makers.get(base)??[]).find(j=>levels[j.skill]>=j.levelReq);
       const recipe=job&&craftRecipe(data,job,tier);
       if(recipe) {
-        const saved={...stock},beforeMoney=money;
+        const mark=log.length,beforeMoney=money;
         const n=Math.ceil(missing/recipe.output.qty),next=[...trail,itemId];
         let seconds=0;
         for(const input of recipe.inputs)seconds+=supply(input.itemId,n*input.qty,next);
         if(Number.isFinite(seconds)) {
-          const rate=formulaWork(data,planner,p,recipe,levels);
-          stock[itemId]=(stock[itemId]??0)+n*recipe.output.qty-missing;
-          const travel=2*Math.min(...data.sites.filter(site=>site.jobIds.includes(job.id))
-            .map(site=>distance(p,site)))*data.tickMs/1000;
-          return seconds+n*rate.seconds/rate.success+travel;
+          if(!rates.has(recipe))rates.set(recipe,formulaWork(data,planner,p,recipe,levels));
+          const rate=rates.get(recipe);
+          put(itemId,get(itemId)+n*recipe.output.qty-missing);
+          if(!trips.has(job.id))trips.set(job.id,2*Math.min(...data.sites.filter(site=>site.jobIds.includes(job.id))
+            .map(site=>distance(p,site)))*data.tickMs/1000);
+          return seconds+n*rate.seconds/rate.success+trips.get(job.id);
         }
-        for(const key of Object.keys(stock))delete stock[key];Object.assign(stock,saved);money=beforeMoney;
+        undo(mark);money=beforeMoney;
       }
       if(buy) {
         const unit=itemId===id?Infinity:planner.marketBuyPrice?.(p,itemId,missing)??Infinity;
         const seconds=goldToSeconds(unit*missing,planner.coinRate(p));
         if(Number.isFinite(seconds)){money+=unit*missing;return seconds;}
         // Ordinary missing fuel can be gathered; never grind random rare drops.
-        if(tier===0)return planner.routeEstimate({...p,bank:stock,pack:[]},{itemId},missing).seconds;
+        if(tier===0)return planner.routeEstimate({...p,bank:stockNow(),pack:[]},{itemId},missing).seconds;
       }
       return Infinity;
     }

@@ -62,6 +62,9 @@ export function runPlanning(data,input,inspectOnly=false) {
     input.storage[key]=value;writes[key]=value;
   }};
   planner.runtime(input.planner);
+  // Before anything asks for the gold rate: without it the first calls price
+  // the income table for 'magic' and the plan prices it again for the real style.
+  planner.styleHint=input.trainer?.style??planner.styleHint;
   planner.profitFloor=input.settings.profitFloor??0;
   planner.autoSeedQuality=input.settings.autoSeedQuality!==false;
   planner.automation=input.settings.automation;
@@ -103,6 +106,8 @@ export function runPlanning(data,input,inspectOnly=false) {
     farming:timed('农田状态',()=>planner.farmStatus(p,reserveWaitingGoals(trainer.goal,trainer.waitingGoals))),
     plan:input.details.plan?timed('计划页',()=>planView(data,planner,trainer,p,{boss:input.boss,engineApi:engineApi()})):null
   };
+  // Of which the income table (recomputed once per game minute).
+  if(planner.incomeMs)timings['其中收益表']=planner.incomeMs;
   return {decision:Object.fromEntries(decisionFields.map(key=>[key,trainer[key]])),active:trainer.active,proposal,commands,timings,
     sync:{syncAfter:trainer.syncAfter,nextSync:trainer.nextSync,lastSync:trainer.lastSync},
     planner:planner.runtime(),economy:economy.runtime(),market:market.runtime(),writes,view,

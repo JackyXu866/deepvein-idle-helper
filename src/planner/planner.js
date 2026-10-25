@@ -1731,8 +1731,13 @@ export function createPlanner(data) {
   let incomeRates=null,computingIncome=false;
   function incomeRows(p,style=api.styleHint??'magic') {
     const key=JSON.stringify([p.id,style,levels(p),p.equipment,Math.floor(p.lastTick*data.tickMs/60000)]);
-    if(incomeRates?.key===key)return incomeRates.rows;
+    // The last two tables (a call without the style hint once asked for
+    // 'magic' and evicted the real style's table, rebuilding both every run).
+    const kept=Array.isArray(incomeRates)?incomeRates:incomeRates?[incomeRates]:[];
+    const hit=kept.find(entry=>entry.key===key);
+    if(hit)return hit.rows;
     computingIncome=true;
+    const started=Date.now();
     try {
       const rows=(api.incomeChoices?.(p,api.candidates(p,style,{}),style)??[]).map(c=>({
         key:c.monsterId!=null?combatKey(c.monsterId):jobKey(c.recipeId,c.rarity),recipeId:c.recipeId??null,
@@ -1740,8 +1745,8 @@ export function createPlanner(data) {
         .sort((a,b)=>b.coins-a.coins);
       const best=rows.find(r=>!r.oneOff&&r.coins>0);
       if(best)best.goldRate=true;
-      incomeRates={key,rows};return rows;
-    } finally {computingIncome=false;}
+      incomeRates=[{key,rows},...kept.filter(entry=>entry.key!==key)].slice(0,2);return rows;
+    } finally {computingIncome=false;api.incomeMs=(api.incomeMs??0)+Date.now()-started;}
   }
   const coinRate=p=>computingIncome?Math.max(0,goldJobs(p)[0]?.rate??0):
     incomeRows(p).find(r=>r.goldRate)?.coins??Math.max(0,goldJobs(p)[0]?.rate??0);

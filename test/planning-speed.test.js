@@ -33,6 +33,17 @@ test('reviewing one item gives the verdict the full review gives', () => {
   }
 });
 
+test('the income table carried between calculations is reused, whichever style asked first', () => {
+  const {planner, p} = rich();
+  planner.coinRate(p); // no style hint yet: priced for 'magic'
+  planner.incomeRows(p, 'melee');
+  const next = makePlanner();
+  next.runtime(structuredClone(planner.runtime()));
+  next.coinRate(p);
+  next.incomeRows(p, 'melee');
+  assert.equal(next.incomeMs, undefined, 'neither table is rebuilt in the next calculation');
+});
+
 test('a late-game plan with a large bank stays well under the 3-second limit', () => {
   const {planner, p} = rich();
   const start = performance.now();
