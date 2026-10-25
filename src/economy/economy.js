@@ -185,9 +185,12 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
       if(goal?.itemTarget)return action(null,'物品目标等待仓库空间',
         '仓库剩余物品均受保护或正在等待成交；保留当前物品目标，整理后继续',{capacityLimited:true});
       // All remaining stock is protected. Continue a coin-only task without
-      // creating new item kinds, rather than buying shelves or deleting valuables.
-      // A bonus drop would add a new kind unless one is already shelved.
-      const choices=planner.goldJobs(p).map(row=>row.job).filter(j=>!j.bonus||(p.bank[j.bonus.itemId]??0)>0);
+      // creating new item kinds, rather than buying shelves or deleting valuables:
+      // the gold table's rows in its order, those paying coins only. A bonus
+      // drop would add a new kind unless one is already shelved.
+      const choices=(planner.incomeRows?.(p,style)??[]).filter(r=>r.recipeId!=null&&!r.oneOff)
+        .map(r=>data.jobs.find(j=>j.id===r.recipeId))
+        .filter(j=>j&&!j.inputs.length&&j.output.itemId===data.coinId&&(!j.bonus||(p.bank[j.bonus.itemId]??0)>0));
       const fixed=mode==='business'&&(mainJobId!=null||mainMonsterId!=null||goal?.fixedRecipeId!=null||goal?.fixedMonsterId!=null);
       const job=fixed?choices.find(j=>j.id===(mainJobId??goal?.fixedRecipeId)):choices[0];
       const site=job&&data.sites.find(s=>s.jobIds.includes(job.id));

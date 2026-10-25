@@ -960,9 +960,17 @@ export function createPlanner(data) {
         if(id!==data.coinId)goal.budget.items[id]=Math.max(goal.budget.items[id]??0,quantity);
       }
       const next = [...trail,id];
+      // Gold is earned as all gold is (funding too): on the job that sets the
+      // gold rate, the gold table's top lasting row, its products sold while
+      // the plan is short (cashSales; cleared once the cash budget is met).
       if (id===data.coinId) {
-        const job = goldJobs(p)[0].job;
-        return batch(job,Math.ceil((quantity-p.coins)/job.output.qty),next);
+        const earn=goal.earning?null:api.earningGoal?.(p,profession);
+        if(!earn)return blocked('金币效率表里暂无可做的赚金币工作');
+        const task={...earn,target:thresholds.length,earning:true,budget:{coins:0,items:{...earn.budget?.items}}};
+        const result=planTask(p,task,profession);
+        if(!result||result.blocked)return result??blocked('赚金币的工作暂时无法进行');
+        goal.cashSales=earn.saleItems;
+        return {...result,reason:`缺 ${(quantity-p.coins).toLocaleString()} 金币：做金币效率最高的工作，约 ${earn.coinsPerHour.toLocaleString()} 金币/时（含出售产物）；${result.reason||result.label}`};
       }
       // The reviewed vendor sells this starter seed at four times base value.
       // A single seed is returned by harvesting and starts the herb supply chain.
@@ -1344,21 +1352,8 @@ export function createPlanner(data) {
       return {...result,priorityGear:true,investmentGoal:goal};
     }
     if ((goal.budget?.coins??0)>p.coins) {
-      // Earned as all gold is earned (funding too): on the job that sets the
-      // gold rate, its sale items sold while the plan is short (cashSales).
-      // A direct-coin stall only when no such job can be run.
-      const earn=goal.earning?null:api.earningGoal?.(p,profession);
-      if(earn) {
-        const task={...earn,target:thresholds.length,earning:true,budget:{coins:0,items:{...earn.budget?.items}}};
-        const result=planTask(p,task,profession);
-        if(result&&!result.blocked) {
-          goal.cashSales=earn.saleItems;
-          return {...result,goal,reason:`补足当前计划现金预算 ${goal.budget.coins.toLocaleString()}（现有 ${p.coins.toLocaleString()}）：`+
-            `做金币效率最高的工作，约 ${earn.coinsPerHour.toLocaleString()} 金币/时（含出售产物）；${result.reason||result.label}`};
-        }
-      }
       const result=need(data.coinId,goal.budget.coins);
-      result.reason=`补足当前计划现金预算 ${goal.budget.coins.toLocaleString()}：${result.reason||result.label}`;
+      result.reason=`补足当前计划现金预算 ${goal.budget.coins.toLocaleString()}（现有 ${p.coins.toLocaleString()}）：${result.reason||result.label}`;
       result.goal=goal;return result;
     }
     delete goal.cashSales;
@@ -1653,21 +1648,6 @@ export function createPlanner(data) {
     else if(farmTargetReason)reason=`${farmTargetReason} · ${best.name}：${reason}`;
     return {...status,crop:best.name,reason};
   }
-  // The one gold rate: the jobs that pay coins directly (no inputs) and are
-  // unlocked, best calibrated coins per second first. Every gold-as-time
-  // conversion uses the first one's rate (coinRate).
-  function goldJobs(p) {
-    return jobs.filter(j=>j.output.itemId===data.coinId&&!j.inputs.length&&level(p.skills[j.skill])>=j.levelReq)
-      .map(job=>{const e=strategy.estimateWork(p,job);return {job,rate:e.coins/e.seconds};})
-      .filter(row=>row.rate>0).sort((a,b)=>b.rate-a.rate);
-  }
-  // The gold/hour comparison the plan tab shows, and the one gold rate: every
-  // candidate job priced by incomeChoices (its coins, what buyers take of its
-  // output after stock and tax, quality ore and drops at their buyers' price).
-  // A quality craft from held matched sets is a one-off batch, limited by that
-  // stock: listed, but not a rate. Computed once a game minute per state and
-  // carried in the planner runtime; while it is computed, gold converts at
-  // the direct gold jobs' rate.
   // Held quality sets a quest craft uses: only when the common recipe cannot be
   // made at all, the first quality worth using whose sets are held (planned
   // gear's materials kept). The quest board's estimate counts the same.
@@ -1742,7 +1722,15 @@ export function createPlanner(data) {
     }
     return items;
   }
-  let incomeRates=null,computingIncome=false;
+  // The gold/hour comparison the plan tab shows, and the one gold rate: every
+  // candidate job priced by incomeChoices (its coins, what buyers take of its
+  // output after stock and tax, quality ore and drops at their buyers' price).
+  // Its top lasting row sets the gold rate (coinRate) and is where gold is
+  // earned (earningGoal). A quality craft from held matched sets is a one-off
+  // batch, limited by that stock: listed, but not a rate. Computed once a game
+  // minute per state and carried in the planner runtime.
+  let incomeRates=null,computingIncome=false,provisionalRate=0;
+  const goldRow=rows=>rows.find(r=>r.goldRate);
   function incomeRows(p,style=api.styleHint??'magic') {
     const key=JSON.stringify([p.id,style,levels(p),p.equipment,Math.floor(p.lastTick*data.tickMs/60000)]);
     // The last two tables (a call without the style hint once asked for
@@ -1752,18 +1740,27 @@ export function createPlanner(data) {
     if(hit)return hit.rows;
     computingIncome=true;
     const started=Date.now();
-    try {
+    // Pricing the table needs a gold rate itself (bought inputs as time): the
+    // previous table's. With none yet, a first pass buys nothing (gold has no
+    // known rate) and the table is priced again at that pass's rate.
+    const compute=()=>{
       const rows=(api.incomeChoices?.(p,api.candidates(p,style,{}),style)??[]).map(c=>({
         key:c.monsterId!=null?combatKey(c.monsterId):jobKey(c.recipeId,c.rarity),recipeId:c.recipeId??null,
         monsterId:c.monsterId??null,rarity:c.rarity??0,skill:c.skill,xp:c.rate.xp,coins:c.rate.coins,oneOff:c.rarity>0,saleItems:c.saleItems??[]}))
         .sort((a,b)=>b.coins-a.coins);
       const best=rows.find(r=>!r.oneOff&&r.coins>0);
       if(best)best.goldRate=true;
+      return rows;
+    };
+    try {
+      const previous=kept.find(entry=>JSON.parse(entry.key)[0]===p.id);
+      provisionalRate=previous?goldRow(previous.rows)?.coins??0:0;
+      let rows=compute();
+      if(!previous){provisionalRate=goldRow(rows)?.coins??0;if(provisionalRate>0)rows=compute();}
       incomeRates=[{key,rows},...kept.filter(entry=>entry.key!==key)].slice(0,2);return rows;
     } finally {computingIncome=false;api.incomeMs=(api.incomeMs??0)+Date.now()-started;}
   }
-  const coinRate=p=>computingIncome?Math.max(0,goldJobs(p)[0]?.rate??0):
-    incomeRows(p).find(r=>r.goldRate)?.coins??Math.max(0,goldJobs(p)[0]?.rate??0);
+  const coinRate=p=>computingIncome?provisionalRate:goldRow(incomeRows(p))?.coins??0;
   const api={level,levels,thresholds,maxLevel,xpTo,trainedSkills,balancedChooseGoal,plan:planAtBoundary,planItemTarget,itemTargetChoices,count,base,nearBank,carriedBatch,equipmentStats,farmPlots,farmFields,farmFieldCount,harvest,harvestOnly,professionUpgrade,equipmentStatus,gearTargets,plannedQualityGear,plannedGearReserve,farmStatus,
     hotFollowSkills:HOT_FOLLOW_SKILLS.slice(),hotSkillAt:tick=>hotSkillAt(data,tick),hotWindows:(tick,count=4)=>hotWindows(data,tick,count),
     setFarmingPreference,farmingPreference,
@@ -1780,7 +1777,7 @@ export function createPlanner(data) {
     acquireEstimate:(p,id,qty,style='magic')=>rarity(id)>0?api.crafting.estimate(
       withoutItem(p,id),id,qty,{buy:true}):
       strategy.routeEstimate(p,{itemId:id},qty,{style}),
-    gearScore,combatRate,goldJobs,incomeRows,coinRate,stageSupply,stageCraftCount,questQualitySets,recipeRatings:()=>recipeRatings,
+    gearScore,combatRate,incomeRows,coinRate,stageSupply,stageCraftCount,questQualitySets,recipeRatings:()=>recipeRatings,
     // What one unit would sell for, net of tax: the market's sale layers, else the merchant.
     saleValue:(p,id,qty=1)=>api.marketUnitValue?.(p,id,qty)??merchantPrice(data,id)});
   const growth=createProgression(data,api);

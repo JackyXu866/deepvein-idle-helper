@@ -93,9 +93,8 @@ export function createSpecialization(data,planner) {
     const excluded=Object.fromEntries(data.skills.filter(s=>s!==skill).map(s=>[s,true]));
     let best,temporary=false,watched=[];
     if(deferred[skill]) {
-      const side=Object.fromEntries(data.skills.filter(s=>s!=='thieving').map(s=>[s,true]));
-      best=!deferred.thieving&&planner.candidates(p,style,side).filter(c=>c.output?.itemId===data.coinId)
-        .sort((a,b)=>b.rate.coins-a.rate.coins)[0];
+      // Meanwhile gold is earned as all gold is: the gold-rate job (with its sales).
+      best=planner.earningGoal?.(p,style,deferred)??null;
       temporary=true;
     } else {
       const renewable=planner.candidates(p,style,excluded,{sustainable:true})
@@ -124,7 +123,7 @@ export function createSpecialization(data,planner) {
     const target=Math.min(planner.maxLevel,data.jobs.filter(j=>j.skill===skill&&j.levelReq>lv[skill])
       .map(j=>j.levelReq).sort((a,b)=>a-b)[0]??lv[skill]+5);
     const recipe=data.jobs.find(j=>j.id===best.recipeId);
-    const reason=temporary?'指定主业正在等待材料／条件；临时赚取直接金币，条件恢复后返回主业':
+    const reason=temporary?`指定主业正在等待材料／条件；临时做金币效率最高的工作（约 ${(best.coinsPerHour??0).toLocaleString()} 金币/时，含出售产物），条件恢复后返回主业`:
       `固定主业 · ${MAIN_TRADES[requested]}：`+(best.marketProceeds?
         '当前配方有买单支持，按完整供料与税后收益比较；报价变化只重选本主业的路线':
         '按供料与往返后的主业经验选路线；无买单也不自动换主业')+

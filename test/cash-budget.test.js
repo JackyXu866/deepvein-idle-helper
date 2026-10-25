@@ -45,6 +45,23 @@ test('a plan short of cash earns it on the gold-rate job with its sales, not at 
   assert.equal(goal.cashSales, undefined);
 });
 
+test('one way to earn gold: business mode waiting on its trade works the gold-rate row too', () => {
+  const {planner, p} = setup();
+  const deferred = {mining: true};
+  const earn = planner.earningGoal(p, 'melee', deferred);
+  const goal = planner.specialistChooseGoal(p, {}, deferred, 'melee', 'mining');
+  assert.ok(goal?.temporary, JSON.stringify(goal?.reason));
+  assert.deepEqual([goal.recipeId ?? null, goal.monsterId ?? null], [earn.recipeId ?? null, earn.monsterId ?? null]);
+  assert.deepEqual(goal.saleItems, earn.saleItems);
+  assert.equal(planner.goldJobs, undefined, 'no second notion of how gold is earned');
+});
+
+test('the gold rate is the gold table\'s top row from the first table on', () => {
+  const {planner, p} = setup();
+  const rate = planner.coinRate(p);
+  assert.equal(rate, planner.incomeRows(p, 'melee').find(r => r.goldRate).coins);
+});
+
 test('a budget already inflated by the old repeat is brought back to the plan\'s own coins', () => {
   const {p, goal, economy} = setup();
   economy.maintenance(p, goal, 'melee', 'balanced');

@@ -373,8 +373,11 @@ export function createStrategy(data, planner) {
     // The model already charges travel; an active route stays unless another
     // is clearly better (SWITCH_MARGIN).
     if (current&&!outscores(best.rate.xp,current.rate.xp)) best=current;
+    // Gold as the gold table prices it (sales included), the one figure shown everywhere.
+    const key=best.monsterId!=null?combatKey(best.monsterId):jobKey(best.recipeId,best.rarity);
+    const coins=note?best.rate.coins:planner.incomeRows?.(p,style).find(r=>r.key===key)?.coins??0;
     const goal={...best,reason:`${note?note+'；':''}滚动 ${horizon/60} 分钟：采购／自备后的总经验约 ${(best.rate.xp*60).toFixed(0)}/分，`+
-      `${note?'收益':'直接金币'}约 ${(best.rate.coins*60).toFixed(1)}/分${note?'':'（盈余出售另计）'}；已计供料与旅行`};
+      `收益约 ${Math.round(coins*3600).toLocaleString()} 金币/时（金币效率表口径，含出售产物）；已计供料与旅行`};
     const investment=planner.investmentBudget?.(p,goal,style);
     if (investment) {
       setEnhancementBudget(goal,investment.enhancement);
