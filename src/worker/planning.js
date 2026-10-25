@@ -68,8 +68,11 @@ export function runPlanning(data,input,inspectOnly=false) {
   planner.setHousingEnabled(input.settings.autoHousing!==false);
   // The game's own engine (when loaded) calibrates every candidate; real
   // measurements of the current route still take precedence.
+  // Milliseconds per phase, so a slow calculation names what was slow.
+  const timings={},clock=()=>globalThis.performance?.now?.()??Date.now();
+  const timed=(label,fn)=>{const start=clock();try{return fn();}finally{timings[label]=Math.round(clock()-start);}};
   if(input.engine)loadEngine(input.engine);
-  const simulated=engineReady()&&input.trainer?.player?engineRates(data,planner,input.trainer.player,{budgetMs:500}):{};
+  const simulated=timed('引擎模拟',()=>engineReady()&&input.trainer?.player?engineRates(data,planner,input.trainer.player,{budgetMs:500}):{});
   planner.setMeasurements(mergeRates(simulated,input.rates));
   planner.perkUsage=input.rates; // measured time per route: what this account actually does
   // Mastery points can only be counted and valued by the engine.
@@ -90,17 +93,17 @@ export function runPlanning(data,input,inspectOnly=false) {
   trainer.boss={status:()=>input.boss,cancel:()=>{}};
   let proposal=null;
   trainer.issue=plan=>{proposal=trainer.prepareIssue(plan);trainer.plan=proposal;};
-  if(!inspectOnly)trainer.advance(input.deferBoss);
+  if(!inspectOnly)timed('决策',()=>trainer.advance(input.deferBoss));
   const p=trainer.player;
   const view={
-    review:input.details.inventory?economy.review(p,reserveWaitingGoals(trainer.goal,trainer.waitingGoals),trainer.style):null,
-    equipment:input.details.equipment?planner.equipmentStatus(p,trainer.style):null,
-    growth:trainer.mode==='balanced'?planner.growthStatus(p,trainer.style,trainer.deferred):null,
-    business:trainer.mode==='business'?planner.specializationStatus(p,trainer.style,trainer.mainTrade,trainer.mainJobId,trainer.mainMonsterId):null,
-    farming:planner.farmStatus(p,reserveWaitingGoals(trainer.goal,trainer.waitingGoals)),
-    plan:input.details.plan?planView(data,planner,trainer,p,{boss:input.boss,engineApi:engineApi()}):null
+    review:input.details.inventory?timed('物资清单',()=>economy.review(p,reserveWaitingGoals(trainer.goal,trainer.waitingGoals),trainer.style)):null,
+    equipment:input.details.equipment?timed('装备状态',()=>planner.equipmentStatus(p,trainer.style)):null,
+    growth:trainer.mode==='balanced'?timed('发展状态',()=>planner.growthStatus(p,trainer.style,trainer.deferred)):null,
+    business:trainer.mode==='business'?timed('主业状态',()=>planner.specializationStatus(p,trainer.style,trainer.mainTrade,trainer.mainJobId,trainer.mainMonsterId)):null,
+    farming:timed('农田状态',()=>planner.farmStatus(p,reserveWaitingGoals(trainer.goal,trainer.waitingGoals))),
+    plan:input.details.plan?timed('计划页',()=>planView(data,planner,trainer,p,{boss:input.boss,engineApi:engineApi()})):null
   };
-  return {decision:Object.fromEntries(decisionFields.map(key=>[key,trainer[key]])),active:trainer.active,proposal,commands,
+  return {decision:Object.fromEntries(decisionFields.map(key=>[key,trainer[key]])),active:trainer.active,proposal,commands,timings,
     sync:{syncAfter:trainer.syncAfter,nextSync:trainer.nextSync,lastSync:trainer.lastSync},
     planner:planner.runtime(),economy:economy.runtime(),market:market.runtime(),writes,view,
     engine:{...engineStatus(),simulated:Object.keys(simulated).length}};

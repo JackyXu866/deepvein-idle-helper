@@ -32,11 +32,13 @@ export function createSpecialization(data,planner) {
         const {itemId,qty}=c.output;
         const minSale=['mining','fishing','woodcutting'].includes(c.skill)&&!data.items[itemId]?.stackable?
           Math.min(qty,packCapacity(p)):1;
-        const before=reviewInventory(data,planner,p,c,style).items.find(i=>i.itemId===itemId);
+        // The sale review's verdict on this product alone, before and after the batch.
+        const only={only:[itemId]};
+        const before=reviewInventory(data,planner,p,c,style,undefined,only).items[0];
         let saleQty=0,multiplier=1;
         for(;multiplier<=4;multiplier++) {
           const next={...p,bank:{...p.bank,[itemId]:(p.bank[itemId]??0)+qty*multiplier}};
-          const after=reviewInventory(data,planner,next,c,style).items.find(i=>i.itemId===itemId);
+          const after=reviewInventory(data,planner,next,c,style,undefined,only).items[0];
           saleQty=Math.max(0,(after?.sell??0)-(before?.sell??0));
           if(saleQty>=minSale)break;
         }

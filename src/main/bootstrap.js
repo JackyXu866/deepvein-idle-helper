@@ -309,7 +309,8 @@ import {itemLabel, packQty} from '../planner/items.js';
       noteEngine(result.engine);
       const ms=Date.now()-requested;
       // Native work continues while computing. Do not stop it to acquire a lock.
-      if(ms>3000)throw new Error(`本次规划耗时过长（${ms} 毫秒），重新计算`);
+      const phases=Object.entries(result.timings??{}).sort((a,b)=>b[1]-a[1]).filter(([,t])=>t>=50).map(([k,t])=>`${k} ${t}`).join('、');
+      if(ms>3000)throw new Error(`本次规划耗时过长（${ms} 毫秒${phases?`：${phases}`:''}），重新计算`);
       const held=!trainer.active?'未运行':!trainer.compatible?'协议不兼容':trainer.awaitInitial?'等待首个状态':
         Date.now()-trainer.received>45000?'状态过期':trainer.pending?`待确认：${trainer.pending.label}`:
         trainer.recovery?'重连中':trainer.snapshotSequence<=trainer.syncAfter?'等待新快照':null;
@@ -330,7 +331,7 @@ import {itemLabel, packQty} from '../planner/items.js';
       staleResults=0;
       if(!claimLease()){trainer.pause('另一个标签页已接管调度');return;}
       applyPlanning(trainer,planner,economy,market,result,localStorage);
-      trace('已应用',{ms,command:result.proposal?.label??null,plan:result.decision.plan?.label??null,
+      trace('已应用',{ms,timings:result.timings,command:result.proposal?.label??null,plan:result.decision.plan?.label??null,
         reason:result.decision.plan?.reason??result.decision.message});
       planningFailures=0;planningError='';planningView=result.view;planningViewKey=viewKey();
     }).catch(error=>{

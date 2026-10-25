@@ -173,13 +173,23 @@ export function enhanceQuote(data, planner, p, itemId) {
     failurePlus:0};
 }
 
-export function reviewInventory(data, planner, p, goal=null, style='magic',budget=inventoryBudget(data,planner,p,goal)) {
+// Item groups that depend on the game data only, built once per data object.
+const itemGroups=new WeakMap();
+function groupsOf(data) {
+  if(!itemGroups.has(data))itemGroups.set(data,{
+    seeds:new Set(data.jobs.filter(j=>j.grow).flatMap(j=>j.inputs.map(i=>i.itemId))),
+    inputs:new Set(data.jobs.flatMap(j=>j.inputs.map(i=>i.itemId))),
+    houseMaterials:new Set([...data.jobs.filter(j=>['mining','woodcutting','fishing','farming'].includes(j.skill))
+      .map(j=>j.output.itemId),...data.monsters.map(m=>m.drop)])});
+  return itemGroups.get(data);
+}
+
+// `only`: review just these items (the same verdicts, without the rest of the
+// bank); the income table asks about one product at a time.
+export function reviewInventory(data, planner, p, goal=null, style='magic',budget=inventoryBudget(data,planner,p,goal),{only=null}={}) {
   const lv=planner.levels(p),combatSkill=professionSkill(style);
   const name=id=>itemLabel(data,id);
-  const seeds=new Set(data.jobs.filter(j=>j.grow).flatMap(j=>j.inputs.map(i=>i.itemId)));
-  const inputs=new Set(data.jobs.flatMap(j=>j.inputs.map(i=>i.itemId)));
-  const houseMaterials=new Set([...data.jobs.filter(j=>['mining','woodcutting','fishing','farming'].includes(j.skill))
-    .map(j=>j.output.itemId),...data.monsters.map(m=>m.drop)]);
+  const {seeds,inputs,houseMaterials}=groupsOf(data);
   const stock=new Map();
   const add=(id,qty,place)=>{
     if(!qty||!Number.isFinite(id)) return;
@@ -200,22 +210,35 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
   const relevant=g=>fitsSlot(g,g.slot,combatSkill,style)&&(g.slot!=='shield'||!shieldless(style));
   const heldGear=[...stock.values()].filter(row=>row.bank+row.pack+row.worn>0)
     .map(row=>planner.equipmentStats(row.itemId)).filter(Boolean);
-  const selfSource=(id,trail=[])=>!trail.includes(id)&&(id===data.coinId||data.jobs.some(j=>
-    j.output.itemId===id&&lv[j.skill]>=j.levelReq&&j.inputs.every(i=>selfSource(i.itemId,[...trail,id]))));
+  const sourced=new Map();
+  const selfSource=(id,trail=[])=>{
+    if(!trail.length&&sourced.has(id))return sourced.get(id);
+    const result=!trail.includes(id)&&(id===data.coinId||data.jobs.some(j=>
+      j.output.itemId===id&&lv[j.skill]>=j.levelReq&&j.inputs.every(i=>selfSource(i.itemId,[...trail,id]))));
+    if(!trail.length)sourced.set(id,result);
+    return result;
+  };
   // Gear is compared within its own line (slot, style, weapon type), for every
   // style. A better piece replaces it only once that piece can be worn no later
   // than this one, so the wearable-now piece for a lower level is kept.
   const line=g=>[g.slot,g.style??'',g.needs??'',!!g.twoHanded,g.slot==='weapon'&&g.needs==='ranged'?g.speed:''].join('|');
+  const lines=new Map();
+  for(const h of heldGear){const key=line(h);if(!lines.has(key))lines.set(key,[]);lines.get(key).push(h);}
   function dominated(g) {
-    return heldGear.some(h=>h.itemId!==g.itemId&&line(h)===line(g)&&
+    return (lines.get(line(g))??[]).some(h=>h.itemId!==g.itemId&&
       (wearable(h)||requirement(h)<=requirement(g))&&statsDominate(h,g));
   }
   // Of one piece of gear only the highest rarity (then enhancement) copy is a
   // possible upgrade; lower copies are surplus even before they can be worn.
   const rank=id=>rarityOf(data,id)*1000+plusOf(data,id);
-  const superseded=id=>[...stock.values()].some(row=>row.itemId!==id&&planner.base(row.itemId)===planner.base(id)&&
-    row.bank+row.pack+row.worn+row.overflow>0&&rank(row.itemId)>rank(id));
-  const items=[...stock.values()].map(row=>{
+  const topRank=new Map();
+  for(const row of stock.values())if(row.bank+row.pack+row.worn+row.overflow>0) {
+    const b=planner.base(row.itemId);
+    topRank.set(b,Math.max(topRank.get(b)??-1,rank(row.itemId)));
+  }
+  const superseded=id=>(topRank.get(planner.base(id))??-1)>rank(id);
+  const reviewed=only?[...stock.values()].filter(row=>only.includes(row.itemId)):[...stock.values()];
+  const items=reviewed.map(row=>{
     const id=row.itemId,base=planner.base(id),g=planner.equipmentStats(id);
     const total=row.bank+row.pack+row.worn+row.overflow;
     let keep=total,reason='用途未完全覆盖，先保留',category='保留';
@@ -268,7 +291,7 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
       sellFromPack:Math.min(row.pack,Math.max(0,sell-row.bank)),vendorUnit,category,reason,marketOnly,
       estimatedCoins:sell*vendorUnit};
   });
-  const enhancements=Object.entries(p.equipment).flatMap(([slot,id])=>{
+  const enhancements=only?[]:Object.entries(p.equipment).flatMap(([slot,id])=>{
     const before=planner.equipmentStats(id);
     if(!before||!relevant(before)||!autoUsableMaterial(data,id))return [];
     const after=planner.equipmentStats(id+data.plusScale),quote=enhanceQuote(data,planner,p,id);
