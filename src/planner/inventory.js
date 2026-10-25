@@ -106,6 +106,26 @@ export function planUseValue(data,planner,p,goal,id) {
   if(!use)return 0;
   return Math.max(0,use.xp/chainRate-use.time)*(planner.coinRate?.(p)??0);
 }
+// A plan's cash budget may hold the gold of a worthwhile enhancement step
+// (goal.enhancement); `enhancementGold` records how much of it that is. Its own
+// coins are the rest. An older build added the step's gold again on every
+// maintenance pass without recording it (1,024,020,000 coins live), so such a
+// budget's own part is unknown and taken as none.
+export function planCoins(goal) {
+  const budget=goal?.budget;
+  if(!budget)return 0;
+  if(goal.enhancement&&budget.enhancementGold==null)return 0;
+  return Math.max(0,(budget.coins??0)-(budget.enhancementGold??0));
+}
+// The plan's own coins plus this enhancement's gold (none: the step is dropped).
+export function setEnhancementBudget(goal,enhancement) {
+  const own=planCoins(goal);
+  goal.budget??={coins:0,items:{}};
+  goal.budget.coins=own+(enhancement?.gold??0);
+  goal.budget.enhancementGold=enhancement?.gold??0;
+  if(enhancement)goal.enhancement=enhancement;else delete goal.enhancement;
+}
+
 export function inventoryBudget(data, planner, p, goal=null,consuming=false) {
   const levels=planner.levels(p), items={...goal?.budget?.items};
   const capacity=p.unlimitedBank||(p.brews?.blessing??0)>p.lastTick?Infinity:

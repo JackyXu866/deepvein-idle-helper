@@ -2,6 +2,7 @@ import {professionSkill} from './professions.js';
 import {planEnhancement} from './enhancement.js';
 import {NAMES} from './planner.js';
 import {itemName} from './items.js';
+import {setEnhancementBudget} from './inventory.js';
 
 // Skills train within this many levels of the lowest trainable skill.
 export const BAND=10;
@@ -209,6 +210,9 @@ export function createProgression(data,planner) {
       visited=Object.fromEntries(Object.entries(value.visited??{}).filter(([skill,n])=>
         data.skills.includes(skill)&&Number.isSafeInteger(n)&&n>=0&&n<=completed));
       alternatives=Array.isArray(value.alternatives)?value.alternatives.slice(0,3):[];
+      // A cash budget an older build inflated (planCoins) is brought back here too.
+      for(const goal of [focus,...Object.values(parked)])
+        if(goal?.enhancement&&goal.budget&&goal.budget.enhancementGold==null)setEnhancementBudget(goal,goal.enhancement);
     }
     return {owner,profession,focus,parked,completed,visited,alternatives};
   }

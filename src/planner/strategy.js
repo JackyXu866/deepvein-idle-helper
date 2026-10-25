@@ -2,6 +2,7 @@ import {matchesProfessionWeapon, professionSkill, starterWeapon} from './profess
 import {PAIR_TIERS, autoUsableMaterial, craftRecipe, qualityWorth, setsAt} from './quality.js';
 import {combatEstimate, workEstimate} from './estimates.js';
 import {goldToSeconds} from './gold.js';
+import {setEnhancementBudget} from './inventory.js';
 import {combatSafe, combatStats, workInputs} from './rates.js';
 import {buffKey, combatSupplies} from './supplies.js';
 import {baseId, distance, nearestBank, packCapacity, packQty, seedVendorPrice} from './items.js';
@@ -376,8 +377,7 @@ export function createStrategy(data, planner) {
       `${note?'收益':'直接金币'}约 ${(best.rate.coins*60).toFixed(1)}/分${note?'':'（盈余出售另计）'}；已计供料与旅行`};
     const investment=planner.investmentBudget?.(p,goal,style);
     if (investment) {
-      goal.budget.coins=Math.max(goal.budget.coins,investment.coins);
-      goal.enhancement=investment.enhancement;
+      setEnhancementBudget(goal,investment.enhancement);
       if (p.coins<investment.coins) goal.reason=`先补足已核算回本的投资 ${investment.coins} 金币；${goal.reason}`;
     }
     return goal;

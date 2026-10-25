@@ -2,7 +2,7 @@ import {professionSkill} from '../planner/professions.js';
 import {finishTaskReason} from '../planner/crafting.js';
 import {secondsToGold} from '../planner/gold.js';
 import {action} from '../planner/result.js';
-import {enhanceQuote, inventoryBudget, reviewInventory} from '../planner/inventory.js';
+import {enhanceQuote, inventoryBudget, planCoins, reviewInventory, setEnhancementBudget} from '../planner/inventory.js';
 import {planEnhancement} from '../planner/enhancement.js';
 import {bankTripSeconds, nearestBank, packCapacity, packQty, packUsed} from '../planner/items.js';
 
@@ -37,7 +37,8 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
     const capacitySale=autoSell!==true&&capacitySales===true&&capacity.freeSlots<=0;
     const craftedSurplus=sellCrafted===true&&autoSell!==true&&!capacitySale?
       inspected.items.filter(i=>i.sell>0&&(i.marketOnly||i.itemId===planner.base(i.itemId))&&craftedIds.has(planner.base(i.itemId))).map(i=>i.itemId):[];
-    const profitItems=new Set([...(goal?.saleItems??[]),...craftedSurplus]);
+    // cashSales: the products of the gold job a plan short of cash is working.
+    const profitItems=new Set([...(goal?.saleItems??[]),...(goal?.cashSales??[]),...craftedSurplus]);
     const profitSale=autoSell!==true&&!capacitySale&&profitItems.size>0;
     const rows=autoSell===true||capacitySale?inspected.items.filter(i=>i.sell>0):
       profitSale?inspected.items.filter(i=>i.sell>0&&profitItems.has(i.itemId)):[];
@@ -54,13 +55,14 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
   const atBank=(p,intent,label,reason,extra={})=>planner.nearBank(p)?action(intent,label,reason,extra):
     action({t:'walk',...bankFor(p).approach},'整理库存 · 前往仓库',reason||label,extra);
   // Coins to keep for the best worthwhile enhancement step (gold as time,
-  // planner/investment.js); the enhancement itself runs in planEnhancement.
+  // planner/investment.js): the plan's own coins plus that step's gold, never
+  // the budget that already holds it. The enhancement itself runs in planEnhancement.
   function investmentBudget(p,goal,style='magic') {
     if(p.enhance)return null;
     const row=(planner.investmentOptions?.(p,style,goal)??[]).find(r=>r.kind==='enhance'&&r.cheapest);
     if(!row)return null;
     const quote=enhanceQuote(data,planner,p,row.current);
-    return {coins:budget(p,goal).coins+quote.gold,enhancement:{itemId:row.current,gold:quote.gold,shards:quote.shards}};
+    return {coins:planCoins(goal)+quote.gold,enhancement:{itemId:row.current,gold:quote.gold,shards:quote.shards}};
   }
   function maintenance(p,goal,style='magic',mode='balanced',mainTrade='auto',mainJobId=null,mainMonsterId=null) {
     if(mode!=='business'){mainJobId=null;mainMonsterId=null;}
@@ -127,19 +129,15 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
       if(gearPlan?.blocked||gearPlan?.deferUntilTick) {
         gearDeferredUntil=gearPlan.deferUntilTick??p.lastTick+Math.ceil(300000/data.tickMs);
       } else if(gearPlan) {
-        if(goal?.enhancement&&investmentGoal?.upgrade?.slot===planner.equipmentStats(goal.enhancement.itemId)?.slot) {
-          goal.budget.coins=Math.max(0,goal.budget.coins-goal.enhancement.gold);delete goal.enhancement;
-        }
+        if(goal?.enhancement&&investmentGoal?.upgrade?.slot===planner.equipmentStats(goal.enhancement.itemId)?.slot)
+          setEnhancementBudget(goal,null);
         return {...gearPlan,priorityGear:true};
       }
     }
     if(goal) {
       const funding=upgrading||goal.enhancementProject||goal.temporary||goal.developmentFiller||goal.itemTarget||goal.mastery?null:investmentBudget(p,goal,style);
-      if(funding) {
-        goal.budget??={items:{},coins:0};goal.budget.coins=funding.coins;goal.enhancement=funding.enhancement;
-      } else if(goal.enhancement&&!goal.enhancementProject) {
-        goal.budget.coins=Math.max(0,goal.budget.coins-goal.enhancement.gold);delete goal.enhancement;
-      }
+      if(funding)setEnhancementBudget(goal,funding.enhancement);
+      else if(goal.enhancement&&!goal.enhancementProject)setEnhancementBudget(goal,null);
     }
     const inspected=reviewInventory(data,planner,p,protection,style),reserve=inspected.budget;
     const {capacitySale,profitItems,profitSale,rows}=saleRows(goal,inspected,capacity);

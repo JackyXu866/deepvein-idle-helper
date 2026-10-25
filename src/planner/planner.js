@@ -1344,10 +1344,24 @@ export function createPlanner(data) {
       return {...result,priorityGear:true,investmentGoal:goal};
     }
     if ((goal.budget?.coins??0)>p.coins) {
+      // Earned as all gold is earned (funding too): on the job that sets the
+      // gold rate, its sale items sold while the plan is short (cashSales).
+      // A direct-coin stall only when no such job can be run.
+      const earn=goal.earning?null:api.earningGoal?.(p,profession);
+      if(earn) {
+        const task={...earn,target:thresholds.length,earning:true,budget:{coins:0,items:{...earn.budget?.items}}};
+        const result=planTask(p,task,profession);
+        if(result&&!result.blocked) {
+          goal.cashSales=earn.saleItems;
+          return {...result,goal,reason:`补足当前计划现金预算 ${goal.budget.coins.toLocaleString()}（现有 ${p.coins.toLocaleString()}）：`+
+            `做金币效率最高的工作，约 ${earn.coinsPerHour.toLocaleString()} 金币/时（含出售产物）；${result.reason||result.label}`};
+        }
+      }
       const result=need(data.coinId,goal.budget.coins);
-      result.reason=`补足当前计划现金预算 ${goal.budget.coins}：${result.reason||result.label}`;
+      result.reason=`补足当前计划现金预算 ${goal.budget.coins.toLocaleString()}：${result.reason||result.label}`;
       result.goal=goal;return result;
     }
+    delete goal.cashSales;
     let result;
     if(goal.mastery) {
       // 补精通: only self-made output counts, so no purchase of the target.
@@ -1809,6 +1823,7 @@ export function createPlanner(data) {
     // One gear rating for the table and every gear decision (investment.js).
     gearRate:(p,style,goal,slot,id)=>investments.gearRate(p,style,goal,slot,id),
     ownedBest:(p,style,goal,slot)=>investments.ownedBest(p,style,goal,slot),
+    earningGoal:(p,style,deferred)=>investments.earningGoal(p,style,deferred),
     fundingGoal:(p,style,deferred,goal)=>investments.fundingGoal(p,style,deferred,goal),
     chooseFallback:(p,goal,style)=>chooseFallback(data,api,p,goal,style)});
 }

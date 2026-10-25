@@ -193,6 +193,16 @@ export function createInvestments(data,planner) {
     return cache.rows.map(row=>({...row,affordable:row.gold<=p.coins,project:goal?.upgrade?.slot===row.slot&&goal.upgrade.id===row.id}));
   }
   const fundingKey=row=>`${row.kind}:${row.id}`;
+  // How gold is earned whenever gold is needed (funding, a plan short of
+  // cash): the job that sets the gold rate (the gold table's top lasting row,
+  // the rate every payback is priced at); the next lasting row when that skill
+  // is set aside. Its sale items go with it, so the income is real.
+  function earningGoal(p,style,deferred={}) {
+    const candidates=planner.candidates(p,style,deferred);
+    const match=r=>candidates.find(c=>!c.rarity&&(r.monsterId!=null?c.monsterId===r.monsterId:c.recipeId===r.recipeId));
+    const income=(planner.incomeRows?.(p,style)??[]).filter(r=>!r.oneOff&&r.coins>0).map(r=>[r,match(r)]).find(([,c])=>c);
+    return income?{...income[1],saleItems:income[0].saleItems,coinsPerHour:Math.round(income[0].coins*3600)}:null;
+  }
   // A worthwhile improvement that is not yet affordable: earn the gold first on
   // the best gold job, for at most an hour, then return to levelling. A stretch
   // that ends short leaves that improvement alone for six hours.
@@ -200,13 +210,7 @@ export function createInvestments(data,planner) {
     const row=options(p,style,goal).find(r=>r.cheapest&&!r.affordable&&r.gold>0&&
       !(fundingDeferred[fundingKey(r)]>p.lastTick));
     if(!row)return null;
-    // Earned on the job that sets the gold rate (the gold table's top lasting
-    // row), the rate that priced the payback; the next lasting row when that
-    // skill is set aside. Its sale items go with it, so the income is real.
-    const candidates=planner.candidates(p,style,deferred);
-    const match=r=>candidates.find(c=>!c.rarity&&(r.monsterId!=null?c.monsterId===r.monsterId:c.recipeId===r.recipeId));
-    const income=(planner.incomeRows?.(p,style)??[]).filter(r=>!r.oneOff&&r.coins>0).map(r=>[r,match(r)]).find(([,c])=>c);
-    const choice=income?{...income[1],saleItems:income[0].saleItems}:null;
+    const choice=earningGoal(p,style,deferred);
     if(!choice)return null;
     const ticks=Math.ceil(FUNDING_CAP_SECONDS*1000/data.tickMs);
     return {...choice,target:planner.thresholds.length,funding:{key:fundingKey(row),gold:row.gold,label:row.label,until:p.lastTick+ticks},
@@ -222,5 +226,5 @@ export function createInvestments(data,planner) {
     if(value){cache=value.cache??null;fundingDeferred=value.fundingDeferred??{};}
     return {cache,fundingDeferred};
   }
-  return {options,fundingGoal,fundingEnded,runtime,gearRate,ownedBest};
+  return {options,fundingGoal,fundingEnded,runtime,gearRate,ownedBest,earningGoal};
 }
