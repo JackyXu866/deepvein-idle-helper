@@ -3,7 +3,8 @@ import {formulaWork} from './rates.js';
 import {canWear, professionSkill} from './professions.js';
 import {LEGENDARY, autoUsableMaterial, craftRecipe} from './quality.js';
 import {baseId, heldIds, itemLabel, plusOf, rarityOf} from './items.js';
-import {goldToSeconds, payback} from './gold.js';
+import {goldToSeconds, incomePayback, payback} from './gold.js';
+import {harvestCrops} from './farming.js';
 import {COMBAT_SLOTS, fitsSlot, shieldless, useSeconds as sharedUseSeconds} from './gear.js';
 export {USE_CAP_SECONDS} from './gear.js';
 
@@ -50,15 +51,30 @@ export function createInvestments(data,planner) {
     contextCache.set(key,ctx);
     return ctx;
   }
+  // A hoe's slot (client 1.0.1202): the farm fields' gold per second (its
+  // bonus is extra crops per harvest, at their sale value) and the farming XP
+  // per second they give (which sets how long the hoe is used).
+  function farmRates(p,id) {
+    const bonus=planner.equipmentStats(id)?.bonus??0,lv=lvOf(p).farming;
+    let gold=0,xp=0;
+    for(const {job,rarity} of planner.farmCrops?.(p)??[]) {
+      const seconds=job.grow*data.tickMs/1000;
+      gold+=harvestCrops(lv,bonus)*planner.saleValue(p,job.output.itemId+rarity*data.rarityScale,1)/seconds;
+      xp+=job.xp/seconds;
+    }
+    return {gold,xp};
+  }
   // XP per second with `slot` holding `id`, by the game formulas on both sides
   // of a swap (a measurement only exists for the current equipment). Combat
-  // counts the food each kill costs, so defence is worth something.
+  // counts the food each kill costs, so defence is worth something. A hoe:
+  // the fields' gold per second (farmRates).
   function rate(p,style,ctx,slot,id) {
     const key=`${slot}:${id}`;
     if(ctx.rates.has(key))return ctx.rates.get(key);
     const equipment={...p.equipment,[slot]:id},toolSkill=data.toolSkills[slot];
     let value=0;
-    if(toolSkill) {
+    if(slot==='hoe')value=farmRates(p,id).gold;
+    else if(toolSkill) {
       const job=ctx.jobFor(toolSkill);
       if(job){const e=formulaWork(data,planner,p,job,lvOf(p),equipment);value=e.xp/e.seconds;}
     } else if(ctx.monster) value=planner.combatRate(p,style,ctx.monster.id,equipment);
@@ -103,18 +119,23 @@ export function createInvestments(data,planner) {
   function slotsFor(p,style) {
     const twoHanded=shieldless(style,planner.equipmentStats(p.equipment.weapon));
     return [...COMBAT_SLOTS.filter(s=>s!=='shield'||!twoHanded),
-      ...Object.keys(data.toolSkills).filter(s=>s!=='hoe'&&planner.trainedSkills(style).includes(data.toolSkills[s]))];
+      ...Object.keys(data.toolSkills).filter(s=>planner.trainedSkills(style).includes(data.toolSkills[s]))];
   }
   // Every worthwhile way to improve each worn piece, on the same terms.
   function compute(p,style,goal) {
     const ctx=contexts(p,style,goal),coinRate=planner.coinRate?.(p)??0,rows=[];
     const shardValue=planner.saleValue(p,data.shardId,1);
     for(const slot of slotsFor(p,style)) {
-      const current=p.equipment[slot],worn=planner.equipmentStats(current);
-      if(!worn||slot==='mount')continue;
-      const useSkill=data.toolSkills[slot]??ctx.skill,useSeconds=(id,rate)=>sharedUseSeconds(data,planner,p,id,slot,rate,useSkill);
+      const current=p.equipment[slot]??null,worn=planner.equipmentStats(current);
+      // A hoe is used until outgrown at the fields' farming XP, and repays in
+      // extra gold (incomePayback); every other piece in time saved. Fields
+      // farmed without a hoe are improved by buying one, too.
+      const hoe=slot==='hoe',settle=hoe?incomePayback:payback;
+      if(!worn&&!hoe||slot==='mount')continue;
+      const useSkill=data.toolSkills[slot]??ctx.skill,useSeconds=(id,rate)=>
+        sharedUseSeconds(data,planner,p,id,slot,hoe?farmRates(p,id).xp:rate,useSkill);
       const fits=fitsFor(p,style,ctx,slot);
-      if(!fitsSlot(worn,slot,useSkill,style))continue;
+      if(worn&&!fitsSlot(worn,slot,useSkill,style))continue;
       const before=rate(p,style,ctx,slot,current);
       if(!(before>0))continue;
       // The best piece already in the bank or pack, of any quality (wearing
@@ -126,7 +147,7 @@ export function createInvestments(data,planner) {
         if(!cost)return null;
         const after=rate(p,style,ctx,slot,id);
         if(!(after>before))return null;
-        const use=useSeconds(id,after),result=payback({gold:cost.gold,seconds:cost.seconds,coinRate,before,after,useSeconds:use});
+        const use=useSeconds(id,after),result=settle({gold:cost.gold,seconds:cost.seconds,coinRate,before,after,useSeconds:use});
         return {slot,kind,id,label,current,source:cost.source??null,gold:Math.round(cost.gold),seconds:cost.seconds,
           gain:after/before-1,useSeconds:use,...result,...extra};
       };
@@ -146,14 +167,14 @@ export function createInvestments(data,planner) {
         .map(([id,cost])=>priced(kind,id,`换 ${itemLabel(data,id)}`,cost)).filter(Boolean)
         .sort((a,b)=>b.net-a.net)[0]??null;
       // Enhance the worn piece: the best stopping point up to +5.
-      if(autoUsableMaterial(data,current)&&plusOf(data,current)<ENHANCEMENT_BASELINE) {
+      if(current!=null&&autoUsableMaterial(data,current)&&plusOf(data,current)<ENHANCEMENT_BASELINE) {
         let best=null;
         for(let to=plusOf(data,current)+1;to<=ENHANCEMENT_BASELINE;to++) {
           const cost=expectedEnhancement(data,planner,p,current,to),target=current%data.plusScale+to*data.plusScale;
           const after=rate(p,style,ctx,slot,target);
           if(!(after>floor)||!Number.isFinite(cost.gold))continue;
           const gold=cost.gold+cost.shards*shardValue,use=useSeconds(target,after);
-          const result=payback({gold,coinRate,before,after,useSeconds:use});
+          const result=settle({gold,coinRate,before,after,useSeconds:use});
           if(!best||result.net>best.net)best={slot,kind:'enhance',id:target,current,toPlus:to,source:null,
             label:`强化 ${itemLabel(data,current)} → +${to}`,gold:Math.round(gold),coins:Math.round(cost.gold),shards:Math.ceil(cost.shards),
             seconds:0,gain:after/before-1,useSeconds:use,...result};
@@ -161,11 +182,13 @@ export function createInvestments(data,planner) {
         if(best)rows.push(best);
       }
       // A higher quality of the same piece.
-      const higher=Array.from({length:Math.max(0,LEGENDARY-rarityOf(data,current)-1)},(_,i)=>rarityOf(data,current)+1+i);
-      const quality=bestQuality('quality',baseId(data,current),higher);
-      if(quality)rows.push(quality);
+      if(current!=null) {
+        const higher=Array.from({length:Math.max(0,LEGENDARY-rarityOf(data,current)-1)},(_,i)=>rarityOf(data,current)+1+i);
+        const quality=bestQuality('quality',baseId(data,current),higher);
+        if(quality)rows.push(quality);
+      }
       // Another piece wearable now, in its quality with the best net saving.
-      const others=data.gear.filter(g=>g.itemId!==baseId(data,current)&&fits(g.itemId))
+      const others=data.gear.filter(g=>(current==null||g.itemId!==baseId(data,current))&&fits(g.itemId))
         .map(g=>bestQuality('tier',g.itemId,[0,1,2,3])).filter(Boolean).sort((a,b)=>b.net-a.net).slice(0,2);
       rows.push(...others);
       if(owned!=null) {

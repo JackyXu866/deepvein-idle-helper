@@ -1729,7 +1729,7 @@ import {itemLabel, packQty} from '../planner/items.js';
             <div class="card">
               <div class="card-heading"><strong>投资（金币换时间）</strong><span data-plan-funding class="muted"></span></div>
               <div data-plan-investments class="plan-scroll"></div>
-              <p class="fine-print">花费按金币最高的工作折成小时；强化含失败归零后重来的期望成本。省下＝装备使用期内（到下一档或最多 30 天）同样进度少花的时间。省下超过花费 1.2 倍才值得；同一位置只做最省的一项。值得但钱不够时，先做金币最高的工作最多 1 小时筹资。</p>
+              <p class="fine-print">花费按金币最高的工作折成小时；强化含失败归零后重来的期望成本。省下＝装备使用期内（到下一档或最多 30 天）同样进度少花的时间；锄头按使用期内多收作物的售价折成金币效率的小时数。省下超过花费 1.2 倍才值得；同一位置只做最省的一项。值得但钱不够时，先做金币最高的工作最多 1 小时筹资。</p>
             </div>
             <div class="card">
               <div class="card-heading"><strong>任务与点数</strong></div>

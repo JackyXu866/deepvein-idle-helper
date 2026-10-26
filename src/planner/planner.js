@@ -332,6 +332,14 @@ export function createPlanner(data) {
     const busy=stocks&&!crops.length?busyCrop(p,eligible):null;
     return {eligible,demanded,rank,crops,busy};
   }
+  // The crop each farm field grows, in its seed's quality: what is planted,
+  // else the crop harvest would sow first. A hoe is valued on these.
+  function farmCrops(p) {
+    const planted=new Map(farmPlots(p).map(f=>[f.site.id,f.job]));
+    const next=cropOrder(p,null,null).crops[0]??null;
+    return farmFields(p).map(site=>planted.has(site.id)?{job:planted.get(site.id),rarity:rarity(p.plots[site.id].seedItemId)}:
+      next?{job:next,rarity:0}:null).filter(Boolean);
+  }
   function harvest(p,preferredJobId,goal=null,style='magic',completedLoad=false) {
     farmState(p);
     farmDelayReason=manualFarmReason(p);
@@ -1046,9 +1054,12 @@ export function createPlanner(data) {
     // bank visit, and a legendary piece stays with the player while worn.
     // Filler and temporary work used to skip gear entirely, so a legendary
     // shield in the bank was never put on while fighting as filler.
+    // The hoe serves the farm fields whatever is trained (its extra crops,
+    // client 1.0.1202): it is checked at every boundary while fields are farmed.
+    const farmSlots=skill=>farmFields(p).length&&!gearSlots(skill).includes('hoe')?['hoe']:[];
     // Rated as the investment table rates it (its 已持有 row is this choice).
     function ownedSwap(skill) {
-      for(const slot of gearSlots(skill)) {
+      for(const slot of [...gearSlots(skill),...farmSlots(skill)]) {
         const current=p.equipment[slot],best=api.ownedBest(p,profession,goal,slot);
         if(best==null)continue;
         const result=equip(best);
@@ -1083,6 +1094,12 @@ export function createPlanner(data) {
         if(current!=null&&gear.has(base(current))&&!watched.includes(base(current)))watched.push(base(current));
         return api.marketEquipment?.(p,goal,profession,{ids:watched,row:row?.source==='市场'?row:null});
       };
+      // The table's hoe pick, when it is bought on the market. Its quotes load
+      // in the background: waiting for them never holds up this goal's own gear.
+      for(const slot of farmSlots(skill)) {
+        const market=shop(slot);
+        if(market?.intent)return market;
+      }
       // Filler and temporary work (thieving while crops grow) skips gear
       // projects, crafting a piece or a standing upgrade goal, but still buys a
       // worthwhile piece on the market: it costs one bank visit, and filler can
@@ -1766,7 +1783,7 @@ export function createPlanner(data) {
     } finally {computingIncome=false;api.incomeMs=(api.incomeMs??0)+Date.now()-started;}
   }
   const coinRate=p=>computingIncome?provisionalRate:goldRow(incomeRows(p))?.coins??0;
-  const api={level,levels,thresholds,maxLevel,xpTo,trainedSkills,balancedChooseGoal,plan:planAtBoundary,planItemTarget,itemTargetChoices,count,base,nearBank,carriedBatch,equipmentStats,farmPlots,farmFields,farmFieldCount,harvest,harvestOnly,professionUpgrade,equipmentStatus,gearTargets,plannedQualityGear,plannedGearReserve,farmStatus,
+  const api={level,levels,thresholds,maxLevel,xpTo,trainedSkills,balancedChooseGoal,plan:planAtBoundary,planItemTarget,itemTargetChoices,count,base,nearBank,carriedBatch,equipmentStats,farmPlots,farmFields,farmFieldCount,farmCrops,harvest,harvestOnly,professionUpgrade,equipmentStatus,gearTargets,plannedQualityGear,plannedGearReserve,farmStatus,
     hotFollowSkills:HOT_FOLLOW_SKILLS.slice(),hotSkillAt:tick=>hotSkillAt(data,tick),hotWindows:(tick,count=4)=>hotWindows(data,tick,count),
     setFarmingPreference,farmingPreference,
     taskBoundary:p=>!finishTaskReason(data,p)};

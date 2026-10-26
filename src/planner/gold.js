@@ -19,6 +19,14 @@ export function payback({gold=0,seconds=0,credit=0,coinRate,before,after,useSeco
   const saved=secondsSaved(before,after,useSeconds);
   return {paid,saved,net:saved-paid,worth:Number.isFinite(paid)&&saved>0&&saved>=paid*PAYBACK_MARGIN};
 }
+// The same rule for an improvement that earns more gold instead of saving
+// time (a hoe: more crops per harvest): `before`/`after` are gold per second,
+// and what it saves is the extra gold over its use, as time at the gold rate.
+export function incomePayback({gold=0,seconds=0,coinRate,before,after,useSeconds}) {
+  const paid=Math.max(0,seconds)+goldToSeconds(gold,coinRate);
+  const saved=coinRate>0&&after>before&&useSeconds>0?(after-before)*useSeconds/coinRate:0;
+  return {paid,saved,net:saved-paid,worth:Number.isFinite(paid)&&saved>0&&saved>=paid*PAYBACK_MARGIN};
+}
 // The most worth paying for something that saves `savedGold` worth of time:
 // the payback rule above, solved for the price.
 export const maxPrice=savedGold=>savedGold>0?savedGold/PAYBACK_MARGIN:0;
