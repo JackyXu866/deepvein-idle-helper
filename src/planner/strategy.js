@@ -3,6 +3,7 @@ import {PAIR_TIERS, autoUsableMaterial, craftRecipe, qualityWorth, setsAt} from 
 import {combatEstimate, workEstimate} from './estimates.js';
 import {goldToSeconds} from './gold.js';
 import {setEnhancementBudget} from './inventory.js';
+import {harvestCrops} from './farming.js';
 import {combatSafe, combatStats, workInputs} from './rates.js';
 import {buffKey, combatSupplies} from './supplies.js';
 import {baseId, distance, nearestBank, packCapacity, packQty, seedVendorPrice} from './items.js';
@@ -227,7 +228,7 @@ export function createStrategy(data, planner) {
         const liveSeeds=Object.entries(stock).reduce((n,[id,qty])=>n+(planner.base(+id)===seedId?qty:0),0)+
           Object.values(p.plots??{}).filter(f=>planner.base(f.seedItemId)===seedId).length;
         const fields=Math.max(1,Math.min(planner.farmFields?.(p).length??data.farmUnlocks.filter(n=>n<=lv.farming).length,liveSeeds));
-        const harvests=missing/(4+lv.farming/100);
+        const harvests=missing/harvestCrops(lv.farming,planner.equipmentStats(p.equipment?.hoe)?.bonus??0);
         seconds+=Math.ceil(harvests/fields)*crop.grow*tick;xp+=harvests*crop.xp;
         recipes.farming=crop.id;supplyRecipes[id]=crop.id;
         return true;

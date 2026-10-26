@@ -11,7 +11,7 @@ import {createCrafting, finishTaskReason} from './crafting.js';
 import {combatEstimate} from './estimates.js';
 import {combatSupplies, foodEligible} from './supplies.js';
 import {createStrategy, outscores} from './strategy.js';
-import {POTION_FLOOR, farmingStocks, herbloreNeeds} from './farming.js';
+import {POTION_FLOOR, farmingStocks, harvestCrops, herbloreNeeds} from './farming.js';
 import {createEnhancementTraining, planEnhancement} from './enhancement.js';
 import {planConsumable} from './consumables.js';
 import {createProgression} from './progression.js';
@@ -73,6 +73,8 @@ export function createPlanner(data) {
     if (g.slot==='weapon') return (g.accuracy+2*g.strength)/(g.speed??4)*(g.twoHanded?1.3:1);
     return (same?1:-1)*(g.accuracy+2*g.strength)+g.defence*.5+(g.luck??0);
   }
+  // The worn hoe's bonus: extra crops per harvest (client 1.0.1202).
+  const hoeBonus=p=>equipmentStats(p.equipment?.hoe)?.bonus??0;
   // One kill with the food it costs and the restocking that food needs: what
   // fight() ranks monsters by, and what combat gear is rated by (defence
   // shows up as less food to make).
@@ -182,7 +184,10 @@ export function createPlanner(data) {
       if (!job) return [];
       const duration=Math.round(job.grow/(plot.sowSpeed??1));
       const water=data.farmWaterTrim;
-      const trim=plot.trim??Math.min(plot.watered??0,Math.floor(job.grow/2/water))*water;
+      // Client 1.0.1202: a plot that records its trim (tended since) is cut by
+      // all of it, with no cap; an older plot counts waterings, capped at half.
+      if(plot.trim!=null)return [{site,job,readyAt:plot.plantedAt+duration-plot.trim}];
+      const trim=Math.min(plot.watered??0,Math.floor(job.grow/2/water))*water;
       return [{site,job,readyAt:plot.plantedAt+duration-Math.min(trim,Math.floor(duration/2))}];
     });
   }
@@ -279,7 +284,7 @@ export function createPlanner(data) {
     const emptyFields=farmFields(p).filter(s=>!p.plots?.[s.id]);
     const eligible=jobs.filter(j=>j.grow&&allowedCrop(j)&&level(p.skills.farming)>=j.levelReq&&
       (hasSeed(p,j)||plots.some(f=>f.job.id===j.id)||farmingChoice.mode==='manual'&&plots.length)).sort((a,b)=>b.xp/b.grow-a.xp/a.grow);
-    const stocks=farmStockMode(p)?farmingStocks(data,p,levels(p),null,thresholds):null;
+    const stocks=farmStockMode(p)?farmingStocks(data,p,levels(p),null,thresholds,hoeBonus(p)):null;
     let job=stocks?stocks.find(row=>eligible.some(j=>j.id===row.job.id))?.job??busyCrop(p,eligible):eligible[0];
     // Only fields the player assigned are empty: sow their own choice.
     const assigned=!job&&!ready.length?emptyFields.map(s=>({site:s,job:jobs.find(j=>j.grow&&j.inputs[0].itemId===base(p.plotChoice?.[s.id]??-1))}))
@@ -335,7 +340,7 @@ export function createPlanner(data) {
     const plots=farmPlots(p), ready=plots.filter(f=>f.readyAt<=p.lastTick)
       .sort((a,b)=>a.readyAt-b.readyAt);
     const fields=farmFields(p),empty=fields.filter(s=>!p.plots?.[s.id]&&!chosenField(p,s));
-    const stocks=farmStockMode(p)?farmingStocks(data,p,levels(p),goal,thresholds):null;
+    const stocks=farmStockMode(p)?farmingStocks(data,p,levels(p),goal,thresholds,hoeBonus(p)):null;
     const {eligible,demanded,rank,crops:ordered,busy}=cropOrder(p,goal,stocks,preferredJobId);
     let crops=busy?[busy]:ordered;
     // Native errands harvest every ripe plot, then sow only the route's crop.
@@ -626,7 +631,7 @@ export function createPlanner(data) {
       grow:(j,seen)=>{
         if(!allowedCrop(j)&&!farmPlots(p).some(f=>f.job.id===j.id))return Infinity;
         const seed=hasSeed(p,j)||Object.values(p.plots??{}).some(plot=>base(plot.seedItemId)===j.inputs[0].itemId);
-        return (jobTime(j)+(seed?0:cost(j.inputs[0].itemId,seen)))/(4+lv.farming/100);
+        return (jobTime(j)+(seed?0:cost(j.inputs[0].itemId,seen)))/harvestCrops(lv.farming,hoeBonus(p));
       }};}
     // Seconds per unit of an input when `quantity` are needed, stock aside.
     function cost(id,trail=[],quantity=1){return api.inputCost.unitSeconds(p,id,quantity,inputOptions(trail));}
@@ -1612,7 +1617,7 @@ export function createPlanner(data) {
   function farmStatus(p,goal=null) {
     farmState(p);
     const fields=farmFields(p),plots=farmPlots(p),empty=fields.filter(s=>!p.plots?.[s.id]).length;
-    const stocks=farmStockMode(p)?farmingStocks(data,p,levels(p),goal,thresholds):null;
+    const stocks=farmStockMode(p)?farmingStocks(data,p,levels(p),goal,thresholds,hoeBonus(p)):null;
     const order=cropOrder(p,goal,stocks);
     const best=farmingChoice.mode==='manual'?manualFarmJob():farmTarget??order.busy??order.crops[0];
     // One line per crop in the fields, with the reason it is there.

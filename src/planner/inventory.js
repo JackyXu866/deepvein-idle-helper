@@ -1,7 +1,7 @@
 import {canWear, gearRequirementOf, professionSkill, statsDominate} from './professions.js';
 import {fitsSlot, shieldless} from './gear.js';
 import {POTION_SALE_RATIO, autoUsableMaterial, craftRecipe, marketPotion, marketQuality} from './quality.js';
-import {cropReserve, herbloreNeeds} from './farming.js';
+import {cropReserve, harvestCrops, herbloreNeeds} from './farming.js';
 import {COAL_ID, baseId, foodCarry, itemLabel, merchantPrice, plusOf, rarityOf, tradableBase} from './items.js';
 
 // Read-only budgets and quotes; economy.js turns verified surplus into actions.
@@ -319,16 +319,19 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
       .map(k=>`${{accuracy:'命中',strength:'力量',defence:'防御',luck:'幸运'}[k]} +${Math.round((after[k]-before[k])*1000)/1000}`);
     const skill=data.toolSkills[slot];
     let priority=2,benefit=changes.join('、')||'属性取整后不变',gain=changes.length;
-    if(skill) {
+    if(slot==='hoe') {
+      // A hoe's bonus is extra crops per harvest (client 1.0.1202).
+      const crops=bonus=>harvestCrops(lv.farming,bonus);
+      gain=crops(after.bonus)/crops(before.bonus)-1;
+      benefit=`每次收获约多 ${(after.bonus-before.bonus).toFixed(2)} 个作物（约 ${crops(before.bonus).toFixed(2)} → ${crops(after.bonus).toFixed(2)}，+${(gain*100).toFixed(1)}%）`;
+    } else if(skill) {
       gain=(1+after.bonus)/(1+before.bonus)-1;
-      benefit=slot==='hoe'?'当前后台种植不浇水，强化锄头不缩短自然生长时间':
-        `未触及速度上限时，工作速度约 +${(gain*100).toFixed(2)}%`;
-      if(slot==='hoe')gain=0;
+      benefit=`未触及速度上限时，工作速度约 +${(gain*100).toFixed(2)}%`;
       if(data.jobs.find(j=>j.id===p.route?.jobId)?.skill===skill)priority=0;
     } else if(slot==='weapon')priority=1;
     if(!gain)priority=4;
     const target=planner.equipmentStats(id%data.plusScale+ENHANCEMENT_BASELINE*data.plusScale);
-    const towardBaseline=quote.fromPlus<ENHANCEMENT_BASELINE&&slot!=='hoe'&&slot!=='mount'&&
+    const towardBaseline=quote.fromPlus<ENHANCEMENT_BASELINE&&slot!=='mount'&&
       ['accuracy','strength','defence','luck','bonus'].some(k=>(target[k]??0)>(before[k]??0));
     return [{itemId:id,name:name(id),slot,...quote,benefit,priority,
       recommendation:quote.fromPlus>=ENHANCEMENT_BASELINE?'已达 +5 基线，暂不自动追加':

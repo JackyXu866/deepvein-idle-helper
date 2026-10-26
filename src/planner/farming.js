@@ -12,6 +12,13 @@ export const POTION_FLOOR=50;
 // harvest only comes back after a full growth.
 export const CROP_RESERVE=500;
 
+// Crops one harvest gives (client 1.0.1202): 2, plus 1 at Farming 25, 50, 75
+// and 99, plus the hoe's bonus as extra crops (its fraction is the chance of
+// one more). `minimum`: the whole crops only, what a field surely brings.
+export const HARVEST_BASE=2,HARVEST_STEPS=[25,50,75,99];
+export const harvestCrops=(farmingLevel,hoeBonus=0,{minimum=false}={})=>
+  HARVEST_BASE+HARVEST_STEPS.filter(level=>farmingLevel>=level).length+(minimum?Math.floor(hoeBonus):hoeBonus);
+
 const herbIds=data=>new Set(data.jobs.filter(j=>j.grow).map(j=>j.output.itemId));
 const held=stockQty;
 
@@ -84,7 +91,7 @@ export function cropReserve(data,p,job,levels,herblore=herbloreNeeds(data,p,leve
 // Crops below target, in priority order: the current plan's shortfall, then
 // herbs for the next herblore recipe, then the potion floor and food reserve.
 // With nothing short, the planner keeps the fields busy on farming experience.
-export function farmingStocks(data,p,levels,goal=null,thresholds=null) {
+export function farmingStocks(data,p,levels,goal=null,thresholds=null,hoeBonus=0) {
   const base=id=>baseId(data,id),stock={...p.bank},R=data.rarityScale;
   for(const i of p.pack)stock[i.itemId]=(stock[i.itemId]??0)+i.qty;
   for(const [id,qty]of Object.entries(p.overflow??{}))stock[id]=(stock[id]??0)+qty;
@@ -93,7 +100,7 @@ export function farmingStocks(data,p,levels,goal=null,thresholds=null) {
     const itemId=job.output.itemId,future={};
     for(const plot of Object.values(p.plots??{}))if(base(plot.seedItemId)===job.inputs[0].itemId) {
       const id=itemId+rarityOf(data,plot.seedItemId)*data.rarityScale;
-      future[id]=(future[id]??0)+3; // Minimum confirmed native yield per field.
+      future[id]=(future[id]??0)+harvestCrops(levels.farming,hoeBonus,{minimum:true});
     }
     const growing=Object.values(future).reduce((a,b)=>a+b,0);
     const demands=Object.entries(goal?.budget?.items??{}).filter(([id])=>base(+id)===itemId);
