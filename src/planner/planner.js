@@ -369,13 +369,23 @@ export function createPlanner(data) {
     return farmFields(p).map(site=>planted.has(site.id)?{job:planted.get(site.id),rarity:rarity(p.plots[site.id].seedItemId)}:
       next?{job:next,rarity:0}:null).filter(Boolean);
   }
-  // Where a crop's seed is gathered (a bonus drop): unlocked first, then the
-  // lowest level, then the fastest per seed. Harvest goes there and the farm
-  // status names it.
+  // The seconds per bonus drop of a job: an action (failures included) over
+  // its chance.
+  const bonusSeconds=(p,j)=>{const e=strategy.estimateWork(p,j,levels(p));return e.seconds/Math.max(.01,e.success)/j.bonus.chance;};
+  // Where a bonus drop is got: the fastest unlocked job per drop. need(), the
+  // route estimate and the input cost all get bonus drops there.
+  function bonusSource(p,id) {
+    const lv=levels(p);
+    return jobs.filter(j=>j.bonus?.itemId===id&&j.bonus.chance>0&&!j.grow&&lv[j.skill]>=j.levelReq&&sites.some(s=>s.jobIds.includes(j.id)))
+      .sort((a,b)=>bonusSeconds(p,a)-bonusSeconds(p,b)||a.id-b.id)[0]??null;
+  }
+  // Where a crop's seed is gathered: its bonus source, or, while none is
+  // unlocked, the lowest-level one (to level toward). Harvest goes there and
+  // the farm status names it.
   function seedSource(p,job) {
-    const unlocked=j=>level(p.skills[j.skill])>=j.levelReq,seedTime=j=>strategy.estimateWork(p,j).seconds/j.bonus.chance;
-    return jobs.filter(j=>j.bonus?.itemId===job.inputs[0].itemId)
-      .sort((a,b)=>Number(unlocked(b))-Number(unlocked(a))||a.levelReq-b.levelReq||seedTime(a)-seedTime(b))[0]??null;
+    const id=job.inputs[0].itemId;
+    return bonusSource(p,id)??jobs.filter(j=>j.bonus?.itemId===id&&j.bonus.chance>0&&!j.grow)
+      .sort((a,b)=>a.levelReq-b.levelReq||bonusSeconds(p,a)-bonusSeconds(p,b))[0]??null;
   }
   function harvest(p,preferredJobId,goal=null,style='magic',completedLoad=false) {
     farmState(p);
@@ -1027,9 +1037,7 @@ export function createPlanner(data) {
       if(rarity(id)>0&&!gatherQuality)return blocked(`缺少同品质材料 ${name(id)}；等待库存或合算报价，不为它无限刷随机掉落`);
       const sourceId=gatherQuality?base(id):id;
       if (monsters.some(m=>m.drop===sourceId||(goal.itemTarget||goal.mastery)&&m.bonus?.itemId===sourceId&&m.bonus.chance>0)) return fight(style,sourceId,false);
-      const source = goal.mastery?masteryBonusSource(id,Math.max(1,quantity-count(p,id)))?.job:
-        jobs.filter(j=>j.bonus?.itemId===sourceId&&unlocked(j))
-          .sort((a,b)=>jobTime(a)/a.bonus.chance-jobTime(b)/b.bonus.chance)[0];
+      const source = goal.mastery?masteryBonusSource(id,Math.max(1,quantity-count(p,id)))?.job:bonusSource(p,sourceId);
       if (source) return batch(source,50,next);
       if(goal.itemTarget||gatherQuality) {
         const locked=jobs.filter(j=>j.bonus?.itemId===sourceId&&j.bonus.chance>0).sort((a,b)=>a.levelReq-b.levelReq)[0];
@@ -1666,7 +1674,7 @@ export function createPlanner(data) {
   api.crafting=createCrafting(data,api);
   Object.assign(api,{inputCost:createInputCost(data,api),chooseGoal:strategy.chooseGoal,routeEstimate:strategy.routeEstimate,combatOptions:strategy.combatOptions,
     candidates:strategy.candidates,estimateWork:strategy.estimateWork,setMeasurements:strategy.setMeasurements,byFormula:strategy.byFormula,rateSource:strategy.rateSource,routeMeasurement:strategy.routeMeasurement,
-    gearScore,combatRate,combatChoice,dropSeconds,batchRating,stageRating,incomeRows,coinRate,stageSupply,stageCraftCount,questQualitySets,recipeRatings:()=>recipeRatings,
+    gearScore,combatRate,combatChoice,dropSeconds,bonusSource,bonusSeconds,batchRating,stageRating,incomeRows,coinRate,stageSupply,stageCraftCount,questQualitySets,recipeRatings:()=>recipeRatings,
     // What one unit would sell for, net of tax: the market's sale layers, else the merchant.
     saleValue:(p,id,qty=1)=>api.marketUnitValue?.(p,id,qty)??merchantPrice(data,id)});
   const growth=createProgression(data,api);

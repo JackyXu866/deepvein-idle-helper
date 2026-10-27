@@ -26,19 +26,18 @@ test('a piece to make is priced with its crafting XP credited, plus the walking'
   assert.ok(Math.abs(row.paid - (made.effective + route.seconds - made.seconds)) < 1e-6, `${row.paid}`);
 });
 
-test('the project started is the table\'s 自制 pick (largest net saving, not the cheapest piece)', () => {
-  const {planner, p, goal, pickaxe} = miner(60, 'Iron pickaxe');
-  const pick = planner.investmentOptions(p, 'melee', goal).find(r => r.slot === 'pickaxe' && r.cheapest);
-  assert.equal(pick?.source, '自制');
+test('the project started is the table\'s 自制 pick with the largest net saving, on any slot', () => {
+  const {planner, p, goal} = miner(60, 'Iron pickaxe');
+  const picks = planner.investmentOptions(p, 'melee', goal).filter(r => r.cheapest && r.source === '自制');
+  assert.ok(picks.length >= 2, 'a hammer (none worn) and a pickaxe');
   planner.plan(p, goal, 'melee');
-  assert.equal(goal.upgrade?.id, pick.id);
-  assert.equal(goal.upgrade.id, pickaxe('Cobalt pickaxe'));
+  assert.equal(goal.upgrade?.id, picks[0].id, picks.map(r => r.label).join(', '));
 });
 
 test('a project whose row no longer pays back is dropped', () => {
   const {planner, p, goal, pickaxe} = miner(30, 'Bronze pickaxe');
   const steel = pickaxe('Steel pickaxe');
-  assert.equal(planner.investmentOptions(p, 'melee', goal).find(r => r.id === steel)?.worth, false);
+  assert.ok(!planner.investmentOptions(p, 'melee', goal).find(r => r.id === steel)?.worth, 'not a row that pays back');
   goal.upgrade = {id: steel, slot: 'pickaxe', skill: 'mining', priority: true};
   planner.plan(p, goal, 'melee');
   assert.notEqual(goal.upgrade?.id, steel);

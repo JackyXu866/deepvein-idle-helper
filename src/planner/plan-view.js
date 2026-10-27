@@ -66,7 +66,8 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
     const chosen = c => run != null && (run.monsterId != null ? run.monsterId === c.monsterId :
       run.recipeId === c.recipeId && run.rarity === (c.rarity ?? 0));
     const rows = list.map(c => ({key: keyOf(c), label: label(c), skill: c.skill, skillName: NAMES[c.skill] ?? c.skill, xpH: c.rate.xp * 3600,
-      coinsH: (priced.get(keyOf(c)) ?? c.rate.coins) * 3600, source: planner.rateSource?.(p, keyOf(c)) ?? 'formula', chosen: chosen(c)}));
+      // Gold as the gold table prices it; a job absent from it earns nothing there.
+      coinsH: (priced.get(keyOf(c)) ?? 0) * 3600, source: planner.rateSource?.(p, keyOf(c)) ?? 'formula', chosen: chosen(c)}));
     const incomeView = income.map(r => ({key: r.key, label: `${label(r)}${r.goldRate ? '（金币效率）' : r.oneOff ? '（库存批次，一次性）' : ''}`,
       skill: r.skill, skillName: NAMES[r.skill] ?? r.skill, xpH: r.xp * 3600, coinsH: r.coins * 3600,
       source: planner.rateSource?.(p, r.key) ?? 'formula', chosen: chosen(r), goldRate: !!r.goldRate, oneOff: r.oneOff}));

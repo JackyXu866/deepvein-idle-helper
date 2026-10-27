@@ -235,8 +235,7 @@ export function createStrategy(data, planner) {
         recipes.farming=crop.id;supplyRecipes[id]=crop.id;
         return true;
       }
-      const bonus=jobs.filter(j=>j.bonus?.itemId===id&&j.levelReq<=lv[j.skill]&&!j.grow)
-        .sort((a,b)=>estimateWork(p,a,lv).seconds/a.bonus.chance-estimateWork(p,b,lv).seconds/b.bonus.chance)[0];
+      const bonus=planner.bonusSource?.(p,id); // the one bonus source (need() and the input cost use it)
       if (bonus) {
         if (!work(bonus,missing/bonus.bonus.chance,next)) return false;
         stock[id]=Math.max(0,(stock[id]??0)-missing);return true;
@@ -364,7 +363,13 @@ export function createStrategy(data, planner) {
   // qualifies, earn as fast as possible instead.
   function withProfitFloor(p,choices,style,floor) {
     planner.watchMarket?.(p,choices.map(c=>c.output?.itemId??data.monsters.find(m=>m.id===c.monsterId)?.drop).filter(Boolean));
-    const priced=planner.incomeChoices?planner.incomeChoices(p,choices,style):choices.filter(c=>c.rate.coins>0);
+    // Priced by the gold table (incomeRows), as the plan tab's gold column and
+    // its floor buttons are; a job absent from it earns nothing.
+    const income=new Map((planner.incomeRows?.(p,style)??[]).map(r=>[r.key,r]));
+    const priced=choices.map(c=>{
+      const row=income.get(c.monsterId!=null?combatKey(c.monsterId):jobKey(c.recipeId,c.rarity));
+      return row?{...c,rate:{...c.rate,coins:row.coins},saleItems:row.saleItems}:null;
+    }).filter(c=>c&&c.rate.coins>0);
     const enough=priced.filter(c=>c.rate.coins*3600>=floor).sort((a,b)=>b.rate.xp-a.rate.xp);
     if(enough.length)return {choices:enough,note:`收益不低于 ${floor} 金币/小时的工作中经验最高`};
     const richest=[...priced].sort((a,b)=>b.rate.coins-a.rate.coins);

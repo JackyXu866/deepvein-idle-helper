@@ -9,8 +9,7 @@
 // finished fast, buying cheap inputs rather than gathering at length.
 import {goldToSeconds} from './gold.js';
 import {autoUsableMaterial, craftRecipe} from './quality.js';
-import {bankTripSeconds, baseId, rarityOf, stockMap} from './items.js';
-import {perAction} from './rates.js';
+import {bankTripSeconds, baseId, rarityOf, seedVendorPrice, stockMap} from './items.js';
 
 const NONE={seconds:0,xp:0,effective:0,source:null};
 const UNREACHABLE={seconds:Infinity,xp:0,effective:Infinity,source:null};
@@ -72,10 +71,9 @@ export function createInputCost(data,planner) {
         if(Number.isFinite(unit))options.push({seconds:unit*qty,xp:0,effective:unit*qty,source:'drop',stock:ctx.stock});
       }
       else {
-        const bonus=data.jobs.filter(j=>j.bonus?.itemId===id&&j.bonus.chance>0&&ctx.lv[j.skill]>=j.levelReq)
-          .map(j=>perAction(planner.estimateWork(ctx.p,j,ctx.lv))/j.bonus.chance);
-        const unit=bonus.length?Math.min(...bonus):3600;
-        options.push({seconds:unit*qty,xp:0,effective:unit*qty,source:'bonus',stock:ctx.stock});
+        // A bonus drop: its one source (planner.bonusSource); none unlocked, none.
+        const source=planner.bonusSource?.(ctx.p,id);
+        if(source){const unit=planner.bonusSeconds(ctx.p,source);options.push({seconds:unit*qty,xp:0,effective:unit*qty,source:'bonus',stock:ctx.stock});}
       }
     }
     return options.sort((a,b)=>a.effective-b.effective)[0]??null;
@@ -91,8 +89,13 @@ export function createInputCost(data,planner) {
     const fresh=n=>{
       const count=Math.ceil(n),price=(ctx.prices?.[id]??planner.marketBuyPrice?.(p,id,count))??Infinity;
       const bought=goldToSeconds(price*count,ctx.coinRate)+ctx.trip;
+      // The sage seed is also sold by the vendor (need(), harvest and the
+      // route estimate buy it there): one more way to get it.
+      const vendorPrice=id===190?seedVendorPrice(data):Infinity;
+      const vendor=goldToSeconds(vendorPrice*count,ctx.coinRate)+ctx.trip;
       const made=id<data.plusScale&&!ctx.buyOnly?produce(ctx,id,n,[...trail,id]):null;
-      if(made&&made.effective<bought)return made;
+      if(made&&made.effective<Math.min(bought,vendor))return made;
+      if(vendor<bought)return {seconds:vendor,xp:0,effective:vendor,source:'vendor',gold:vendorPrice*count,stock:ctx.stock};
       return Number.isFinite(bought)?{seconds:bought,xp:0,effective:bought,source:'buy',gold:price*count,stock:ctx.stock}:null;
     };
     // Stock costs what using it gives up: its sale value, but never more than
