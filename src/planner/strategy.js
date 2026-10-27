@@ -183,22 +183,16 @@ export function createStrategy(data, planner) {
       if(buyInputs&&id!==root?.output?.itemId&&id!==root?.itemId) {
         const qty=Math.ceil(missing),cost=qty*(planner.marketBuyPrice?.(p,id,qty+(purchases[id]??0))??Infinity);
         const unit=goldToSeconds(cost,planner.coinRate?.(p)??0)/qty,allowance=planner.marketAllowance?.(p)??0;
-        // The shared input cost (input-cost.js) prefers making or gathering it,
-        // with the XP of trained skills credited: fall through to the recipe,
-        // whose inputs get this same choice.
-        const make=Number.isFinite(unit)&&!!planner.inputCost&&planner.inputCost.acquire(planner.inputCost.context(
-          {...p,x:position.x,y:position.y},{style,credit,stock:{}}),id,missing).source!=='buy';
-        if(!make&&Number.isFinite(unit)&&cost>0&&marketCoins+cost+Math.max(0,-coins-marketCoins)<=allowance) {
+        // The one make-or-buy verdict (input-cost.js decide): bought when it
+        // says so and the coins allow; else made or gathered below.
+        const buyIt=Number.isFinite(unit)&&cost>0&&!!planner.inputCost&&
+          planner.inputCost.decide({...p,x:position.x,y:position.y},id,missing,{style,credit}).buy;
+        if(buyIt&&marketCoins+cost+Math.max(0,-coins-marketCoins)<=allowance) {
           const bank=bankAt(position),to=bank.approach??bank;
-          const purchaseSeconds=unit*qty+(includeTravel?distance(position,to)*tick:0);
-          const self=routeEstimate({...p,x:position.x,y:position.y,bank:stock,pack:[]},{itemId:id},missing,
-            {style,includeTravel,completeTrips:true});
-          if(purchaseSeconds<self.seconds) {
-            travel(to);seconds+=unit*qty;coins-=cost;marketCoins+=cost;
-            purchases[id]=(purchases[id]??0)+qty;
-            stock[id]=(stock[id]??0)+qty-missing;
-            return true;
-          }
+          travel(to);seconds+=unit*qty;coins-=cost;marketCoins+=cost;
+          purchases[id]=(purchases[id]??0)+qty;
+          stock[id]=(stock[id]??0)+qty-missing;
+          return true;
         }
       }
       if(id===190) {
@@ -206,8 +200,10 @@ export function createStrategy(data, planner) {
         coins-=price;travel(bankAt(position).approach??bankAt(position));seconds+=tick;
         return true;
       }
+      // The producer the shared input cost chooses first (need() produces with it).
+      const preferred=planner.inputCost?.producer({...p,x:position.x,y:position.y},id,missing,{style,credit})?.id;
       const choices=jobs.filter(j=>j.output.itemId===id&&!j.grow&&siteAt(position,j))
-        .sort((a,b)=>a.levelReq-b.levelReq||estimateWork(p,a,lv).seconds/Math.max(.001,estimateWork(p,a,lv).commonOutput)-
+        .sort((a,b)=>Number(b.id===preferred)-Number(a.id===preferred)||a.levelReq-b.levelReq||estimateWork(p,a,lv).seconds/Math.max(.001,estimateWork(p,a,lv).commonOutput)-
           estimateWork(p,b,lv).seconds/Math.max(.001,estimateWork(p,b,lv).commonOutput));
       if (choices.length) {
         const j=choices[0],e=estimateWork(p,j,lv);

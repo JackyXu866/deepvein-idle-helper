@@ -23,7 +23,6 @@ import {perkOverview} from './perks.js';
 import {chooseFallback} from './fallback.js';
 import {createInvestments} from './investment.js';
 import {slotsFor} from './gear.js';
-import {goldToSeconds} from './gold.js';
 import {createCollectionMastery} from './collection.js';
 import {HOT_FOLLOW_SKILLS, hotSkillAt, hotWindows} from '../runtime/hot-follow.js';
 import {createAutomationPolicy, normalizeAutomation} from '../runtime/automation-policy.js';
@@ -85,6 +84,15 @@ export function createPlanner(data) {
     const unitCost=strategy.supplyCost(p,supplies.foodItemId);
     const foodSeconds=estimate.damage/supplies.heal*(Number.isFinite(unitCost)?unitCost:0);
     return {estimate,zone,supplies,foodSeconds,seconds:estimate.seconds+foodSeconds+supplies.restockSeconds};
+  }
+  // Seconds per ordinary drop of `id` from the best safe monster dropping it:
+  // one kill with its food (combatTiming) over the chance of an ordinary drop.
+  // The input cost prices a drop by it, as the fight that gets it runs.
+  function dropSeconds(p,id,style=api.styleHint??'magic') {
+    const lv=levels(p),stats=combatStats(data,api,p,style,p.equipment,lv);
+    const common=1-Math.min(1,data.rarityChance.uncommon*(1+(equipmentStats(p.equipment.amulet)?.luck??0)));
+    return Math.min(Infinity,...monsters.filter(m=>m.drop===id&&(m.dropChance??1)>0&&zones.some(z=>z.monsterId===m.id)&&combatSafe(lv,stats,m))
+      .map(m=>{const t=combatTiming(p,m,stats);return t.supplies.sustainable?t.seconds/((m.dropChance??1)*common):Infinity;}));
   }
   // Main-skill XP per second against a monster wearing `equipment`, by the
   // game formulas; 0 when that fight is unsafe or cannot be kept fed.
@@ -799,7 +807,7 @@ export function createPlanner(data) {
             const qty=Math.ceil(missing),unit=api.marketBuyPrice?.(p,id,qty+(purchases[id]??0))??Infinity;
             const price=unit*qty;
             if(Number.isFinite(price)&&money+price<=(api.marketAllowance?.(p,goal)??0)&&
-              goldToSeconds(price,api.coinRate(p))<=(goal.horizon??1800)) {
+              api.inputCost.decide(p,id,qty,{...inputOptions(seen),price:unit}).buy) {
               money+=price;purchases[id]=(purchases[id]??0)+qty;return true;
             }
             const source=made(id).find(unlocked)??made(id)[0];
@@ -979,7 +987,10 @@ export function createPlanner(data) {
         const time=j=>(jobEstimate(j).seconds+j.inputs.reduce((sum,i)=>sum+i.qty*cost(i.itemId,next),0))/jobEstimate(j).commonOutput;
         return time(a)-time(b);
       });
-      const job = available.find(j=>j.id===goal.supplyRecipes?.[id])??available[0];
+      // The producer the shared input cost chooses: the rule the ratings and
+      // the route estimate use (the time order above only if it names none).
+      const chosen=api.inputCost.producer(p,id,Math.max(1,quantity-count(p,id)),inputOptions(next));
+      const job = available.find(j=>j.id===chosen?.id&&(j.rarity??0)===(chosen?.rarity??0))??available[0];
       if (job) {
         if(job.grow) {
           goal.budget??={coins:0,items:{}};goal.budget.items??={};
@@ -1650,10 +1661,7 @@ export function createPlanner(data) {
   api.crafting=createCrafting(data,api);
   Object.assign(api,{inputCost:createInputCost(data,api),chooseGoal:strategy.chooseGoal,routeEstimate:strategy.routeEstimate,combatOptions:strategy.combatOptions,
     candidates:strategy.candidates,estimateWork:strategy.estimateWork,setMeasurements:strategy.setMeasurements,byFormula:strategy.byFormula,rateSource:strategy.rateSource,routeMeasurement:strategy.routeMeasurement,
-    acquireEstimate:(p,id,qty,style='magic')=>rarity(id)>0?api.crafting.estimate(
-      withoutItem(p,id),id,qty,{buy:true}):
-      strategy.routeEstimate(p,{itemId:id},qty,{style}),
-    gearScore,combatRate,batchRating,stageRating,incomeRows,coinRate,stageSupply,stageCraftCount,questQualitySets,recipeRatings:()=>recipeRatings,
+    gearScore,combatRate,dropSeconds,batchRating,stageRating,incomeRows,coinRate,stageSupply,stageCraftCount,questQualitySets,recipeRatings:()=>recipeRatings,
     // What one unit would sell for, net of tax: the market's sale layers, else the merchant.
     saleValue:(p,id,qty=1)=>api.marketUnitValue?.(p,id,qty)??merchantPrice(data,id)});
   const growth=createProgression(data,api);

@@ -463,17 +463,14 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     if(!ask||!(rate>0))return null;
     const amount=Math.min(qty,ask.qty,Math.floor(purchaseAllowance(p,goal)/ask.price),1000000);
     if(amount<1)return null;
-    const trip=bankTripSeconds(data,p);
-    // Buying its materials and crafting it (with the XP) beats buying it: the
-    // planner crafts instead, and buys those materials through this same check.
-    if(planner.crafting?.makeBeatsBuying(p,id,amount,goldToSeconds(amount*ask.price,rate),goal)) {
-      status=`${labelOf(id)}：买原料自制不比直接买贵（含制作经验），改为自制`;return null;
+    // The one make-or-buy verdict (input-cost.js decide), at the live ask: the
+    // same rule the recipe ratings assumed, so what they count as bought is bought.
+    const verdict=planner.inputCost?.decide(p,id,amount,{style:profession,credit:!goal?.quest&&!goal?.itemTarget,price:ask.price});
+    if(!verdict?.buy) {
+      status=`${labelOf(id)}：自制或自采更省（含所练技能的经验），不买`;return null;
     }
-    const seconds=goldToSeconds(amount*ask.price,rate)+trip,self=planner.acquireEstimate?.(p,id,amount,profession);
-    // Keep the goal's experience. Buying its ingredients need not compensate
-    // every unrelated gathering XP point that self-supply would have earned.
-    if(!self||seconds>(goal?.horizon??1800)||Number.isFinite(self.seconds)&&seconds>=self.seconds)return null;
-    return buy(p,id,amount,goal,'市场补齐当前需求',`采购资金时间与往返约 ${Math.ceil(seconds)} 秒，自给${Number.isFinite(self.seconds)?`约 ${Math.ceil(self.seconds)} 秒`:'暂不可达'}`,ask.price);
+    const seconds=goldToSeconds(amount*ask.price,rate)+bankTripSeconds(data,p);
+    return buy(p,id,amount,goal,'市场补齐当前需求',`买比自制或自采省：采购资金时间与往返约 ${Math.ceil(seconds)} 秒`,ask.price);
   }
   // Buys the piece the investment table picked (`row`, passed by the planner)
   // once its live ask is confirmed at no more than the table's price: the table
@@ -586,11 +583,10 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     // A quote refresh cannot repeatedly defer preparing a usable food supply.
     if(!best)return now()-foodScan.startedAt<waitMs&&ids.some(id=>bookRequests.has(id))?
       wait('首次熟食比价最多等待 4 秒；随后继续自给备粮'):null;
-    const self=planner.acquireEstimate(p,supplies.foodItemId,supplies.needFood+quantity(p,supplies.foodItemId)),rate=planner.coinRate(p);
-    const buySeconds=goldToSeconds(best.ask*supplies.needFood,rate);
-    if(!(rate>0)||buySeconds>=self.seconds)return null;
-    // Cooking it from bought fish (with the cooking XP) is no dearer: cook instead.
-    if(planner.crafting?.makeBeatsBuying(p,best.itemId,supplies.needFood,buySeconds,goal))return null;
+    // The one make-or-buy verdict, at the live ask (cooking it, with the
+    // cooking XP credited, may be the cheaper way).
+    if(!planner.inputCost?.decide(p,best.itemId,supplies.needFood,{style:goal?.style??planner.styleHint??'magic',
+      credit:!goal?.quest&&!goal?.itemTarget,price:best.ask})?.buy)return null;
     const result=buy(p,best.itemId,supplies.needFood,goal,'市场补充熟食',
       `每份有效治疗 ${best.heal}；按实际缺口采购，遵守游戏自动进食品质上限`,best.ask);
     if(result?.intent?.t==='marketBuy')result.foodItemId=best.itemId;

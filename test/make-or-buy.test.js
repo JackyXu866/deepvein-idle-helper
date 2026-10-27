@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {MAKE_BIAS} from '../src/planner/crafting.js';
 import {createMarket} from '../src/economy/market.js';
 import {makePlanner, player} from './helpers.js';
 
+// One make-or-buy verdict (input-cost.js decide), acted on by every buy step:
+// the price as time at the gold rate plus a bank trip, against the making time
+// less the XP it earns in trained skills. No bias, no horizon.
 function bars() {
   const planner = makePlanner(), d = planner.data;
   planner.coinRate = () => 10;
@@ -14,23 +16,22 @@ function bars() {
   return {planner, d, job, p};
 }
 
-test('making from bought materials is weighed against buying, with a bias for the XP', () => {
+test('the verdict: buy when the price as time beats making it (XP credited); quests credit no XP', () => {
   const {planner, job, p} = bars();
-  const make = planner.crafting.fromBought(p, job.output.itemId, 10);
-  assert.equal(make.job.id, job.id);
-  assert.ok(Number.isFinite(make.seconds) && make.seconds > 20, 'ore for 10 bars plus the smelting time');
-  assert.equal(planner.crafting.makeBeatsBuying(p, job.output.itemId, 10, make.seconds * 2), true, 'buying costs double: make');
-  assert.equal(planner.crafting.makeBeatsBuying(p, job.output.itemId, 10, make.seconds / (MAKE_BIAS - .05)), true,
-    'buying a little cheaper still loses to making (the XP)');
-  assert.equal(planner.crafting.makeBeatsBuying(p, job.output.itemId, 10, make.seconds / 2), false, 'buying at half: buy');
-  const quest = planner.crafting.fromBought(p, job.output.itemId, 10, {quest: {jobId: job.id}});
-  assert.ok(quest.seconds > make.seconds, 'a quest credits no XP: making costs its full time');
+  const bar = job.output.itemId;
+  const making = planner.inputCost.decide(p, bar, 10, {style: 'melee', price: Infinity});
+  assert.equal(making.buy, false);
+  assert.ok(Number.isFinite(making.seconds), 'made from bought ore');
+  assert.equal(planner.inputCost.decide(p, bar, 10, {style: 'melee', price: 1}).buy, true, 'a tenth of a second each: buy');
+  assert.equal(planner.inputCost.decide(p, bar, 10, {style: 'melee', price: 10_000}).buy, false, 'far dearer: make');
+  const quest = planner.inputCost.decide(p, bar, 10, {style: 'melee', price: Infinity, credit: false});
+  assert.ok(quest.seconds > making.seconds, 'a quest credits no XP: making costs its full time');
 });
 
-test('a direct purchase is declined when making it from bought materials is no dearer', () => {
+test('a market purchase acts on the verdict at the live ask, whatever the horizon', () => {
   const planner = makePlanner(), d = planner.data;
   planner.coinRate = () => 10;
-  let clock = 1_000_000_000;
+  const clock = 1_000_000_000;
   const market = createMarket(d, planner, {now: () => clock});
   market.configureProcurement({enabled: true});
   const bar = d.jobs.find(j => j.skill === 'smithing' && j.name === 'Bronze bar').output.itemId;
@@ -39,10 +40,11 @@ test('a direct purchase is declined when making it from bought materials is no d
   market.watch(p, [bar], bar);
   assert.deepEqual(market.query(p), {t: 'marketDepth', itemId: bar});
   market.receive({tick: 100001, m: [{t: 'marketDepth', itemId: bar, bids: [], asks: [{price: 50, qty: 500}], trades: []}]});
-  planner.acquireEstimate = () => ({seconds: Infinity});
-  const goal = {horizon: 36000, budget: {coins: 0, items: {}}};
-  planner.crafting.makeBeatsBuying = () => true;
+  const goal = {horizon: 60, budget: {coins: 0, items: {}}}; // a short horizon no longer refuses
+  const seen = [];
+  planner.inputCost.decide = (_p, id, qty, options) => {seen.push(options.price); return {buy: false};};
   assert.equal(market.purchase(p, bar, 10, goal, 'melee'), null, 'make it instead');
-  planner.crafting.makeBeatsBuying = () => false;
+  assert.deepEqual(seen, [50], 'judged at the live ask');
+  planner.inputCost.decide = () => ({buy: true});
   assert.equal(market.purchase(p, bar, 10, goal, 'melee')?.intent?.t, 'marketBuy');
 });

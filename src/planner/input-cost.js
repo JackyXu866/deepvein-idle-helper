@@ -61,11 +61,16 @@ export function createInputCost(data,planner) {
       const saved=ctx.stock;ctx.stock={...saved};
       const probe=planner.estimateWork(ctx.p,job,ctx.lv),runs=qty/Math.max(1e-9,probe.commonOutput);
       const made=work(ctx,job,runs,trail);
-      options.push({...made,source:job.inputs.length?'craft':'gather',stock:ctx.stock});
+      options.push({...made,source:job.inputs.length?'craft':'gather',stock:ctx.stock,job});
       ctx.stock=saved;
     }
     if(!makers.length&&tier===0) {
-      if(data.monsters.some(m=>m.drop===id))options.push({seconds:60*qty,xp:0,effective:60*qty,source:'drop',stock:ctx.stock});
+      // A monster drop: the fight's real time per drop (food included), as the
+      // fight that gets it runs.
+      if(data.monsters.some(m=>m.drop===id)) {
+        const unit=planner.dropSeconds?.(ctx.p,id)??Infinity;
+        if(Number.isFinite(unit))options.push({seconds:unit*qty,xp:0,effective:unit*qty,source:'drop',stock:ctx.stock});
+      }
       else {
         const bonus=data.jobs.filter(j=>j.bonus?.itemId===id&&j.bonus.chance>0&&ctx.lv[j.skill]>=j.levelReq)
           .map(j=>perAction(planner.estimateWork(ctx.p,j,ctx.lv))/j.bonus.chance);
@@ -84,7 +89,7 @@ export function createInputCost(data,planner) {
     if(used>0)ctx.stock={...ctx.stock,[id]:ctx.stock[id]-used};
     // Getting `n` more: the cheaper of buying and producing.
     const fresh=n=>{
-      const count=Math.ceil(n),price=planner.marketBuyPrice?.(p,id,count)??Infinity;
+      const count=Math.ceil(n),price=(ctx.prices?.[id]??planner.marketBuyPrice?.(p,id,count))??Infinity;
       const bought=goldToSeconds(price*count,ctx.coinRate)+ctx.trip;
       const made=id<data.plusScale&&!ctx.buyOnly?produce(ctx,id,n,[...trail,id]):null;
       if(made&&made.effective<bought)return made;
@@ -104,6 +109,24 @@ export function createInputCost(data,planner) {
     ctx.stock=got.stock;
     return {seconds:held+got.seconds,xp:got.xp,effective:held+got.effective,source:got.source,...(got.gold?{gold:got.gold}:{})};
   }
+  // The one make-or-buy verdict, which every buy step acts on: buying `qty`
+  // of `id` (at `price` a unit, e.g. the live ask, else the market's) against
+  // producing it, by the rule recipes are rated by: the price as time at the
+  // gold rate plus a bank trip, against the making time less the XP it earns
+  // in trained skills. No bias, no horizon.
+  function decide(p,id,qty,{price=null,...options}={}) {
+    const ctx=context(p,{stock:{},...options});
+    if(price!=null)ctx.prices={[id]:price};
+    const got=acquire(ctx,id,Math.max(1,qty),options.trail??[]);
+    return {buy:got.source==='buy',source:got.source,seconds:got.effective};
+  }
+  // The job that produces `id` the cheapest way by this same rule (the
+  // recipe or gathering job, at the item's quality); null for a drop or crop.
+  // need() and the route estimate both produce with it.
+  function producer(p,id,qty,options={}) {
+    const ctx=context(p,{stock:{},...options});
+    return produce(ctx,id,Math.max(1,qty),[...(options.trail??[]),id])?.job??null;
+  }
   // Effective seconds for one unit of `id` when `qty` are needed (no stock).
   const unitSeconds=(p,id,qty=1,options={})=>
     acquire(context(p,{stock:{},...options}),id,Math.max(1,qty),options.trail??[]).effective/Math.max(1,qty);
@@ -118,5 +141,5 @@ export function createInputCost(data,planner) {
     const ctx=context(p,options),e=planner.estimateWork(p,job,ctx.lv);
     return work(ctx,job,qty/Math.max(1e-9,e.commonOutput),[job.output.itemId]);
   }
-  return {context,acquire,unitSeconds,recipe,make,skillRate};
+  return {context,acquire,decide,producer,unitSeconds,recipe,make,skillRate};
 }

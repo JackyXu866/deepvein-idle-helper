@@ -4,27 +4,7 @@ import {lockedGear} from './inventory.js';
 import {goldToSeconds} from './gold.js';
 import {baseId, distance, packFree, packQty, rarityOf, stockMap, withoutItem} from './items.js';
 
-// Making an item from bought materials may cost up to this much more than
-// buying it outright: the crafting XP is worth something too.
-export const MAKE_BIAS=1.15;
-
 export function createCrafting(data,planner) {
-  // Seconds to make `qty` of `id` by its cheapest recipe, by the shared input
-  // cost (input-cost.js): inputs from stock at their sale value, bought, or
-  // gathered and made, with the XP of trained skills credited. Infinity when
-  // it cannot be made.
-  function fromBought(p,id,qty,goal=null) {
-    const tier=rarityOf(data,id),levels=planner.levels(p),credit=!goal?.quest&&!goal?.itemTarget;
-    let best={seconds:Infinity,job:null};
-    for(const original of data.jobs.filter(j=>j.output.itemId===baseId(data,id)&&j.inputs.length&&!j.grow&&levels[j.skill]>=j.levelReq)) {
-      const job=craftRecipe(data,original,tier);if(!job)continue;
-      const seconds=planner.inputCost.make(p,job,qty,{credit}).effective;
-      if(seconds<best.seconds)best={seconds,job:original};
-    }
-    return best;
-  }
-  // Whether making `id` beats buying it at `buySeconds` (its price as time).
-  const makeBeatsBuying=(p,id,qty,buySeconds,goal=null)=>fromBought(p,id,qty,goal).seconds<=buySeconds*MAKE_BIAS;
   // Recipes making each base (any level), found once per data.
   const makers=new Map();
   for(const j of data.jobs)if(j.inputs.length&&!j.grow) {
@@ -121,7 +101,7 @@ export function createCrafting(data,planner) {
     const job=original&&craftRecipe(data,original,rarityOf(data,id));
     return job?[...new Set(job.inputs.flatMap(i=>[i.itemId,...ingredients(i.itemId,seen)]))]:[];
   }
-  return {estimate,shortfall,available,ingredients,fromBought,makeBeatsBuying};
+  return {estimate,shortfall,available,ingredients};
 }
 
 export function bankedGatheringLoad(data,before,p) {
