@@ -25,7 +25,7 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
     const current=budget(p,protection),invest=budget(p,investmentGoal),items={...current.items};
     for(const [id,qty]of Object.entries(invest.items))items[id]=Math.max(items[id]??0,qty);
     return {...protection,upgrade:investmentGoal.upgrade,
-      recipes:{...protection?.recipes,...investmentGoal.recipes},budget:{coins:current.coins+invest.coins,items}};
+      recipes:{...protection?.recipes,...investmentGoal.recipes},budget:{coins:current.coins,items}};
   }
   // The reviewed rows maintenance sells: every one for sale with 比价出售 on
   // (or, with 满仓清理, when the bank is full); otherwise crafted training

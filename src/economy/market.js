@@ -1,7 +1,7 @@
 import {autoUsableMaterial, pricePerEffect, rarityPower, usableQualities} from '../planner/quality.js';
 import {action, waiting} from '../planner/result.js';
 import {POTIONS, foodEffects, foodHealing} from '../planner/supplies.js';
-import {inventoryBudget, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
+import {coinReserve, inventoryBudget, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
 import {goldToSeconds, maxPrice, secondsToGold} from '../planner/gold.js';
 import {bankTripSeconds, dayTicks as dayTicksOf, playerQueued, distance, itemLabel, itemName, merchantPrice, minListPrice, netProceeds, plusOf, rarityOf, reachableQty, stockQty, tradableBase} from '../planner/items.js';
 import {MARKET_HISTORY_KEY, createMarketHistory} from './market-history.js';
@@ -393,8 +393,9 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     state.purchases=state.purchases.filter(e=>Number.isFinite(e.at)&&now()-e.at<3600000&&e.cost>0);
     return state.purchases.reduce((sum,e)=>sum+e.cost,0)+potionBudgetSpent();
   }
+  // What may be spent: the coins above the one reserve (inventory.coinReserve).
   function purchaseAllowance(p,goal=null) {
-    return !procurement?.enabled||p.ironman?0:Math.max(0,p.coins-Math.max(0,goal?.budget?.coins??0));
+    return !procurement?.enabled||p.ironman?0:Math.max(0,p.coins-coinReserve(planner,p,goal));
   }
   function scan(p,ids) {
     select(p);

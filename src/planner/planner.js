@@ -282,10 +282,12 @@ export function createPlanner(data) {
     const gate=ready.length?harvestGate(p,plots):null;
     if(gate){farmDelayReason=gate;return null;}
     const emptyFields=farmFields(p).filter(s=>!p.plots?.[s.id]);
-    const eligible=jobs.filter(j=>j.grow&&allowedCrop(j)&&level(p.skills.farming)>=j.levelReq&&
-      (hasSeed(p,j)||plots.some(f=>f.job.id===j.id)||farmingChoice.mode==='manual'&&plots.length)).sort((a,b)=>b.xp/b.grow-a.xp/a.grow);
+    // The crop order harvest sows by (cropOrder), limited to crops with seeds
+    // at hand: this mode never gathers or buys seeds.
     const stocks=farmStockMode(p)?farmingStocks(data,p,levels(p),null,thresholds,hoeBonus(p)):null;
-    let job=stocks?stocks.find(row=>eligible.some(j=>j.id===row.job.id))?.job??busyCrop(p,eligible):eligible[0];
+    const order=cropOrder(p,null,stocks),atHand=j=>hasSeed(p,j)||plots.some(f=>f.job.id===j.id)||farmingChoice.mode==='manual'&&plots.length;
+    const eligible=order.eligible.filter(atHand);
+    let job=(stocks?order.crops:[...order.eligible].sort(order.rank)).find(j=>eligible.some(e=>e.id===j.id))??(stocks?busyCrop(p,eligible):null);
     // Only fields the player assigned are empty: sow their own choice.
     const assigned=!job&&!ready.length?emptyFields.map(s=>({site:s,job:jobs.find(j=>j.grow&&j.inputs[0].itemId===base(p.plotChoice?.[s.id]??-1))}))
       .find(c=>c.job&&level(p.skills.farming)>=c.job.levelReq&&hasSeed(p,c.job)):null;
@@ -336,9 +338,18 @@ export function createPlanner(data) {
   // else the crop harvest would sow first. A hoe is valued on these.
   function farmCrops(p) {
     const planted=new Map(farmPlots(p).map(f=>[f.site.id,f.job]));
-    const next=cropOrder(p,null,null).crops[0]??null;
+    const stocks=farmStockMode(p)?farmingStocks(data,p,levels(p),null,thresholds,hoeBonus(p)):null;
+    const order=cropOrder(p,null,stocks),next=order.busy??order.crops[0]??null;
     return farmFields(p).map(site=>planted.has(site.id)?{job:planted.get(site.id),rarity:rarity(p.plots[site.id].seedItemId)}:
       next?{job:next,rarity:0}:null).filter(Boolean);
+  }
+  // Where a crop's seed is gathered (a bonus drop): unlocked first, then the
+  // lowest level, then the fastest per seed. Harvest goes there and the farm
+  // status names it.
+  function seedSource(p,job) {
+    const unlocked=j=>level(p.skills[j.skill])>=j.levelReq,seedTime=j=>strategy.estimateWork(p,j).seconds/j.bonus.chance;
+    return jobs.filter(j=>j.bonus?.itemId===job.inputs[0].itemId)
+      .sort((a,b)=>Number(unlocked(b))-Number(unlocked(a))||a.levelReq-b.levelReq||seedTime(a)-seedTime(b))[0]??null;
   }
   function harvest(p,preferredJobId,goal=null,style='magic',completedLoad=false) {
     farmState(p);
@@ -484,8 +495,7 @@ export function createPlanner(data) {
       const missing=eligible.filter(j=>j.id===selected.id&&seedNeed>0&&
         (empty.length||plots.some(f=>f.job.id!==j.id)))
         .flatMap(job=>{
-          const source=jobs.filter(j=>j.bonus?.itemId===job.inputs[0].itemId)
-            .sort((a,b)=>Number(unlocked(b))-Number(unlocked(a))||a.levelReq-b.levelReq||seedTime(a)-seedTime(b))[0];
+          const source=seedSource(p,job);
           return source?[{job,source}]:[];
         }).sort((a,b)=>Number(unlocked(b.source))-Number(unlocked(a.source))||
           (empty.length?seedTime(a.source)-seedTime(b.source):
@@ -1490,7 +1500,7 @@ export function createPlanner(data) {
     else if(farmingChoice.mode==='manual'&&best.inputs[0].itemId===190)
       reason='缺少所选种子；训练模式可在保留当前计划金币后，按空田缺口向商人采购；辅助模式等待已有种子';
     else {
-      const source=jobs.find(j=>j.bonus?.itemId===best.inputs[0].itemId);
+      const source=seedSource(p,best);
       reason=`已解锁 ${best.name}，缺种子；`+(!source?'未找到已核实的采种路线，暂时保留现有作物':
         level(p.skills[source.skill])<source.levelReq?`自采需${NAMES[source.skill]} ${source.levelReq} 级（当前 ${level(p.skills[source.skill])}）`:
         `将分批从 ${source.name} 自采，补齐空田后逐步换种`);

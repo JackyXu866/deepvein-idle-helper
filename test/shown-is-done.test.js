@@ -127,6 +127,31 @@ test('business mode funds a worthwhile unaffordable improvement too', () => {
   assert.ok(chosen?.funding, JSON.stringify(chosen?.reason));
 });
 
+test('the sale review never sells the held piece the gear step would put on', async () => {
+  const {reviewInventory} = await import('../src/planner/inventory.js');
+  const planner = makePlanner(), d = planner.data, R = d.rarityScale, P = d.plusScale;
+  const iron = d.gear.find(g => g.slot === 'pickaxe' && d.items[g.itemId].name === 'Iron pickaxe').itemId;
+  // A common +5 against an uncommon +0 of the same pickaxe: rarity rank alone sold the +5.
+  const p = player(planner, {levels: {mining: 40}, bank: {[iron + 5 * P]: 1, [iron + R]: 1}});
+  const best = planner.ownedBest(p, 'melee', null, 'pickaxe');
+  const row = reviewInventory(d, planner, p, null, 'melee').items.find(r => r.itemId === best);
+  assert.equal(row?.sell, 0, `${best}: ${row?.reason}`);
+});
+
+test('one coin reserve: buying, housing and the sale review keep the same coins', async () => {
+  const {coinReserve, combinedBudget, inventoryBudget} = await import('../src/planner/inventory.js');
+  const planner = makePlanner(), d = planner.data;
+  const market = createMarket(d, planner, {now: () => 1e12});
+  market.configureProcurement({enabled: true});
+  const p = player(planner, {coins: 10_000});
+  planner.pendingEquipmentPlan = () => ({budget: {coins: 5000, items: {}}}); // a gear project in maintenance
+  const goal = {skill: 'mining', budget: {coins: 1000, items: {}}};
+  assert.equal(coinReserve(planner, p, goal), 6000);
+  assert.equal(market.purchaseAllowance(p, goal), 4000, 'the market leaves the project\'s coins too');
+  assert.equal(inventoryBudget(d, planner, p, goal).coins, 6000);
+  assert.equal(combinedBudget(d, planner, p, [goal, planner.pendingEquipmentPlan()]).coins, 6000, 'housing');
+});
+
 test('a potion left unbought because every ask is above its value names that reason', () => {
   const planner = makePlanner(), d = planner.data;
   let clock = 1_000_000_000;

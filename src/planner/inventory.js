@@ -1,4 +1,5 @@
-import {canWear, gearRequirementOf, statsDominate} from './professions.js';
+import {canWear, gearRequirementOf, professionSkill, statsDominate} from './professions.js';
+import {fitsSlot} from './gear.js';
 import {POTION_SALE_RATIO, autoUsableMaterial, craftRecipe, marketPotion, marketQuality} from './quality.js';
 import {cropReserve, herbloreNeeds} from './farming.js';
 import {COAL_ID, baseId, foodCarry, itemLabel, merchantPrice, plusOf, rarityOf, tradableBase} from './items.js';
@@ -11,14 +12,29 @@ export const ENHANCEMENT_BASELINE=5;
 export const WORKING_STOCK=50;
 // Food kept for fights: the working stock, or three trips' carry if more.
 export const foodReserve=p=>Math.max(WORKING_STOCK,foodCarry(p)*3);
+// The plans a goal stands for: itself, the goals waiting on it, and the
+// development project (often the same goal kept twice, so their coins are
+// taken at the most, not added).
+function plansOf(planner,p,goal) {
+  const development=(goal?.development||goal?.quest)&&planner.developmentRuntime?.();
+  return [goal,...goal?.reservedGoals??[],...(development?.owner===p.id?[development.focus,...Object.values(development.parked)]:[])].filter(Boolean);
+}
+// The coins every spender leaves alone (buying, housing, maintenance, the
+// sale review): the most the goal's plans keep, plus a pending equipment
+// project's own. One rule for all of them.
+export function coinReserve(planner,p,goal,style=planner.styleHint??'magic') {
+  const coins=g=>Math.max(0,...plansOf(planner,p,g).map(plan=>plan.budget?.coins??0));
+  const project=planner.pendingEquipmentPlan?.(p,style);
+  return coins(goal)+(project&&project!==goal?coins(project):0);
+}
 // One reserve for several plans (the goal, a pending equipment project...):
-// each item at the most any plan keeps, the coins of all of them.
+// each item at the most any plan keeps; the coins by coinReserve.
 export function combinedBudget(data,planner,p,plans) {
   const budgets=plans.filter(Boolean).map(plan=>inventoryBudget(data,planner,p,plan));
   if(!budgets.length)return inventoryBudget(data,planner,p,null);
   const [first,...rest]=budgets,items={...first.items};
   for(const other of rest)for(const [id,qty]of Object.entries(other.items))items[id]=Math.max(items[id]??0,qty);
-  return {...first,items,coins:budgets.reduce((n,b)=>n+(b.coins??0),0)};
+  return {...first,items};
 }
 // Gear the player keeps whatever the plan: the goal's upgrade targets, the
 // piece being enhanced and saved gear sets. A set resolves a missing +N to
@@ -138,8 +154,7 @@ export function inventoryBudget(data, planner, p, goal=null,consuming=false) {
   // consuming (brewing, drinking) keeps only the gear part, so the matched
   // pairs can go into the brews they were kept for.
   for(const [id,qty]of Object.entries(planner.qualityHold?.(p,undefined,{gearOnly:consuming})??{}))reserve(Number(id),qty);
-  const development=(goal?.development||goal?.quest)&&planner.developmentRuntime?.();
-  const plans=[goal,...goal?.reservedGoals??[],...(development?.owner===p.id?[development.focus,...Object.values(development.parked)]:[])].filter(Boolean);
+  const plans=plansOf(planner,p,goal);
   const recipes=new Map();
   for(const plan of plans) {
     for(const [id,qty]of Object.entries(plan.budget?.items??{}))reserve(Number(id),qty);
@@ -177,7 +192,7 @@ export function inventoryBudget(data, planner, p, goal=null,consuming=false) {
     const herblore=herbloreNeeds(data,p,levels,planner.thresholds);
     for(const job of data.jobs.filter(j=>j.grow&&j.levelReq<=levels.farming))reserve(job.output.itemId,cropReserve(data,p,job,levels,herblore));
   }
-  return {items,coins:Math.max(0,...plans.map(plan=>plan.budget?.coins??0)),capacity,used,freeSlots:capacity-used,pressure,recoverableOverflow};
+  return {items,coins:coinReserve(planner,p,goal),capacity,used,freeSlots:capacity-used,pressure,recoverableOverflow};
 }
 export function enhanceQuote(data, planner, p, itemId) {
   const base=baseId(data,itemId),n=plusOf(data,itemId),rarity=rarityOf(data,itemId);
@@ -242,19 +257,32 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
   const line=g=>[g.slot,g.style??'',g.needs??'',!!g.twoHanded,g.slot==='weapon'&&g.needs==='ranged'?g.speed:''].join('|');
   const lines=new Map();
   for(const h of heldGear){const key=line(h);if(!lines.has(key))lines.set(key,[]);lines.get(key).push(h);}
+  // Two held pieces compared as the gear step compares them (ownedBest): the
+  // profession's own gear by the investment table's rate, stats on a tie; gear
+  // of another style by `otherwise` (it has no rate for this profession).
+  const own=g=>fitsSlot(g,g.slot,data.toolSkills[g.slot]??professionSkill(style),style);
+  const beats=(h,g,otherwise)=>{
+    if(!own(h)||!own(g)||!planner.gearRate)return otherwise(h,g);
+    const skill=data.toolSkills[g.slot]??professionSkill(style),rate=id=>planner.gearRate(p,style,goal,g.slot,id);
+    return (rate(h.itemId)-rate(g.itemId)||(planner.gearScore?.(h.itemId,skill)??0)-(planner.gearScore?.(g.itemId,skill)??0))>0;
+  };
   function dominated(g) {
     return (lines.get(line(g))??[]).some(h=>h.itemId!==g.itemId&&
-      (wearable(h)||requirement(h)<=requirement(g))&&statsDominate(h,g));
+      (wearable(h)||requirement(h)<=requirement(g))&&beats(h,g,statsDominate));
   }
-  // Of one piece of gear only the highest rarity (then enhancement) copy is a
-  // possible upgrade; lower copies are surplus even before they can be worn.
+  // Of one piece of gear only the best copy (other styles: the highest rarity,
+  // then enhancement) is a possible upgrade; the rest are surplus even before
+  // they can be worn.
   const rank=id=>rarityOf(data,id)*1000+plusOf(data,id);
-  const topRank=new Map();
+  const copies=new Map();
   for(const row of stock.values())if(row.bank+row.pack+row.worn+row.overflow>0) {
-    const b=planner.base(row.itemId);
-    topRank.set(b,Math.max(topRank.get(b)??-1,rank(row.itemId)));
+    const g=planner.equipmentStats(row.itemId),b=planner.base(row.itemId);
+    if(g){if(!copies.has(b))copies.set(b,[]);copies.get(b).push(g);}
   }
-  const superseded=id=>(topRank.get(planner.base(id))??-1)>rank(id);
+  const superseded=id=>{
+    const g=planner.equipmentStats(id);
+    return !!g&&(copies.get(planner.base(id))??[]).some(h=>h.itemId!==id&&beats(h,g,(a,b)=>rank(a.itemId)>rank(b.itemId)));
+  };
   const reviewed=only?[...stock.values()].filter(row=>only.includes(row.itemId)):[...stock.values()];
   const items=reviewed.map(row=>{
     const id=row.itemId,base=planner.base(id),g=planner.equipmentStats(id);
