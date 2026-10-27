@@ -15,6 +15,9 @@ function setup() {
     equipment: {weapon: find('weapon', 'Cobalt blade'), helmet: find('helmet', 'Cobalt helm'), pickaxe: find('pickaxe', 'Cobalt')},
     activity: 'idle', path: null, held: false});
   const goal = {skill: 'herblore', target: 70, development: true, growth: true, budget: {coins: 500, items: {}}};
+  // The account fights as much as it brews (measured), so the blade is worth enhancing.
+  const brew = d.jobs.find(j => j.skill === 'herblore');
+  planner.perkUsage = {'combat:1': {seconds: 3600}, [`job:${brew.id}`]: {seconds: 3600}};
   return {planner, d, p, goal, economy: createEconomy(d, planner, {})};
 }
 

@@ -33,7 +33,7 @@ export const SOFT_ACTIONS=new Set(['rerollQuest','buyPerk','masteryConfirm','set
 export const ROUTE_STOPS=new Set(['noMaterials','storageFull','unreachable','levelTooLow','noSuchSite']);
 // Bank, overflow and pack (shared definition in planner/items.js).
 export const quantity=stockQty;
-export const equipmentProject=goal=>goal?.upgrade?.priority||goal?.toolUpgrade?.upgrade?.priority;
+export const equipmentProject=goal=>goal?.upgrade?.priority;
 
 export function depositReachedBank(before,p,intent) {
   if(!['deposit','depositItem'].includes(intent.t)||before.id!==p.id)return false;

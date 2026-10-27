@@ -68,7 +68,7 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
     if(mode!=='business'){mainJobId=null;mainMonsterId=null;}
     if(p.id!==lastPlayer||style!==lastStyle||mode!==lastMode||mainTrade!==lastMain||mainJobId!==lastJob||mainMonsterId!==lastMonster){lastGoal=null;investmentGoal=null;gearDeferredUntil=0;recovery=null;lastPlayer=p.id;lastStyle=style;lastMode=mode;lastMain=mainTrade;lastJob=mainJobId;lastMonster=mainMonsterId;}
     if(mode==='business'&&goal?.mainSkill!==professionSkill(style)||goal?.development&&goal.skill!==professionSkill(style))investmentGoal=null;
-    const upgrading=goal?.upgrade?.priority||goal?.toolUpgrade?.upgrade?.priority;
+    const upgrading=goal?.upgrade?.priority;
     if(upgrading||goal?.itemTarget)investmentGoal=null;
     if(goal)lastGoal=goal;
     // Preserve the in-flight supply budget across a reconnect/goal-selection gap.

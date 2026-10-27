@@ -25,7 +25,7 @@ export function combinedBudget(data,planner,p,plans) {
 // piece being enhanced and saved gear sets. A set resolves a missing +N to
 // another +N of the same base and quality (client a$), so those count too.
 export function lockedGear(data,p,goal=null) {
-  const ids=new Set([goal?.upgrade?.id,goal?.toolUpgrade?.upgrade?.id,p.enhance?.itemId].filter(Number.isFinite));
+  const ids=new Set([goal?.upgrade?.id,p.enhance?.itemId].filter(Number.isFinite));
   for(const set of p.gearSets??[])for(const id of Object.values(set?.items??{}))if(Number.isFinite(id))ids.add(id);
   return {ids,variants:new Set([...ids].map(id=>id%data.plusScale))};
 }
@@ -168,7 +168,7 @@ export function inventoryBudget(data, planner, p, goal=null,consuming=false) {
     if(job)for(const input of job.inputs)material(input.itemId,
       Math.ceil(qty/job.output.qty)*input.qty,[...trail,id]);
   }
-  for(const upgrade of plans.flatMap(plan=>[plan.upgrade,plan.toolUpgrade?.upgrade]))
+  for(const upgrade of plans.map(plan=>plan.upgrade))
     if(upgrade?.id!=null)material(upgrade.id%data.plusScale,1);
   if(goal?.itemTarget)material(goal.targetItemId,goal.qty);
   // Food is a renewable supply, but a reserve must survive a sale and a new trip.

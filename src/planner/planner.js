@@ -515,8 +515,9 @@ export function createPlanner(data) {
               farmSearch.toolGoal??={skill:source.skill,target:level(p.skills[source.skill])+1,
                 horizon:600,growth:true,toolOnly:true};
               const improvement=plan(p,farmSearch.toolGoal,style);
+              // The one gear step (and gear projects), before the seed trip.
               if (improvement) return {...improvement,farmJobId:job.id,
-                reason:`准备采种工具 · ${NAMES[source.skill]}：${improvement.reason||improvement.label}`};
+                reason:`采种前的装备步骤：${improvement.reason||improvement.label}`};
             }
             if (p.route?.jobId===source.id) return {...wait(`继续自采 ${job.name} 种子，本批尚缺 ${seedNeed} 颗，备齐后补种／换种`),farmJobId:job.id};
             const departure=gatheringDeparture(p,source);
@@ -562,29 +563,9 @@ export function createPlanner(data) {
 
   function plan(p, goal, profession='magic') {
     api.styleHint=profession;
-    if (!goal||goal.toolOnly) return planTask(p,goal,profession);
-    function prepareTool() {
-      const result=planTask(p,goal.toolUpgrade,profession);
-      if (!result||result.blocked||result.deferUntilTick) {delete goal.toolUpgrade;return null;}
-      return {...result,goal,investmentGoal:goal,
-        reason:`供料工具 · ${NAMES[goal.toolUpgrade.skill]}：${result.reason||result.label}`};
-    }
-    if (goal.toolUpgrade) {
-      const result=prepareTool();
-      if (result) return result;
-    }
-    const result=planTask(p,goal,profession);
-    const job=result?.intent?.t==='setRoute'&&jobs.find(j=>j.id===result.intent.jobId);
-    // Supply jobs used to skip all tool checks to prevent recursive upgrades.
-    // Prepare one tool independently, then resume the original material plan.
-    if (job&&!goal.mastery&&!goal.developmentFiller&&!goal.upgrade?.priority&&!job.grow&&job.skill!==goal.skill&&Object.values(data.toolSkills).includes(job.skill)) {
-      goal.toolUpgrade={skill:job.skill,target:level(p.skills[job.skill])+1,toolOnly:true,
-        growth:goal.growth,horizon:goal.horizon,specialization:goal.specialization,
-        startedTick:goal.startedTick,skipUpgrade:goal.skipUpgrade,budget:{coins:goal.budget?.coins??0,items:{}}};
-      const improvement=prepareTool();
-      if (improvement) return improvement;
-    }
-    return result;
+    // Supply tools need no step of their own: the one gear step runs on supply
+    // work too, and gear projects cover every slot.
+    return planTask(p,goal,profession);
   }
   function planTask(p, goal, profession='magic') {
     const style=professionSkill(profession);
@@ -598,7 +579,7 @@ export function createPlanner(data) {
     // Planned gear's quality materials are kept from every crafting goal
     // (quality.js reserve rules); item targets and upgrades bring their own.
     const qualityReserve=()=>goal.itemTarget||goal.upgrade||goal.mastery?goal.budget?.items:
-      gearReserve??=mergeHold(goal.quest?goal.budget?.items:{},plannedGearReserve(p,profession));
+      gearReserve??=mergeHold(goal.quest?goal.budget?.items:{},plannedGearReserve(p,profession,null,goal));
     const unlocked = j => lv[j.skill]>=j.levelReq;
     const made = id => jobs.filter(j=>j.output.itemId===id);
     const atGoal = (skill,target) => lv[skill]>=target;
@@ -828,43 +809,6 @@ export function createPlanner(data) {
       };
       choices.sort((a,b)=>score(b)-score(a)||a.id-b.id);
       if (!choices.length) return blocked(fixed!=null?`固定工作 ${jobs.find(j=>j.id===fixed)?.name} 缺少可持续准备的材料，等待材料或采购条件`:`${NAMES[skill]}没有已解锁任务`);
-      // Gear first: planned quality pieces that can be crafted now from owned
-      // materials (any maker skill whose level allows it) are made before
-      // training, so their quality materials go into gear. All the quality
-      // intermediates they need (e.g. every uncommon cobalt bar for several
-      // cobalt tools) are smelted in one batch first, then the pieces are made.
-      if(stagePlan&&!trail.length) {
-        const maker=id=>jobs.find(j=>j.output.itemId===base(id)&&j.inputs.length&&!j.grow);
-        const recipe=id=>{const m=maker(id);return m&&craftRecipe(data,m,rarity(id));};
-        const canMake=id=>{const m=maker(id);return !!m&&lv[m.skill]>=m.levelReq;};
-        const pieces=plannedQualityGear(p,profession).filter(id=>canMake(id)&&recipe(id)&&
-          Number.isFinite(api.crafting.estimate(p,id,1,{}).seconds));
-        if(pieces.length) {
-          const totals={};
-          for(const id of pieces)for(const input of recipe(id).inputs)
-            if(rarity(input.itemId)>0&&maker(input.itemId))totals[input.itemId]=(totals[input.itemId]??0)+input.qty;
-          for(const [key,want]of Object.entries(totals)) {
-            const item=Number(key),missing=want-count(p,item);
-            if(missing<=0||!canMake(item))continue;
-            const possible=api.crafting.available(p,maker(item),rarity(item),{},want);
-            const make=Math.min(missing,possible);
-            if(make<=0)continue;
-            // These intermediates are for the planned pieces themselves.
-            gearReserve={};
-            const result=need(item,count(p,item)+make,trail);
-            result.reason=`先一次备齐计划装备所需的 ${fullName(item)}（共需 ${want}，现有 ${count(p,item)}，本批做 ${make}），`+
-              `再逐件打造：${pieces.map(fullName).join('、')}；${result.reason||result.label}`;
-            return result;
-          }
-          const piece=pieces.find(id=>recipe(id).inputs.every(i=>rarity(i.itemId)===0||count(p,i.itemId)>=i.qty))??pieces[0];
-          // The piece being made uses its own reserved materials.
-          gearReserve=plannedGearReserve(p,profession,piece);
-          const result=need(piece,1,trail);
-          result.reason=`先打造计划装备 ${fullName(piece)}：高品质材料留给装备，打造本身也给${NAMES[maker(piece).skill]}经验；`+
-            `${result.reason||result.label}`;
-          return result;
-        }
-      }
       goal.recipes ??= {};
       goal.recipeRarities??={};
       goal.recipeLevels??={};
@@ -1096,15 +1040,36 @@ export function createPlanner(data) {
         if (current===id||compareGear(slot,current,id)>=0||count(p,id)<=0&&!row?.worth) {
           delete goal.upgrade;completedUpgrade=true;return null;
         }
+        gearReserve=plannedGearReserve(p,profession,id,goal);
         const result=count(p,id)>0?equip(id):need(id,1);
         result.reason=`完成装备升级 ${name(id)}：${result.reason||result.label}`;
         if(result.blocked)delete goal.upgrade;
         return result;
       }
-      const row=rows.find(r=>r.cheapest&&r.source==='自制');
-      if(!row)return null;
+      const picks=rows.filter(r=>r.cheapest&&r.source==='自制');
+      if(!picks.length)return null;
+      // The quality intermediates several picked pieces share (every uncommon
+      // cobalt bar for a few cobalt tools) are made in one batch first.
+      const maker=id=>jobs.find(j=>j.output.itemId===base(id)&&j.inputs.length&&!j.grow);
+      const recipeOf=id=>{const m=maker(id);return m&&craftRecipe(data,m,rarity(id));};
+      const totals={};
+      for(const r of picks.filter(r=>rarity(r.id)>0))for(const input of recipeOf(r.id)?.inputs??[])
+        if(rarity(input.itemId)>0&&maker(input.itemId))totals[input.itemId]=(totals[input.itemId]??0)+input.qty;
+      for(const [key,want]of Object.entries(totals)) {
+        const item=Number(key),missing=want-count(p,item),m=maker(item);
+        if(missing<=0||lv[m.skill]<m.levelReq)continue;
+        const make=Math.min(missing,api.crafting.available(p,m,rarity(item),{},want));
+        if(make<=0)continue;
+        gearReserve={}; // these intermediates are for the picked pieces themselves
+        const result=need(item,count(p,item)+make);
+        result.reason=`先一次备齐装备项目所需的 ${fullName(item)}（共需 ${want}，现有 ${count(p,item)}，本批做 ${make}），`+
+          `再逐件打造：${picks.map(r=>fullName(r.id)).join('、')}；${result.reason||result.label}`;
+        return result;
+      }
+      const row=picks.find(r=>(recipeOf(r.id)?.inputs??[]).every(i=>rarity(i.itemId)===0||count(p,i.itemId)>=i.qty))??picks[0];
       goal.upgrade={id:row.id,slot:row.slot,skill:data.toolSkills[row.slot]??professionSkill(profession),priority:true,
         xpRate:api.gearRate(p,profession,goal,row.slot,row.id)};
+      gearReserve=plannedGearReserve(p,profession,row.id,goal); // the piece uses its own held materials
       const result=need(row.id,1);
       if(result.blocked)delete goal.upgrade;
       result.reason=`装备项目 ${name(row.id)}：投资表首选（自制约 ${(row.paid/3600).toFixed(1)} 小时，已扣制作经验；`+
@@ -1331,75 +1296,40 @@ export function createPlanner(data) {
     const goal=investmentGoal??{skill,target:level(p.skills[skill])+1,horizon:1800,professionOnly:true,...options};
     return plan(p,goal,style);
   }
-  // Per slot, the gear the plan aims for: the best piece wearable now and the
-  // improvement at the next wear level, each in its lowest quality that beats
-  // the worn item (an epic steel blade is improved by a rare cobalt blade at
-  // the same wear level, long before the next tier). Legendary is never planned.
-  function gearTargets(p,profession='magic') {
-    const skill=professionSkill(profession),lv=levels(p),owned=held(p);
+  // Per slot, the gear the plan aims for: the investment table's pick for the
+  // slot (wearable now: held, bought, enhanced or made, whichever saves most
+  // by the payback rule), and, for information, the piece at the next wear
+  // level (the lowest quality that beats the worn one). Only the pick is acted
+  // on (gearStep, the gear project, enhancing) or holds materials.
+  function gearTargets(p,profession='magic',goal=null) {
+    const skill=professionSkill(profession),lv=levels(p);
+    const rows=api.investmentOptions?.(p,profession,goal)??[];
     const slots=['weapon','helmet','body','legs','shield','ring','amulet',...Object.keys(data.toolSkills)];
-    // Quality materials are shared: pieces are planned in slot order and each
-    // takes its materials out of this pool, so the plan never promises more.
-    const pool={...p,pack:[],bank:{...p.bank}};
-    for(const item of p.pack)pool.bank[item.itemId]=(pool.bank[item.itemId]??0)+item.qty;
-    const take=(id,qty)=>{
-      const job=jobs.find(j=>j.output.itemId===base(id)&&j.inputs.length&&!j.grow);
-      const recipe=job&&craftRecipe(data,job,rarity(id));
-      if(!recipe)return;
-      const n=Math.ceil(qty/recipe.output.qty);
-      for(const input of recipe.inputs)if(rarity(input.itemId)>0) {
-        const want=input.qty*n,have=Math.min(want,pool.bank[input.itemId]??0);
-        pool.bank[input.itemId]=(pool.bank[input.itemId]??0)-have;
-        if(want>have)take(input.itemId,want-have);
-      }
-    };
     return slots.filter(slot=>slot!=='shield'||profession!=='melee_twohand').map(slot=>{
-      // Rated as the investment table rates gear; ties (an amulet's luck) by stats.
       const current=p.equipment[slot],stats=id=>gearScore(id,data.toolSkills[slot]??skill);
-      const rate=id=>api.gearRate(p,profession,null,slot,id??null);
+      const rate=id=>api.gearRate(p,profession,goal,slot,id??null);
       const compare=(a,b)=>rate(b)-rate(a)||stats(b)-stats(a);
       const matches=id=>{const g=gear.get(base(id));return g?.slot===slot&&
         (slot!=='weapon'||matchesProfessionWeapon(g,profession))&&(!g.style||g.style===skill);};
       const better=id=>current==null||!matches(current)||compare(id,current)<0;
-      const variant=g=>[0,1,2,3].map(r=>g.itemId+r*data.rarityScale).find(better)??null;
-      const candidates=[...new Set([...data.gear.filter(g=>matches(g.itemId)).map(variant).filter(id=>id!=null),
-        ...owned.filter(id=>matches(id)&&better(id))])].filter(id=>id!==current);
-      const wearable=id=>canWearWith(data,lv,id);
-      const available=candidates.filter(wearable).sort((a,b)=>compare(a,b)||a-b);
-      const future=candidates.filter(id=>!wearable(id)).sort((a,b)=>gearRequirement(a).level-gearRequirement(b).level||compare(a,b));
-      // The quality to plan for a target piece: the highest (up to epic) that
-      // is owned or whose quality materials are all held, whatever the crafting
-      // level today (that only decides when it is made); without such
-      // materials, the lowest that beats the worn piece, as a target to look for.
-      const planned=id=>{
-        if(id==null)return null;
-        // A piece already owned (legendary included: wearing keeps it) is the
-        // upgrade itself; nothing is made in its place.
-        if(count(p,id)>0&&rarity(id)===LEGENDARY)return id;
-        const maker=jobs.find(j=>j.output.itemId===base(id)&&j.inputs.length&&!j.grow);
-        for(let r=3;r>=1;r--) {
-          const quality=base(id)+r*data.rarityScale;
-          if(!better(quality))continue;
-          if(count(p,quality)>0)return quality;
-          // Its quality materials must not be worth more than the piece gains.
-          if(maker&&!qualityWorth(data,api,p,maker,r).ok)continue;
-          if(!Object.keys(api.crafting.shortfall(pool,quality,1).missing).length){take(quality,1);return quality;}
-        }
-        return id;
-      };
-      return {slot,current,upgrade:planned(available[0]??null),next:planned(future[0]??null)};
+      const next=data.gear.filter(g=>matches(g.itemId)&&!canWearWith(data,lv,g.itemId))
+        .map(g=>[0,1,2,3].map(r=>g.itemId+r*data.rarityScale).find(better)).filter(id=>id!=null)
+        .sort((a,b)=>gearRequirement(a).level-gearRequirement(b).level||compare(a,b))[0]??null;
+      const pick=rows.find(r=>r.slot===slot&&r.cheapest)??null;
+      return {slot,current,upgrade:pick?.id??null,pick,next};
     });
   }
-  // Planned quality pieces not yet owned. Their quality materials belong to
-  // the gear: training must not burn them into bars or plates for XP.
-  function plannedQualityGear(p,profession='magic') {
+  // Quality pieces the plan will make: the table's 自制 picks, and a gear
+  // project under way. Their quality materials belong to the gear: training
+  // must not burn them into bars or plates for XP, and they are not sold.
+  function plannedQualityGear(p,profession='magic',goal=null) {
     const worn=Object.values(p.equipment);
-    return [...new Set(gearTargets(p,profession).flatMap(t=>[t.upgrade,t.next]))]
-      .filter(id=>id!=null&&rarity(id)>0&&count(p,id)<=0&&!worn.includes(id));
+    const picks=(api.investmentOptions?.(p,profession,goal)??[]).filter(r=>r.cheapest&&r.source==='自制').map(r=>r.id);
+    return [...new Set([...picks,goal?.upgrade?.id])].filter(id=>id!=null&&rarity(id)>0&&count(p,id)<=0&&!worn.includes(id));
   }
   // The quality materials those pieces need, down their quality chain: the
   // bars, and the ore for any bars not yet made. Plain inputs (coal) are not held.
-  function plannedGearReserve(p,profession='magic',except=null) {
+  function plannedGearReserve(p,profession='magic',except=null,goal=null) {
     // Held materials are shared between pieces: a bar held for one is not
     // counted again for the next, which holds the ore for its own bar instead.
     const out={},left={};
@@ -1423,11 +1353,11 @@ export function createPlanner(data) {
       reserve(except,1,[except]);
       for(const key of Object.keys(own))delete own[key];
     }
-    for(const id of plannedQualityGear(p,profession))if(id!==except)reserve(id,1,[id]);
+    for(const id of plannedQualityGear(p,profession,goal))if(id!==except)reserve(id,1,[id]);
     return out;
   }
   function equipmentStatus(p,profession='magic') {
-    return gearTargets(p,profession).map(({slot,current,upgrade,next})=>{
+    return gearTargets(p,profession).map(({slot,current,pick,next})=>{
       const describe=id=>{
         if(id==null)return null;
         const job=jobs.find(j=>j.output.itemId===base(id));
@@ -1451,7 +1381,12 @@ export function createPlanner(data) {
         return {id,name:fullName(id),wear:gearRequirement(id),owned:stock,requirements:supply.unlocks??[],
           materials:own,chainMaterials:rest,seconds:supply.seconds};
       };
-      return {slot,current:current==null?null:{id:current,name:fullName(current)},upgrade:describe(upgrade),next:describe(next)};
+      // The pick as the table states it: what, how (held, market, made,
+      // enhanced) and its payback; a piece to make with its materials.
+      const upgrade=pick?{...(pick.source==='自制'?describe(pick.id):{id:pick.id,name:fullName(pick.id),wear:gearRequirement(pick.id),
+        owned:pick.kind==='owned',requirements:[],materials:{},chainMaterials:{},seconds:0}),
+        pick:{label:pick.label,source:pick.source,kind:pick.kind,affordable:pick.affordable,paidHours:pick.paid/3600,savedHours:pick.saved/3600}}:null;
+      return {slot,current:current==null?null:{id:current,name:fullName(current)},upgrade,next:describe(next)};
     });
   }
   function planAtBoundary(p,goal,style='magic',completedLoad=false) {

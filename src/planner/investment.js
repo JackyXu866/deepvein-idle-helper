@@ -5,7 +5,7 @@ import {LEGENDARY, autoUsableMaterial, craftRecipe} from './quality.js';
 import {baseId, heldIds, itemLabel, plusOf, rarityOf} from './items.js';
 import {goldToSeconds, incomePayback, payback} from './gold.js';
 import {harvestCrops} from './farming.js';
-import {COMBAT_SLOTS, fitsSlot, shieldless, useSeconds as sharedUseSeconds} from './gear.js';
+import {COMBAT_SLOTS, USE_CAP_SECONDS, fitsSlot, shieldless, useSeconds as sharedUseSeconds} from './gear.js';
 export {USE_CAP_SECONDS} from './gear.js';
 
 // A funding stretch on the best gold job lasts at most this long.
@@ -120,6 +120,23 @@ export function createInvestments(data,planner) {
     const cost=o=>o.seconds+goldToSeconds(o.gold,coinRate);
     return options.sort((a,b)=>cost(a)-cost(b))[0]??null;
   }
+  // The share of the account's time each skill takes ('combat' for fights),
+  // from the measured routes the mastery choice reads (planner.perkUsage): a
+  // piece saves time only while its slot is in use, so a pickaxe for a miner
+  // who never mines saves nothing. Without measurements, the goal's (or the
+  // route's) work takes all the time; with neither, every slot counts fully.
+  function shareOf(p,goal) {
+    const sums={};let total=0;
+    for(const [key,m] of Object.entries(planner.perkUsage??{})) {
+      if(!(m?.seconds>0))continue;
+      const skill=key.startsWith('combat:')?'combat':data.jobs.find(j=>j.id===Number(key.split(':')[1]))?.skill;
+      if(skill){sums[skill]=(sums[skill]??0)+m.seconds;total+=m.seconds;}
+    }
+    if(total>0)return skill=>(sums[skill]??0)/total;
+    const fighting=goal?.monsterId!=null||['melee','ranged','magic'].includes(goal?.skill)||p.route?.zoneId!=null&&!goal;
+    const active=fighting?'combat':goal?.skill??data.jobs.find(j=>j.id===p.route?.jobId)?.skill??null;
+    return skill=>active==null||skill===active?1:0;
+  }
   function slotsFor(p,style) {
     const twoHanded=shieldless(style,planner.equipmentStats(p.equipment.weapon));
     return [...COMBAT_SLOTS.filter(s=>s!=='shield'||!twoHanded),
@@ -127,17 +144,20 @@ export function createInvestments(data,planner) {
   }
   // Every worthwhile way to improve each worn piece, on the same terms.
   function compute(p,style,goal) {
-    const ctx=contexts(p,style,goal),coinRate=planner.coinRate?.(p)??0,rows=[];
+    const ctx=contexts(p,style,goal),coinRate=planner.coinRate?.(p)??0,rows=[],share=shareOf(p,goal);
     const shardValue=planner.saleValue(p,data.shardId,1);
     for(const slot of slotsFor(p,style)) {
       const current=p.equipment[slot]??null,worn=planner.equipmentStats(current);
       // A hoe is used until outgrown at the fields' farming XP, and repays in
-      // extra gold (incomePayback); every other piece in time saved. Fields
-      // farmed without a hoe are improved by buying one, too.
+      // extra gold (incomePayback); every other piece in time saved. An empty
+      // slot is improved by filling it, on the same terms.
       const hoe=slot==='hoe',settle=hoe?incomePayback:payback;
-      if(!worn&&!hoe||slot==='mount')continue;
+      if(slot==='mount')continue;
+      // Used until outgrown, within 30 days of the account's time in that work
+      // (the fields grow whatever is done, so a hoe counts all of it).
+      const used=hoe?1:share(data.toolSkills[slot]??'combat');
       const useSkill=data.toolSkills[slot]??ctx.skill,useSeconds=(id,rate)=>
-        sharedUseSeconds(data,planner,p,id,slot,hoe?farmRates(p,id).xp:rate,useSkill);
+        Math.min(sharedUseSeconds(data,planner,p,id,slot,hoe?farmRates(p,id).xp:rate,useSkill),USE_CAP_SECONDS*used);
       const fits=fitsFor(p,style,ctx,slot);
       if(worn&&!fitsSlot(worn,slot,useSkill,style))continue;
       const before=rate(p,style,ctx,slot,current);
@@ -199,7 +219,7 @@ export function createInvestments(data,planner) {
         // Free and one bank trip: put on even when the formulas see no gain
         // (an amulet's luck), as the owned swap does.
         const row=priced('owned',owned,`换 ${itemLabel(data,owned)}`,{gold:0,seconds:0,source:'已持有'});
-        rows.push(row??{slot,kind:'owned',id:owned,label:`换 ${itemLabel(data,owned)}`,current,source:'已持有',gold:0,seconds:0,
+        rows.push(row?{...row,worth:true}:{slot,kind:'owned',id:owned,label:`换 ${itemLabel(data,owned)}`,current,source:'已持有',gold:0,seconds:0,
           gain:0,useSeconds:useSeconds(owned,before),paid:0,saved:0,net:0,worth:true});
       }
       // The piece the stage-gear project is making, on the same terms.
@@ -212,12 +232,23 @@ export function createInvestments(data,planner) {
       !rows.some(o=>o!==row&&o.slot===row.slot&&(o.kind==='owned'||o.worth&&o.net>row.net)));
     return rows.sort((a,b)=>b.net-a.net);
   }
+  let computing=false;
   function options(p,style,goal=null) {
     const key=JSON.stringify([p.id,style,p.equipment,lvOf(p),goal?.skill??null,goal?.recipeId??null,goal?.recipes??null,goal?.monsterId??null,
       goal?.upgrade?.id??null,p.route?.jobId??null,p.route?.zoneId??null]);
-    if(cache?.key!==key||!(p.lastTick-cache.tick<CACHE_SECONDS*1000/data.tickMs)||p.lastTick<cache.tick)
-      cache={key,tick:p.lastTick,rows:compute(p,style,goal)};
-    return cache.rows.map(row=>({...row,affordable:row.gold<=p.coins,project:goal?.upgrade?.slot===row.slot&&goal.upgrade.id===row.id}));
+    // Pricing a row can reach code that asks for the planned gear (held
+    // materials), which reads this table: that inner ask sees no rows.
+    if(computing)return [];
+    // A few states at once (the plan's goal, the planned gear's none), each
+    // fresh for a minute. An older runtime carried one entry.
+    const kept=(Array.isArray(cache)?cache:cache?[cache]:[]).filter(e=>e.tick<=p.lastTick&&p.lastTick-e.tick<CACHE_SECONDS*1000/data.tickMs);
+    let entry=kept.find(e=>e.key===key);
+    if(!entry) {
+      computing=true;
+      try {entry={key,tick:p.lastTick,rows:compute(p,style,goal)};} finally {computing=false;}
+      cache=[entry,...kept].slice(0,4);
+    }
+    return entry.rows.map(row=>({...row,affordable:row.gold<=p.coins,project:goal?.upgrade?.slot===row.slot&&goal.upgrade.id===row.id}));
   }
   const fundingKey=row=>`${row.kind}:${row.id}`;
   // How gold is earned whenever gold is needed (funding, a plan short of

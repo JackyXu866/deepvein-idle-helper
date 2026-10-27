@@ -3082,7 +3082,12 @@ import {itemLabel, packQty} from '../planner/items.js';
         // Materials keep their quality: "罕见 钴锭" is not an ordinary cobalt bar.
         const list=items=>Object.entries(items??{}).map(([id,qty])=>`${itemLabel(GAME_DATA,+id)} ×${fmt(qty)}`).join('、');
         const own=list(g.materials),chain=list(g.chainMaterials);
-        const head=`\n${label}：${g.name}（${g.wear.skill==='none'?'无等级门槛':`${NAMES[g.wear.skill]??g.wear.skill} ${g.wear.level}`}）`;
+        const hours=h=>h>=10?`${Math.round(h)} 小时`:`${h.toFixed(1)} 小时`;
+        // The upgrade is the investment table's pick for the slot, as the table states it.
+        const head=g.pick?`\n${label}：${translateGameText(g.pick.label)}${g.pick.source?`（${g.pick.source}）`:''} · 投资表首选，`+
+          `${g.pick.affordable?'值得，可做':'值得，待筹资'}（约 ${hours(g.pick.paidHours)}，使用期内省约 ${hours(g.pick.savedHours)}）`:
+          `\n${label}：${g.name}（${g.wear.skill==='none'?'无等级门槛':`${NAMES[g.wear.skill]??g.wear.skill} ${g.wear.level}`}）`;
+        if(g.pick&&g.pick.source!=='自制')return head;
         if(g.owned)return `${head} · 已持有`;
         if(g.quality)return head+(needs.length?`\n先解锁：${needs.join('、')}`:'')+
           (own?`\n制作缺料：${own}`:'')+
@@ -3093,7 +3098,8 @@ import {itemLabel, packQty} from '../planner/items.js';
           (chain?`\n${needs.length?'练级至解锁及供料链约需':'供料链约需'}：${chain}`:'');
       };
       panel.querySelector('[data-equipment]').textContent=(background?planningView?.equipment??[]:planner.equipmentStatus(p,trainer.style)).map(s=>
-        `${slots[s.slot]??s.slot}：${s.current?.name??'未装备'}${describe(s.upgrade,'当前可穿')}${describe(s.next,'下一档')}`).join('\n\n');
+        `${slots[s.slot]??s.slot}：${s.current?.name??'未装备'}${s.upgrade?describe(s.upgrade,'当前可穿'):'\n当前可穿：投资表里没有回本的升级'}`+
+        `${describe(s.next,'下一档（到等级后按投资表评估，现在不留材料）')}`).join('\n\n');
     }
     {
       const queued=trainer.player&&(trainer.player.queue?.length>0||trainer.player.held||trainer.player.raidHeld);
