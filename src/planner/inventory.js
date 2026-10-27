@@ -1,7 +1,6 @@
-import {canWear, gearRequirementOf, professionSkill, statsDominate} from './professions.js';
-import {fitsSlot, shieldless} from './gear.js';
+import {canWear, gearRequirementOf, statsDominate} from './professions.js';
 import {POTION_SALE_RATIO, autoUsableMaterial, craftRecipe, marketPotion, marketQuality} from './quality.js';
-import {cropReserve, harvestCrops, herbloreNeeds} from './farming.js';
+import {cropReserve, herbloreNeeds} from './farming.js';
 import {COAL_ID, baseId, foodCarry, itemLabel, merchantPrice, plusOf, rarityOf, tradableBase} from './items.js';
 
 // Read-only budgets and quotes; economy.js turns verified surplus into actions.
@@ -207,7 +206,7 @@ function groupsOf(data) {
 // `only`: review just these items (the same verdicts, without the rest of the
 // bank); the income table asks about one product at a time.
 export function reviewInventory(data, planner, p, goal=null, style='magic',budget=inventoryBudget(data,planner,p,goal),{only=null}={}) {
-  const lv=planner.levels(p),combatSkill=professionSkill(style);
+  const lv=planner.levels(p);
   const name=id=>itemLabel(data,id);
   const {seeds,inputs,houseMaterials}=groupsOf(data);
   const stock=new Map();
@@ -227,7 +226,6 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
   const {ids:locked,variants:lockedVariants}=lockedGear(data,p,goal);
   const requirement=g=>gearRequirementOf(data,g.itemId).level;
   const wearable=g=>canWear(data,lv,g.itemId);
-  const relevant=g=>fitsSlot(g,g.slot,combatSkill,style)&&(g.slot!=='shield'||!shieldless(style));
   const heldGear=[...stock.values()].filter(row=>row.bank+row.pack+row.worn>0)
     .map(row=>planner.equipmentStats(row.itemId)).filter(Boolean);
   const sourced=new Map();
@@ -311,33 +309,15 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
       sellFromPack:Math.min(row.pack,Math.max(0,sell-row.bank)),vendorUnit,category,reason,marketOnly,
       estimatedCoins:sell*vendorUnit};
   });
-  const enhancements=only?[]:Object.entries(p.equipment).flatMap(([slot,id])=>{
-    const before=planner.equipmentStats(id);
-    if(!before||!relevant(before)||!autoUsableMaterial(data,id))return [];
-    const after=planner.equipmentStats(id+data.plusScale),quote=enhanceQuote(data,planner,p,id);
-    const changes=['accuracy','strength','defence','luck'].filter(k=>after[k]>before[k])
-      .map(k=>`${{accuracy:'命中',strength:'力量',defence:'防御',luck:'幸运'}[k]} +${Math.round((after[k]-before[k])*1000)/1000}`);
-    const skill=data.toolSkills[slot];
-    let priority=2,benefit=changes.join('、')||'属性取整后不变',gain=changes.length;
-    if(slot==='hoe') {
-      // A hoe's bonus is extra crops per harvest (client 1.0.1202).
-      const crops=bonus=>harvestCrops(lv.farming,bonus);
-      gain=crops(after.bonus)/crops(before.bonus)-1;
-      benefit=`每次收获约多 ${(after.bonus-before.bonus).toFixed(2)} 个作物（约 ${crops(before.bonus).toFixed(2)} → ${crops(after.bonus).toFixed(2)}，+${(gain*100).toFixed(1)}%）`;
-    } else if(skill) {
-      gain=(1+after.bonus)/(1+before.bonus)-1;
-      benefit=`未触及速度上限时，工作速度约 +${(gain*100).toFixed(2)}%`;
-      if(data.jobs.find(j=>j.id===p.route?.jobId)?.skill===skill)priority=0;
-    } else if(slot==='weapon')priority=1;
-    if(!gain)priority=4;
-    const target=planner.equipmentStats(id%data.plusScale+ENHANCEMENT_BASELINE*data.plusScale);
-    const towardBaseline=quote.fromPlus<ENHANCEMENT_BASELINE&&slot!=='mount'&&
-      ['accuracy','strength','defence','luck','bonus'].some(k=>(target[k]??0)>(before[k]??0));
-    return [{itemId:id,name:name(id),slot,...quote,benefit,priority,
-      recommendation:quote.fromPlus>=ENHANCEMENT_BASELINE?'已达 +5 基线，暂不自动追加':
-        !gain?(towardBaseline?'通往 +5 的中间步骤，按完整提升与预算安排':'暂不强化'):
-        quote.chance<1?'向 +5 提升，有失败归零风险；按盈余预算安排':'向 +5 提升，首级无失败风险',
-      affordable:p.coins>=quote.gold&&planner.count(p,data.shardId)>=quote.shards}];
-  }).sort((a,b)=>a.priority-b.priority||a.gold-b.gold);
+  // The 物资 tab's enhancement list is the investment table's enhance rows:
+  // the stopping point, the expected cost with failures, the time it saves
+  // over the piece's use and the verdict the enhancing step acts on.
+  const enhancements=only?[]:(planner.investmentOptions?.(p,style,goal)??[]).filter(r=>r.kind==='enhance').map(r=>{
+    const quote=enhanceQuote(data,planner,p,r.current);
+    return {itemId:r.current,name:name(r.current),slot:r.slot,fromPlus:plusOf(data,r.current),toPlus:r.toPlus,
+      gold:r.coins,shards:r.shards,chance:quote.chance,gain:r.gain,paidHours:r.paid/3600,savedHours:r.saved/3600,
+      worth:r.worth,cheapest:r.cheapest,affordable:r.affordable,
+      recommendation:!r.worth?'不回本，不强化':!r.cheapest?'值得，但这个位置有更省的升级':r.affordable?'值得，可做（按投资表强化）':'值得，待筹资'};
+  });
   return {items,enhancements,budget};
 }

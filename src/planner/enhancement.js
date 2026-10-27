@@ -76,8 +76,6 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
   let deferredReason='暂无值得强化的在用装备：先换阶段装备，或等待有实际属性收益的升级；不制造备用装备刷强化等级';
   for(const [slot,itemId]of Object.entries(p.equipment)) {
     const gear=planner.equipmentStats(itemId);
-    if(goal?.specialization&&(goal.mainSkill===combatSkill?!!data.toolSkills[slot]:
-      data.toolSkills[slot]!==goal.mainSkill))continue;
     if(!relevant(gear)||!autoUsableMaterial(data,itemId)||plusOf(data,itemId)>=ENHANCEMENT_BASELINE||goal?.upgrade?.slot===slot)continue;
     if(goal?.enhancement&&goal.enhancement.itemId!==itemId)continue;
     const quote=enhanceQuote(data,planner,p,itemId),after=planner.equipmentStats(itemId+data.plusScale);
@@ -126,7 +124,7 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
     if(replacement)continue;
     const currentJob=data.jobs.find(j=>j.id===p.route?.jobId);
     const priority=slot==='weapon'?0:data.toolSkills[slot]===currentJob?.skill?1:data.toolSkills[slot]?2:3;
-    options.push({itemId,slot,quote,priority,otherCoins,otherShards,net:row?.net??null});
+    options.push({itemId,slot,quote,priority,otherCoins,otherShards,net:row?.net??null,toPlus:row?.toPlus??ENHANCEMENT_BASELINE});
   }
   // The table's order (largest net saving first) when it decided; else by slot.
   options.sort((a,b)=>(a.net!=null&&b.net!=null?b.net-a.net:0)||a.priority-b.priority||a.quote.gold-b.quote.gold||a.itemId-b.itemId);
@@ -139,7 +137,7 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
   const label=`强化在用装备 · ${itemLabel(data,itemId%data.plusScale)} +${quote.toPlus}`;
   const reason=`本次成功率 ${(quote.chance*100).toFixed(0)}%；消耗 ${quote.gold} 金币、${quote.shards} 碎片，获得 ${quote.xp} 强化经验；`+
     (quote.chance<1?'失败会回到 +0；':'')+
-    '保留其它计划预算，在用装备目标 +5；逐级确认，同装备每阶段最多五次，失败后该阶段停止';
+    `保留其它计划预算，按投资表强化到 +${chosen.toPlus}；逐级确认，同装备每阶段最多五次，失败后该阶段停止`;
   const result={intent:null,label,reason,enhancement,budget};
   if(p.coins<budget.coins)return {...result,needs:{itemId:data.coinId,quantity:budget.coins},reason:`准备强化金币：需要 ${budget.coins}，当前 ${p.coins}；${reason}`};
   if(planner.count(p,data.shardId)<budget.items[data.shardId])return {...result,

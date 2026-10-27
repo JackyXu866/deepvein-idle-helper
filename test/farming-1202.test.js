@@ -38,11 +38,12 @@ test('a tended field is cut by all its trim, with no cap', () => {
   assert.equal(plot.readyAt, 1000 + job.grow - trim);
 });
 
-test('enhancing a hoe is shown as extra crops, not as no gain', () => {
+test('the 物资 enhancement list is the investment table\'s rows: a hoe gains by its extra crops', () => {
   const planner = makePlanner(), d = planner.data;
   const hoe = d.gear.find(g => g.slot === 'hoe' && d.items[g.itemId].name === 'Cobalt hoe').itemId;
   const p = player(planner, {levels: {farming: 60, fletching: 60}, equipment: {hoe}});
-  const row = reviewInventory(d, planner, p, null, 'melee').enhancements.find(r => r.slot === 'hoe');
-  assert.match(row.benefit, /作物/);
-  assert.notEqual(row.recommendation, '暂不强化');
+  const listed = reviewInventory(d, planner, p, null, 'melee').enhancements;
+  const rows = planner.investmentOptions(p, 'melee', null).filter(r => r.kind === 'enhance');
+  assert.deepEqual(listed.map(e => [e.slot, e.toPlus, e.worth]), rows.map(r => [r.slot, r.toPlus, r.worth]));
+  assert.ok(listed.find(e => e.slot === 'hoe')?.gain > 0, 'more crops per harvest');
 });

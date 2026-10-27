@@ -3056,7 +3056,7 @@ import {itemLabel, packQty} from '../planner/items.js';
       (growth.ahead?.length?`\n领先，等其他技能追上：${growth.ahead.map(s=>`${NAMES[s.skill]} ${s.level}`).join('、')}`:'')+
       (growth.alternatives?.length?`\n后续候选（完成后重评）：${growth.alternatives.map(g=>`${NAMES[g.skill]} → ${g.target}`).join('、')}`:'')+
       (growth.deferred.length?`\n生长／条件等待：${growth.deferred.map(s=>NAMES[s.skill]).join('、')}`:'')+
-      '\n范围内按价值选（速度、其他技能用得上的解锁、收入）；下一档原料的技能落后时先练原料技能。防御／生命自然提升；当前计划的有用装备强化目标 +5，逐次确认。':
+      '\n范围内按价值选（速度、其他技能用得上的解锁、收入）；下一档原料的技能落后时先练原料技能。防御／生命自然提升；装备强化按投资表的停点（值得且是该位置最省的升级），逐次确认。':
       trainer.mode==='experience'?'允许偏科；计入供料与旅行时间，以总经验效率选路线。农业仍在后台合批处理。':
       trainer.mode==='mastery'?(trainer.goal?.mastery?translateGameText(trainer.goal.reason)+'\n':'')+
         '每项补到下一档后继续下一项；本轮前六项顺序固定，刷新后继续。传说品质与种植任务跳过；买来的成品与世界 Boss 奖励不计入。缺同品质材料时继续采集、偷窃或打怪等待产出，市场报价同时进行。':
@@ -3165,9 +3165,10 @@ import {itemLabel, packQty} from '../planner/items.js';
       `${i.name}：留 ${i.keep}，${i.sell>0?i.autoSold?`现在会卖 ${i.sell}${i.sell>i.sellFromBank?'（部分需先存仓）':''}（实际按买单与挂单量分批）`:
         `可卖 ${i.sell}，${autoSell?'':capacitySales?'仅满仓时卖':'当前设置不卖'}`:'不卖'}\n${i.reason}`
     ).join('\n\n'):'等待角色库存';
-    panel.querySelector('[data-enhancement]').textContent=review?review.enhancements.map(e=>
-      `${e.name} +${e.fromPlus}→+${e.toPlus}：${e.recommendation}\n${e.benefit}\n${e.gold} 金币 + ${e.shards} 碎片；成功率 ${(e.chance*100).toFixed(1)}%${e.affordable?'':'；当前材料不足'}`
-    ).join('\n\n'):'等待装备状态';
+    panel.querySelector('[data-enhancement]').textContent=review?(review.enhancements.map(e=>
+      `${e.name} +${e.fromPlus}→+${e.toPlus}：${e.recommendation}\n效率 +${(e.gain*100).toFixed(1)}%，赚这笔钱约 ${e.paidHours.toFixed(1)} 小时，使用期内省约 ${e.savedHours.toFixed(1)} 小时\n`+
+      `${e.gold.toLocaleString()} 金币 + ${e.shards} 碎片（含失败重来）；下一级成功率 ${(e.chance*100).toFixed(1)}%`
+    ).join('\n\n')||'投资表里没有可强化的在用装备'):'等待装备状态';
     panel.querySelector('[data-blocked]').textContent=Object.entries(trainer.blockedReasons).map(([skill,why])=>`暂缓${NAMES[skill]}：${why}`).join('；');
     panel.querySelector('[data-client]').textContent=compatibilityMessage+`；${engine.message}；${background?'后台 Worker 规划':'当前浏览器不支持 Worker，使用兼容计算'}${planningError?' · '+planningError:''}`;
     panel.querySelector('[data-start]').disabled=checking||trainer.active||!!trainer.recovery||!p||!trainer.compatible;

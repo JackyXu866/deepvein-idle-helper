@@ -204,8 +204,8 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
     }
     if(goal?.temporary||goal?.developmentFiller||goal?.itemTarget||upgrading)return deferredSale;
     if((mode==='balanced'||goal&&(goal.specialization||mode==='experience'))&&!goal?.upgrade) {
-      const enhancement=planEnhancement(data,planner,p,style,{...goal,budget:reserve,
-        specialization:mode!=='balanced'||!!goal?.development,mainSkill:goal?.mainSkill??goal?.skill});
+      // Every slot, as the investment table values it for this goal (its use share).
+      const enhancement=planEnhancement(data,planner,p,style,{...goal,budget:reserve});
       if(enhancement?.intent)return enhancement;
     }
     return deferredSale;
