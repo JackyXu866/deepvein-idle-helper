@@ -2,7 +2,7 @@ import {autoUsableMaterial, pricePerEffect, rarityPower, usableQualities} from '
 import {action, waiting} from '../planner/result.js';
 import {POTIONS, foodEffects, foodHealing} from '../planner/supplies.js';
 import {coinReserve, inventoryBudget, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
-import {goldToSeconds, maxPrice, secondsToGold} from '../planner/gold.js';
+import {goldToSeconds, maxPrice, pays, secondsToGold} from '../planner/gold.js';
 import {bankTripSeconds, dayTicks as dayTicksOf, playerQueued, distance, itemLabel, itemName, merchantPrice, minListPrice, netProceeds, plusOf, rarityOf, reachableQty, stockQty, tradableBase} from '../planner/items.js';
 import {MARKET_HISTORY_KEY, createMarketHistory} from './market-history.js';
 
@@ -592,7 +592,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     if(result?.intent?.t==='marketBuy')result.foodItemId=best.itemId;
     return result;
   }
-  function buffFood(p,goal,{duration,enemyDps,healing,damageReduction,foodValue}) {
+  function buffFood(p,goal,{duration,enemyDps,healing,damageReduction,foodValue,fedShare=0}) {
     select(p);if(!procurement?.enabled||p.ironman)return null;
     const ids=Object.values(data.items).filter(i=>i.heals).flatMap(i=>variants(i.id));
     const reserve=inventoryBudget(data,planner,p,goal,true).items,rate=planner.coinRate(p);
@@ -600,12 +600,13 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
       const effects=foodEffects(data,top.itemId),tick=data.tickMs/1000;
       const fed=(p.brews?.fed??0)>p.lastTick?0:Math.min(duration,effects.fedTicks*tick);
       const rooted=(p.brews?.rooted??0)>p.lastTick?0:Math.min(duration,effects.rootedTicks*tick);
-      // Use only half of the ideal 25% damage-buff time saving. Discrete hits
-      // and travel make the theoretical maximum too optimistic.
-      const benefit=secondsToGold(fed*.1,rate)+rooted*enemyDps/Math.max(1,healing)*damageReduction*foodValue;
-      return {...top,fed,rooted,benefit};
-    }).filter(c=>c.benefit>c.ask&&(!goal?.itemTarget||c.itemId!==goal.targetItemId))
-      .sort((a,b)=>(b.benefit-b.ask)-(a.benefit-a.ask)||a.ask-b.ask);
+      // Fed: the fight-time cut its +25% max hit gives (fedShare); rooted: the food it saves.
+      const benefit=secondsToGold(fed*fedShare,rate)+rooted*enemyDps/Math.max(1,healing)*damageReduction*foodValue;
+      // What eating it costs: a held one its sale value, a bought one its ask.
+      const owned=quantity(p,top.itemId)>(reserve[top.itemId]??0),cost=owned?planner.saleValue(p,top.itemId,1):top.ask;
+      return {...top,fed,rooted,benefit,cost,owned};
+    }).filter(c=>pays(goldToSeconds(c.benefit,rate),goldToSeconds(c.cost,rate))&&(!goal?.itemTarget||c.itemId!==goal.targetItemId))
+      .sort((a,b)=>(b.benefit-b.cost)-(a.benefit-a.cost)||a.ask-b.ask);
     for(const c of choices) {
       const available=reachableQty(data,p,c.itemId);
       const reason=`按本次战斗窗口比价，饱食覆盖约 ${Math.ceil(c.fed)} 秒、减伤约 ${Math.ceil(c.rooted)} 秒；参考价 ${c.ask}`;

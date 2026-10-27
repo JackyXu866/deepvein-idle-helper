@@ -14,10 +14,14 @@ export const secondsToGold=(seconds,rate)=>seconds>0&&rate>0?seconds*rate:0;
 export const secondsSaved=(before,after,useSeconds)=>
   before>0&&after>before&&useSeconds>0?useSeconds*(1-before/after):0;
 
+// The one test every spend and sacrifice passes (gear, enhancing, house,
+// buff food, a dropped load): the time it saves beats the time it costs by
+// the margin.
+export const pays=(saved,paid)=>Number.isFinite(paid)&&saved>0&&saved>=paid*PAYBACK_MARGIN;
 export function payback({gold=0,seconds=0,credit=0,coinRate,before,after,useSeconds}) {
   const paid=Math.max(0,seconds-credit)+goldToSeconds(gold,coinRate);
   const saved=secondsSaved(before,after,useSeconds);
-  return {paid,saved,net:saved-paid,worth:Number.isFinite(paid)&&saved>0&&saved>=paid*PAYBACK_MARGIN};
+  return {paid,saved,net:saved-paid,worth:pays(saved,paid)};
 }
 // The same rule for an improvement that earns more gold instead of saving
 // time (a hoe: more crops per harvest): `before`/`after` are gold per second,
@@ -25,7 +29,7 @@ export function payback({gold=0,seconds=0,credit=0,coinRate,before,after,useSeco
 export function incomePayback({gold=0,seconds=0,coinRate,before,after,useSeconds}) {
   const paid=Math.max(0,seconds)+goldToSeconds(gold,coinRate);
   const saved=coinRate>0&&after>before&&useSeconds>0?(after-before)*useSeconds/coinRate:0;
-  return {paid,saved,net:saved-paid,worth:Number.isFinite(paid)&&saved>0&&saved>=paid*PAYBACK_MARGIN};
+  return {paid,saved,net:saved-paid,worth:pays(saved,paid)};
 }
 // The most worth paying for something that saves `savedGold` worth of time:
 // the payback rule above, solved for the price.

@@ -73,9 +73,9 @@ export function marketQuality(data,id) {
 }
 
 // Rare potions: every quality lasts an hour at its own strength (x1.3, x1.6,
-// ...). A rare bottle whose market bid is at least twice what the same effect
-// costs at the cheapest quality is worth more sold: drink the cheap one.
-export const POTION_SALE_RATIO=2;
+// ...). By the sell-vs-use rule a rare bottle is sold when its bid beats what
+// using it is worth: the same effect bought at the cheapest quality.
+export const POTION_SALE_RATIO=1;
 export const isPotion=(data,id)=>data.jobs.some(j=>j.skill==='herblore'&&j.output.itemId===baseId(data,id));
 export const marketPotion=(data,id)=>{const tier=rarityOf(data,id);return tier>0&&tier<LEGENDARY&&id%data.plusScale===id&&isPotion(data,id);};
 export function potionSaleWorth(data,planner,p,id) {

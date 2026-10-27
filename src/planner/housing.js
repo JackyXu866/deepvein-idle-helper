@@ -3,7 +3,7 @@ import {autoUsableMaterial} from './quality.js';
 import {action as step} from './result.js';
 import {combinedBudget, reviewInventory, saleProtectionReason} from './inventory.js';
 import {COAL_ID, baseId, itemLabel, playerQueued, plusOf, rarityOf} from './items.js';
-import {payback} from './gold.js';
+import {goldToSeconds, payback} from './gold.js';
 import {USE_CAP_SECONDS} from './gear.js';
 
 export const HOUSE_NAMES={mine:'矿井',sawmill:'锯木厂',pond:'鱼塘',garden:'花园',forge:'锻造炉',yard:'训练场',
@@ -141,9 +141,6 @@ export function createHousing(data,planner) {
     review=[];
     if(!idle(p,goal,mode))return null;
     const budget=reserves(p,goal,style),cells=frontier(p);
-    if(!p.houseBuild&&cells.length&&Number.isSafeInteger(cellPrice(p))&&p.coins>=cellPrice(p)+budget.coins)
-      return action({t:'buildRoom',cell:cells[0]},`扩建房屋地块 · ${cellPrice(p).toLocaleString()} 金币`,
-        '逐块扩建，保留当前计划必要开销；施工期间继续原任务，不花宝石加速');
     if(!goal||goal.developmentFiller||goal.temporary||goal.quest)return null;
     const skill=goal.mainSkill??goal.skill,combat=professionSkill(style),pressure=budget.freeSlots<=3;
     const trained=planner.trainedSkills(style).filter(s=>!['defence','hitpoints','farming'].includes(s));
@@ -164,6 +161,18 @@ export function createHousing(data,planner) {
           .find(c=>!Object.values(p.houseFurniture).some(f=>f.cell===c));
         if(cell!==undefined)return action({t:'placeFurniture',room:room.id,cell,slot:0},`摆放房屋设施 · ${roomName(room.id)}`,
           '使用空房间，不移动或拆除玩家已有设施');
+        // No free plot: one is bought only when this facility's first level
+        // repays the plot's price, by the same rules as its upgrades (the
+        // shared payback over 30 days; storage against a bank shelf's price).
+        const price=cellPrice(p);
+        if(!p.houseBuild&&cells.length&&Number.isSafeInteger(price)&&coinRate>0) {
+          const share=mode==='business'&&current(room)?1:1/Math.max(1,trained.length);
+          const result=room.id==='storeroom'?{worth:price<=1000*1.5**(p.bankSlotsBought??0)/2,paid:goldToSeconds(price,coinRate),saved:0}:
+            payback({gold:price,coinRate,before:1,after:1+share*rules.bonusPerLevel*room.rate,useSeconds:USE_CAP_SECONDS});
+          if(result.worth&&p.coins>=price+budget.coins)return action({t:'buildRoom',cell:cells[0]},`扩建房屋地块 · ${price.toLocaleString()} 金币`,
+            `为摆放${roomName(room.id)}：地块价格回本（约 ${(result.paid/3600).toFixed(1)} 小时金币）；保留当前计划必要开销；施工期间继续原任务，不花宝石加速`);
+          review.push(`${roomName(room.id)}：没有空房间；新地块 ${price.toLocaleString()} 金币${result.worth?'，金币不足':'，按收益不回本'}，暂缓`);continue;
+        }
         review.push(`${roomName(room.id)}：暂无空房间可摆放`);continue;
       }
       const needed=pointsFor(p,room.id),missing=Math.max(0,needed-points(p,room));

@@ -3,7 +3,7 @@ import {combatEstimate} from './estimates.js';
 import {combatStats, formulaWork, perAction} from './rates.js';
 import {POTIONS, brewPower, foodEffects, healAt, potionRefillQty} from './supplies.js';
 import {inventoryBudget} from './inventory.js';
-import {goldToSeconds, secondsToGold} from './gold.js';
+import {goldToSeconds, pays, secondsToGold} from './gold.js';
 import {bankTripSeconds, baseStride, itemName, playerQueued, distance, nearestBank, packCapacity, packUsed, reachableQty} from './items.js';
 import {routeKey} from './keys.js';
 
@@ -260,9 +260,12 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
     } else if(kind==='haste'&&monster) {
       effect='攻击速度 +20%';worth=worthOf(1-fightSeconds(brewPower(data,p,'warrior'),1)/fightSeconds(brewPower(data,p,'warrior'),0));
     } else if(kind==='abyssal'&&monster) {
-      effect='击杀金币 +25%';
+      // A quarter more kill gold over its hour.
+      const e=combatEstimate(data,monster,stats);
+      effect='击杀金币 +25%';worth=e.seconds>0?.25*e.coins/e.seconds*3600:null;
     } else if(kind==='nourish'&&monster&&healFor(1)>healFor(0)) {
-      effect='食物治疗 +25%';
+      // The food it saves over its hour: the same damage needs fewer bites.
+      effect='食物治疗 +25%';worth=enemyDps*3600*(1/healFor(0)-1/healFor(1))*foodValue;
     } else if(kind==='hunter'&&job&&!job.inputs.length&&job.output.itemId!==data.coinId) {
       effect='产物的品质稀有倍率 +25%';
     } else if(kind==='hunter'&&monster?.drop!=null) {
@@ -274,7 +277,9 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
   if(!next&&p.activity!=='working'&&!planner.nearBank(p))return null;
   if(duration<30)return null;
   if(monster) {
-    const marketFood=planner.marketBuffFood?.(p,goal,{duration,enemyDps,healing,damageReduction,foodValue});
+    // The fed buff's real saving: the fight-time cut its +25% max hit gives.
+    const fedShare=1-fightSeconds(brewPower(data,p,'warrior'),brewPower(data,p,'haste'),.25)/fightSeconds(brewPower(data,p,'warrior'),brewPower(data,p,'haste'),0);
+    const marketFood=planner.marketBuffFood?.(p,goal,{duration,enemyDps,healing,damageReduction,foodValue,fedShare});
     if(marketFood)return marketFood;
   }
   const options=[];
@@ -283,7 +288,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
     if(!effects.rootedTicks||active('rooted')||!accessible(itemId)||planner.count(p,itemId)<=Math.max(0,budget.items[itemId]??0))continue;
     const covered=Math.min(duration,effects.rootedTicks*tick);
     const savedFood=covered*enemyDps/healing*damageReduction*foodValue,cropValue=planner.saleValue(p,itemId);
-    if(savedFood>cropValue)options.push({intent:{t:'eat',itemId,qty:1,...(!carried(itemId)?{shelf:true}:{})},
+    if(pays(goldToSeconds(savedFood,coinRate),goldToSeconds(cropValue,coinRate)))options.push({intent:{t:'eat',itemId,qty:1,...(!carried(itemId)?{shelf:true}:{})},
       label:'用盈余作物补充减伤',reason:`承伤 -20%，覆盖本批约 ${Math.ceil(covered)} 秒；`+
         `预计节省食物估值 ${Math.floor(savedFood)}，消耗作物估值 ${Math.round(cropValue)} 金币，保留正常补给和计划原料`,gain:goldToSeconds(savedFood-cropValue,coinRate)});
   }

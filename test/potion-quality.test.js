@@ -28,12 +28,12 @@ test('a rare potion whose bid is far above the same effect\'s cheapest price is 
   planner.marketAsk = (_p, id) => asks[id] ?? null;
   planner.marketUnitValue = (_p, id) => id === SWIFT + R ? bid : 0;
   const p = player(planner, {bank: {[SWIFT + R]: 4}});
-  assert.equal(potionSaleWorth(d, planner, p, SWIFT + R), true, '7,600 >= 2 x 1,980 x 1.3');
+  assert.equal(potionSaleWorth(d, planner, p, SWIFT + R), true, '7,600 >= 1,980 x 1.3: its effect costs less bought cheap');
   planner.styleHint = 'melee';
   const row = reviewInventory(d, planner, p).items.find(r => r.itemId === SWIFT + R);
   assert.equal(row.marketOnly, true);
   assert.equal(row.sell, 4);
-  bid = 4000;
-  assert.equal(potionSaleWorth(d, planner, p, SWIFT + R), false, 'not far enough above: keep it');
+  bid = 2500;
+  assert.equal(potionSaleWorth(d, planner, p, SWIFT + R), false, 'below what its effect costs bought (2,574): keep it');
   assert.equal(potionSaleWorth(d, planner, p, SWIFT), false, 'common potions are drunk, not sold');
 });

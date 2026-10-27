@@ -1,5 +1,5 @@
 import {brewPower} from './supplies.js';
-import {goldToSeconds} from './gold.js';
+import {goldToSeconds, pays} from './gold.js';
 import {WORKING_STOCK, combinedBudget, saleProtectionReason} from './inventory.js';
 import {baseStride, distance, packCapacity, packQty, packUsed, playerQueued} from './items.js';
 
@@ -28,14 +28,15 @@ export function planGatheringSurplus(data,planner,p,goal,style,mode,waitingGoals
   const reserve=Math.max(WORKING_STOCK,combinedBudget(data,planner,p,plans).items[id]??0);
   const qty=Math.min(carried,Math.max(0,(p.bank[id]??0)+carried-reserve));
   if(!Number.isSafeInteger(qty)||qty<Math.ceil(capacity/2))return null;
-  const value=planner.marketSurplusValue?.(p,id,qty)??Infinity,rate=planner.coinRate?.(p)??0;
+  // What the load is worth: its sale value (as every held item is valued).
+  const value=(planner.saleValue?.(p,id,qty)??Infinity)*qty,rate=planner.coinRate?.(p)??0;
   if(!Number.isFinite(value)||value<0||!(rate>0))return null;
   const stride=Math.round(baseStride(data,p)*(1+.2*brewPower(data,p,'swift')));
   const speed=Math.max(1000,stride,p.strideSpeed??0)/1000;
   const travel=2*Math.min(...data.banks.map(b=>Math.max(0,distance(p,b)-1)))*data.tickMs/1000/speed;
   const saved=Math.max(0,travel*Math.min(qty,remaining*job.output.qty-free)/capacity-4);
   const earn=goldToSeconds(value,rate);
-  if(!(saved>earn))return null;
+  if(!pays(saved,earn))return null; // the shared payback test
   return {intent:{t:'dropItem',itemId:id,qty},label:`原地清理普通盈余 · ${item.name} ×${qty}`,
     reason:`保留至少 ${reserve} 件周转／计划材料及全部稀有物、副产物；按腾出背包比例预计省下约 ${Math.floor(saved)} 秒往返，`+
       `放弃产物估值 ${Math.ceil(value)} 金币（约 ${Math.ceil(earn)} 秒筹币）；当前采集继续`};

@@ -163,6 +163,21 @@ test('room upgrades, placing and building pass the page check on what is possibl
   assert.equal(check(home(), {t: 'buildRoom', cell: entrance + 3}), false, 'no gold for it');
 });
 
+test('a house plot is bought only for a facility whose first level repays it (the shared payback)', async () => {
+  const {makePlanner, player} = await import('./helpers.js');
+  const make = rate => {
+    const planner = makePlanner(), d = planner.data, region = d.houseTravel.region, entrance = d.houseRules.entrance;
+    planner.coinRate = () => rate;
+    planner.setHousingEnabled(true);
+    const p = player(planner, {x: region.x + 1, y: region.y + 1, path: null, route: null, activity: 'idle', coins: 1e9,
+      levels: {smithing: 50}, houseCells: [entrance, entrance + 1], houseFurniture: {post: {cell: entrance + 1, slot: 0}},
+      house: {post: 1}, housePoints: {}, houseUpgrades: {}});
+    return planner.housingPlan(p, {skill: 'smithing', target: 51, budget: {coins: 0, items: {}}}, 'melee', 'balanced');
+  };
+  assert.equal(make(1e9)?.intent?.t, 'buildRoom', 'gold is cheap against the time a forge saves');
+  assert.notEqual(make(1e-6)?.intent?.t, 'buildRoom', 'gold is dear: the plot does not repay');
+});
+
 test('a trip home with nothing left to do is dropped before entering, and the work resumed', async () => {
   const {makePlanner, player} = await import('./helpers.js');
   const planner = makePlanner(), d = planner.data;
