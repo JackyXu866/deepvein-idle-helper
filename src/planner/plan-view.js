@@ -116,7 +116,12 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
   // work and the hours it saves while used (planner/investment.js).
   let investments = [];
   try {
-    investments = (planner.investmentOptions?.(p, style, goal) ?? []).slice(0, 8).map(r => ({label: r.label, kind: r.kind,
+    // Every worthwhile row, and each slot's three best options whatever their
+    // verdict: a slot's alternatives (an epic Meteoric hoe that does not pay
+    // back) used to fall below a cut at eight rows and looked never considered.
+    const all = planner.investmentOptions?.(p, style, goal) ?? [], seen = {};
+    const shown = all.filter(r => {seen[r.slot] = (seen[r.slot] ?? 0) + 1; return r.worth || r.funding || seen[r.slot] <= 3;});
+    investments = shown.map(r => ({label: r.label, kind: r.kind,
       gold: r.gold, paidHours: r.paid / 3600, savedHours: r.saved / 3600, useHours: r.useSeconds / 3600, gain: r.gain,
       worth: r.worth, cheapest: r.cheapest, affordable: r.affordable, source: r.source, project: !!r.project,
       funding: goal?.funding?.key === `${r.kind}:${r.id}`}));

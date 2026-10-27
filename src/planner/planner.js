@@ -674,19 +674,19 @@ export function createPlanner(data) {
         // Planning reaches here at task boundaries only (a load banked), so the
         // worn tools are reviewed there even when the same work goes on: a
         // day-long stage of cooking would otherwise never reconsider the pan.
-        const review=trail.length?(goal.mastery?null:ownedSwap(job.skill)):upgrade(job.skill);
+        const review=(trail.length?(goal.mastery?null:ownedSwap(job.skill)):upgrade(job.skill))??hoeMarket();
         // A purchase waiting for its live ask holds this boundary for the few
         // seconds the quote takes; the next boundary would be a whole load later.
         if(review?.intent||review?.marketWaiting)return review;
         return wait(`继续 ${job.name}`);
       }
       if (!trail.length) {
-        const improvement=upgrade(job.skill);
+        const improvement=upgrade(job.skill)??hoeMarket();
         if (improvement) return improvement;
       } else if(!goal.mastery) {
         // Supply work (food for fights, materials for a craft) skips gear
         // projects, but a better tool already owned is still put on first.
-        const swap=ownedSwap(job.skill);
+        const swap=ownedSwap(job.skill)??hoeMarket();
         if(swap)return swap;
       }
       // A project can span many native backpack trips. Truncating its demand
@@ -1068,6 +1068,19 @@ export function createPlanner(data) {
       }
       return null;
     }
+    // The hoe serves the fields whatever is trained, so the investment table's
+    // pick for it is bought at every boundary: the goal's own work, supply work
+    // or the same work going on. It comes after the goal's own gear, and holds
+    // the boundary the few seconds its live ask takes, as every purchase does
+    // (without that the quote was stale by the next boundary and nothing was
+    // ever bought, while the table said 值得，可做).
+    function hoeMarket() {
+      if(goal.mastery||goal.itemTarget||!farmFields(p).length)return null;
+      const row=(api.investmentOptions?.(p,profession,goal)??[]).find(r=>r.slot==='hoe'&&r.cheapest);
+      if(row?.source!=='市场')return null;
+      const market=api.marketEquipment?.(p,goal,profession,{ids:[base(row.id)],row});
+      return market?.intent||market?.marketWaiting?market:null;
+    }
     function upgrade(skill) {
       if(goal.mastery)return null;
       const swap=ownedSwap(skill);
@@ -1094,12 +1107,6 @@ export function createPlanner(data) {
         if(current!=null&&gear.has(base(current))&&!watched.includes(base(current)))watched.push(base(current));
         return api.marketEquipment?.(p,goal,profession,{ids:watched,row:row?.source==='市场'?row:null});
       };
-      // The table's hoe pick, when it is bought on the market. Its quotes load
-      // in the background: waiting for them never holds up this goal's own gear.
-      for(const slot of farmSlots(skill)) {
-        const market=shop(slot);
-        if(market?.intent)return market;
-      }
       // Filler and temporary work (thieving while crops grow) skips gear
       // projects, crafting a piece or a standing upgrade goal, but still buys a
       // worthwhile piece on the market: it costs one bank visit, and filler can
@@ -1226,7 +1233,7 @@ export function createPlanner(data) {
         if(!zones.some(z=>z.monsterId===fixedMonster.id))return blocked(`固定怪物 ${fixedMonster.name} 没有可用地点`);
       }
       if (prepareGear) {
-        const improvement=upgrade(style);
+        const improvement=upgrade(style)??hoeMarket();
         if (improvement) return improvement;
       }
       const weapons = held(p).filter(id=>{

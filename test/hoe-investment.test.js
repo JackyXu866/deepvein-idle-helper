@@ -45,7 +45,8 @@ test('the table values a better hoe by its extra crops\' gold over its use', () 
     'priced just above what its crops repay');
 });
 
-test('the plan buys the hoe the table picks, whatever is being trained', () => {
+// Plans `goal` until it buys, answering the market's quote queries as the game would.
+function buysHoe(goalOf) {
   const planner = makePlanner(), d = planner.data;
   let clock = 1_000_000_000;
   const market = createMarket(d, planner, {now: () => clock}), economy = createEconomy(d, planner, {});
@@ -65,7 +66,7 @@ test('the plan buys the hoe the table picks, whatever is being trained', () => {
   const pick = planner.investmentOptions(p, 'melee', {skill: 'thieving'}).find(r => r.slot === 'hoe' && r.cheapest);
   assert.equal(pick?.id, 388, JSON.stringify(pick));
   // The buy checks the live ask first: answer the market's queries as the game would.
-  const goal = {skill: 'thieving', target: 61, budget: {coins: 0, items: {}}};
+  const goal = goalOf(d);
   let plan;
   for (let i = 0; i < 5 && plan?.intent?.t !== 'marketBuy'; i++) {
     plan = planner.plan(p, goal, 'melee');
@@ -77,7 +78,18 @@ test('the plan buys the hoe the table picks, whatever is being trained', () => {
     clock += 1500;
   }
   assert.deepEqual(plan?.intent, {t: 'marketBuy', itemId: 388, qty: 1, price: 50_000}, JSON.stringify([plan?.label, plan?.reason]));
-});
+}
+
+test('the plan buys the hoe the table picks, whatever is being trained', () =>
+  buysHoe(() => ({skill: 'thieving', target: 61, budget: {coins: 0, items: {}}})));
+
+// Live: the table said 值得，可做 for an epic Meteoric hoe while the plan was
+// cutting Yew for another goal, and it never bought it: supply work only
+// looked at owned swaps.
+test('supply work for another goal buys the table\'s hoe too', () => buysHoe(d => {
+  const fletch = d.jobs.find(j => j.skill === 'fletching' && j.inputs.length === 1 && j.inputs[0].itemId === 10);
+  return {skill: 'fletching', target: 86, recipeId: fletch.id, recipes: {fletching: fletch.id}, budget: {coins: 0, items: {}}};
+}));
 
 test('a better hoe held is put on', () => {
   const planner = makePlanner();
