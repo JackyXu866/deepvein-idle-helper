@@ -816,7 +816,8 @@ export function createPlanner(data) {
       // gathering of every input the stage still lacks. The 20-craft score
       // above counts stock as free, so 2,000 Shrimp in the bank beat Lobster
       // although the stage needed 45,000 Shrimp cooks. A preparation already
-      // under way is dropped when another recipe is clearly better (Lobster,
+      // under way is dropped when another recipe is better by the one switch
+      // margin (outscores, as every task switch; Lobster,
       // unlocked at cooking 60, gives about 4x the XP per minute even with the
       // fishing); what was gathered stays in the bank.
       const stageRates=new Map();
@@ -829,7 +830,7 @@ export function createPlanner(data) {
       const plainBest=stagePlan?choices.filter(j=>!j.rarity&&j.inputs.length&&!j.grow).sort((a,b)=>stageRate(b)-stageRate(a)||a.id-b.id)[0]:null;
       if(stagePlan&&plainBest&&goal.craftPreparation&&!goal.craftPreparation.rarity&&goal.craftPreparation.jobId!==plainBest.id) {
         const held=choices.find(j=>j.id===goal.craftPreparation.jobId&&!j.rarity);
-        if(!held||stageRate(plainBest)>=1.5*stageRate(held)) {
+        if(!held||outscores(stageRate(plainBest),stageRate(held))) {
           delete goal.craftPreparation;
           if(goal.recipes?.[skill]===held?.id)delete goal.recipes[skill];
         }
@@ -839,7 +840,7 @@ export function createPlanner(data) {
       const cached=choices.find(j=>j.id===goal.recipes[skill]&&(j.rarity??0)===(goal.recipeRarities[skill]??0))??
         choices.find(j=>j.id===goal.recipes[skill]&&!j.rarity);
       const changed=goal.recipeLevels[skill]!=null&&goal.recipeLevels[skill]!==lv[skill];
-      const betterQuality=choices[0]?.rarity>0&&score(choices[0])>score(cached??choices[0]);
+      const betterQuality=choices[0]?.rarity>0&&outscores(score(choices[0]),score(cached??choices[0]));
       const betterSupply=cached?.inputs.length&&choices[0].inputs.some(i=>count(p,i.itemId)<i.qty*20&&
         Number.isFinite(api.marketBuyPrice?.(p,i.itemId,Math.max(1,i.qty*20-count(p,i.itemId)))??Infinity))&&
         outscores(score(choices[0]),score(cached));
@@ -847,7 +848,7 @@ export function createPlanner(data) {
       // stage, then craft them all, the higher qualities first (more XP each).
       // The saved recipe too gives way to one clearly better over the stage
       // (Shrimp, chosen earlier, kept while 9,946 Lobsters sat in the bank).
-      const cachedWeak=cached&&plainBest&&cached.id!==plainBest.id&&stageRate(plainBest)>=1.5*stageRate(cached);
+      const cachedWeak=cached&&plainBest&&cached.id!==plainBest.id&&outscores(stageRate(plainBest),stageRate(cached));
       const stageBase=stagePlan?(prepared&&!prepared.rarity?prepared:
         cached&&!cached.rarity&&!changed&&!cachedWeak?cached:
         plainBest):null;

@@ -811,35 +811,10 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     const demand=saleDemand(p,book,price,vendor),available=demand.volume-demand.ahead;
     return available>0?{qty:Math.min(qty,available),price}:null;
   }
+  // One purchase rule (balancedPurchase); with procurement off nothing is bought.
   function purchase(p,itemId,qty,goal=null,profession='magic') {
     select(p);
-    if(procurement)return procurement.enabled?balancedPurchase(p,itemId,qty,goal,profession):null;
-    if(p.ironman||!tradable(itemId)||!valid(qty)||state.attempt)return null;
-    need={itemId,qty,at:now()};
-    const listed=orders.find(o=>o.itemId===itemId&&o.side==='sell'&&state.owned[o.id]);
-    if(listed){reviewOrderId=null;return atBank(p,{t:'marketCancel',orderId:listed.id},'撤回自有挂单 · 当前制作需要',true);}
-    if(!slots(p,'buy')||hasOrder(itemId)||(cooldowns.get(itemId)??0)>now())return null;
-    const book=quote(itemId);
-    if(book.waiting)return wait('查询当前缺口的卖盘，比较采购筹币时间与自制经验');
-    if(book.fallback)return null;
-    const ask=bestAsk(book);if(!ask)return null;
-    const available=Math.max(0,p.coins-(goal?.budget?.coins??0));
-    const amount=Math.min(qty,ask.qty,Math.floor(available/ask.price),1000000);if(amount<1)return null;
-    const rate=planner.coinRate?.(p),cost=amount*ask.price;
-    if(!(rate>0)||!Number.isFinite(rate))return null;
-    const bankDistance=Math.min(...data.banks.map(b=>distance(p,b.approach)));
-    const seconds=goldToSeconds(cost,rate)+2*bankDistance*data.tickMs/1000;
-    const self=planner.acquireEstimate?.(p,itemId,amount,profession);
-    if(!self||seconds>(goal?.horizon??1800))return null;
-    const job=data.jobs.find(j=>j.id===(goal?.recipeId??goal?.recipes?.[goal?.skill]));
-    const work=job&&planner.estimateWork(p,job);
-    const xpRate=goal?.rate?.xp??(work?work.xp/work.seconds:0);
-    // Buying saves time but sacrifices the experience self-production earns.
-    if((self.xp??0)>0&&!(xpRate>0))return null;
-    if(Number.isFinite(self.seconds)&&!(seconds+(xpRate>0?(self.xp??0)/xpRate:0)<self.seconds))return null;
-    status=`按当前缺口采购，预计筹币及往返 ${Math.ceil(seconds)} 秒`;
-    return atBank(p,{t:'marketBuy',itemId,qty:amount,price:ask.price},
-      `按需采购 · ${itemName(data,itemId)} × ${amount}`,true);
+    return procurement?.enabled?balancedPurchase(p,itemId,qty,goal,profession):null;
   }
   function potionBudgetSpent() {
     if(!state)return 0;
@@ -857,26 +832,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   }
   function restockPotion(p,itemId,goal=null,desiredQty=1,uncovered=[],worth=null) {
     select(p);
-    if(procurement)return procurement.enabled?balancedPotion(p,itemId,goal,desiredQty,uncovered,worth):null;
-    if(p.ironman||goal?.itemTarget&&goal.targetItemId===itemId||!valid(desiredQty)||!POTIONS.some(potion=>potion.itemId===itemId)||!tradable(itemId)||state.attempt||
-      !planner.nearBank(p)||p.route||p.path?.length||p.enhance||playerQueued(p)||
-      !slots(p,'buy')||hasOrder(itemId)||
-      (cooldowns.get(itemId)??0)>now())return null;
-    const reserve=goal?.budget?.items?.[itemId]??0,coins=goal?.budget?.coins??0;
-    const missing=Math.min(20,desiredQty)-Math.max(0,quantity(p,itemId)-reserve);
-    if(missing<=0)return null;
-    const limit=Math.min(3000,Math.floor(Math.max(0,p.coins-coins-1000)*.01));
-    const spent=potionBudgetSpent();
-    if(limit<=spent||!persist())return null;
-    const book=quote(itemId);
-    if(book.waiting||book.fallback)return null;
-    const ask=bestAsk(book);
-    if(!ask||ask.price>potionCap(itemId,itemId,worth)||ask.price+spent>limit)return null;
-    const qty=Math.min(missing,ask.qty,Math.floor((limit-spent)/ask.price));
-    if(!valid(qty))return null;
-    return {...action({t:'marketBuy',itemId,qty,price:ask.price},`顺路补药 · ${itemName(data,itemId)} × ${qty}`,
-      `每瓶 ${ask.price} 金币，本批 ${qty*ask.price}；近一小时已承诺 ${spent}，当前额度 ${limit}；保留任务预算与 1000 金币`),
-      consumablePurchase:true,potionRestock:{desiredQty,coins,reserve,worth}};
+    return procurement?.enabled?balancedPotion(p,itemId,goal,desiredQty,uncovered,worth):null;
   }
   function issued(before,intent,plan=null) {
     select(before);
