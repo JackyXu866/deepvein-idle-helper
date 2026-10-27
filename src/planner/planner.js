@@ -1655,8 +1655,9 @@ export function createPlanner(data) {
     },
     selectGoal(p,served,deferred,style,mode='balanced',mainTrade='auto',mainJobId=null,mainMonsterId=null) {
       if(mode!=='business'&&mode!=='balanced'&&!(mode==='experience'&&this.profitFloor>0))this.watchMarket?.(p,[]);
-      // A worthwhile, unaffordable improvement is funded first (capped).
-      if(mode==='balanced'||mode==='experience') {
+      // A worthwhile, unaffordable improvement is funded first (capped), in
+      // every mode that improves gear (the panel marks it 值得，待筹资 in all).
+      if(mode!=='assist') {
         const funding=investments.fundingGoal(p,style,deferred);
         if(funding)return funding;
       }

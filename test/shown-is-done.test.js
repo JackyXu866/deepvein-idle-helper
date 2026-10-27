@@ -111,6 +111,22 @@ test('one gear step on every slot: a better pickaxe held is put on while thievin
   assert.ok(plan?.intent?.itemId === pick('Cobalt pickaxe') || /已持有更好的/.test(plan?.reason ?? ''), JSON.stringify([plan?.intent, plan?.reason]));
 });
 
+test('one investment table whoever reads it: the goal changes nothing but its project row', () => {
+  const {planner, p} = fighter();
+  const rows = goal => planner.investmentOptions(p, 'melee', goal).map(r => [r.slot, r.id, r.kind, Math.round(r.net), r.cheapest]);
+  const panel = rows({skill: 'mining', recipeId: 1}), maintenance = rows({skill: 'melee', professionOnly: true}), funding = rows(null);
+  assert.deepEqual(maintenance, panel);
+  assert.deepEqual(funding, panel);
+});
+
+test('business mode funds a worthwhile unaffordable improvement too', () => {
+  const {planner, p} = fighter();
+  const funded = planner.fundingGoal(p, 'melee', {}, null);
+  assert.ok(funded?.funding, 'something worth funding');
+  const chosen = planner.selectGoal(p, {}, {}, 'melee', 'business', 'auto');
+  assert.ok(chosen?.funding, JSON.stringify(chosen?.reason));
+});
+
 test('a potion left unbought because every ask is above its value names that reason', () => {
   const planner = makePlanner(), d = planner.data;
   let clock = 1_000_000_000;

@@ -7,6 +7,7 @@ import {makePlanner, player} from './helpers.js';
 // counting the fishing). 21,901 Shrimp are already in the bank.
 function cook(preparing) {
   const planner = makePlanner(), d = planner.data, R = d.rarityScale;
+  planner.perkUsage = {'job:61': {seconds: 3600}}; // measured: the account cooks
   const p = player(planner, {levels: {cooking: 64, fishing: 66}, coins: 1.7e6, hp: 100, x: d.banks[0].x, y: d.banks[0].y,
     path: null, activity: 'idle', equipment: {pan: 363 + 2 * R}, bank: {20: 21901, 25: 453}});
   const goal = {skill: 'cooking', target: 65, growth: true, development: true, stage: 65, budget: {coins: 0, items: {}},

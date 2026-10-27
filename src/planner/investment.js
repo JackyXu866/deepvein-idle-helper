@@ -31,22 +31,32 @@ export function createInvestments(data,planner) {
   let cache=null,fundingDeferred={};
   const contextCache=new Map();
   const lvOf=p=>planner.levels(p);
-  // What each slot is used for: the monster being fought, or the job its tool
-  // serves. One per state, shared by the table and every gear decision.
-  function contexts(p,style,goal) {
-    const key=JSON.stringify([p.id,p.lastTick,style,p.equipment,lvOf(p),goal?.skill??null,goal?.recipeId??null,goal?.recipes??null,
-      goal?.monsterId??null,p.route?.jobId??null,p.route?.zoneId??null]);
+  // The account's measured work (planner.perkUsage, as the mastery choice
+  // reads it): seconds per route, by skill ('combat' for fights).
+  function measured() {
+    return Object.entries(planner.perkUsage??{}).filter(([,m])=>m?.seconds>0).map(([key,m])=>{
+      const id=Number(key.split(':')[1]),combat=key.startsWith('combat:');
+      return {id,combat,skill:combat?'combat':data.jobs.find(j=>j.id===id)?.skill,seconds:m.seconds};
+    }).filter(r=>r.skill).sort((a,b)=>b.seconds-a.seconds);
+  }
+  // What each slot is used for: the monster fought, or the job its tool
+  // serves — what the account actually does most (measured), else the route
+  // under way, else the best by formula. Not the goal: the plan tab, the gear
+  // step, maintenance and funding all read one table.
+  function contexts(p,style) {
+    const key=JSON.stringify([p.id,p.lastTick,style,p.equipment,lvOf(p),p.route?.jobId??null,p.route?.zoneId??null]);
     if(contextCache.has(key))return contextCache.get(key);
-    const skill=professionSkill(style),lv=lvOf(p);
-    const monster=data.monsters.find(m=>m.id===(goal?.monsterId??data.zones.find(z=>z.id===p.route?.zoneId)?.monsterId))??
-      (planner.combatOptions?.(p,style)??[]).map(c=>c.monster)
-        .sort((a,b)=>planner.combatRate(p,style,b.id)-planner.combatRate(p,style,a.id))[0]??null;
-    const jobFor=toolSkill=>data.jobs.find(j=>j.id===(goal?.recipes?.[toolSkill]??(goal?.skill===toolSkill?goal.recipeId:null)))??
+    const skill=professionSkill(style),lv=lvOf(p),work=measured();
+    const safe=(planner.combatOptions?.(p,style)??[]).map(c=>c.monster);
+    const monster=safe.find(m=>m.id===work.find(r=>r.combat&&safe.some(s=>s.id===r.id))?.id)??
+      data.monsters.find(m=>m.id===data.zones.find(z=>z.id===p.route?.zoneId)?.monsterId)??
+      [...safe].sort((a,b)=>planner.combatRate(p,style,b.id)-planner.combatRate(p,style,a.id))[0]??null;
+    const usable=j=>!j.grow&&lv[j.skill]>=j.levelReq&&data.sites.some(s=>s.jobIds.includes(j.id));
+    const jobFor=toolSkill=>data.jobs.find(j=>j.id===work.find(r=>!r.combat&&r.skill===toolSkill&&usable(data.jobs.find(x=>x.id===r.id)))?.id)??
       data.jobs.find(j=>j.id===p.route?.jobId&&j.skill===toolSkill)??
-      data.jobs.filter(j=>j.skill===toolSkill&&!j.grow&&lv[toolSkill]>=j.levelReq&&data.sites.some(s=>s.jobIds.includes(j.id)))
+      data.jobs.filter(j=>j.skill===toolSkill&&usable(j))
         .sort((a,b)=>{const r=j=>{const e=formulaWork(data,planner,p,j,lv);return e.xp/e.seconds;};return r(b)-r(a);})[0]??null;
     const ctx={skill,monster,jobFor,rates:new Map()};
-    // A few states at once: the plan, the table and the gear targets ask with different goals.
     if(contextCache.size>=8)contextCache.delete(contextCache.keys().next().value);
     contextCache.set(key,ctx);
     return ctx;
@@ -81,7 +91,7 @@ export function createInvestments(data,planner) {
     ctx.rates.set(key,value);
     return value;
   }
-  const gearRate=(p,style,goal,slot,id)=>rate(p,style,contexts(p,style,goal),slot,id);
+  const gearRate=(p,style,goal,slot,id)=>rate(p,style,contexts(p,style),slot,id);
   const fitsFor=(p,style,ctx,slot)=>{
     const useSkill=data.toolSkills[slot]??ctx.skill,lv=lvOf(p);
     return id=>fitsSlot(planner.equipmentStats(id),slot,useSkill,style)&&canWear(data,lv,id);
@@ -90,7 +100,7 @@ export function createInvestments(data,planner) {
   // luck, a hoe); null when nothing held beats what is worn. Owned swaps and
   // the table's 已持有 row are this one rule.
   function ownedBest(p,style,goal,slot) {
-    const ctx=contexts(p,style,goal),fits=fitsFor(p,style,ctx,slot),current=p.equipment[slot];
+    const ctx=contexts(p,style),fits=fitsFor(p,style,ctx,slot),current=p.equipment[slot];
     const useSkill=data.toolSkills[slot]??ctx.skill,score=id=>planner.gearScore(id,useSkill),r=id=>rate(p,style,ctx,slot,id);
     const worn=new Set(Object.values(p.equipment).filter(Number.isFinite));
     const best=heldIds(p).filter(id=>!worn.has(id)&&fits(id)).sort((a,b)=>r(b)-r(a)||score(b)-score(a)||b-a)[0];
@@ -123,19 +133,20 @@ export function createInvestments(data,planner) {
   // The share of the account's time each skill takes ('combat' for fights),
   // from the measured routes the mastery choice reads (planner.perkUsage): a
   // piece saves time only while its slot is in use, so a pickaxe for a miner
-  // who never mines saves nothing. Without measurements, the goal's (or the
-  // route's) work takes all the time; with neither, every slot counts fully.
-  function shareOf(p,goal) {
+  // who never mines saves nothing. Without measurements, the XP earned in
+  // each skill stands in for the time spent there (the combat style's XP for
+  // fights).
+  function shareOf(p,style) {
     const sums={};let total=0;
-    for(const [key,m] of Object.entries(planner.perkUsage??{})) {
-      if(!(m?.seconds>0))continue;
-      const skill=key.startsWith('combat:')?'combat':data.jobs.find(j=>j.id===Number(key.split(':')[1]))?.skill;
-      if(skill){sums[skill]=(sums[skill]??0)+m.seconds;total+=m.seconds;}
+    for(const r of measured()){sums[r.skill]=(sums[r.skill]??0)+r.seconds;total+=r.seconds;}
+    if(!(total>0)) {
+      const fight=professionSkill(style);
+      for(const skill of data.skills.filter(s=>!['melee','ranged','magic','defence','hitpoints'].includes(s)||s===fight)) {
+        const xp=Math.max(0,p.skills?.[skill]??0),key=skill===fight?'combat':skill;
+        sums[key]=(sums[key]??0)+xp;total+=xp;
+      }
     }
-    if(total>0)return skill=>(sums[skill]??0)/total;
-    const fighting=goal?.monsterId!=null||['melee','ranged','magic'].includes(goal?.skill)||p.route?.zoneId!=null&&!goal;
-    const active=fighting?'combat':goal?.skill??data.jobs.find(j=>j.id===p.route?.jobId)?.skill??null;
-    return skill=>active==null||skill===active?1:0;
+    return skill=>total>0?(sums[skill]??0)/total:1;
   }
   function slotsFor(p,style) {
     const twoHanded=shieldless(style,planner.equipmentStats(p.equipment.weapon));
@@ -144,7 +155,7 @@ export function createInvestments(data,planner) {
   }
   // Every worthwhile way to improve each worn piece, on the same terms.
   function compute(p,style,goal) {
-    const ctx=contexts(p,style,goal),coinRate=planner.coinRate?.(p)??0,rows=[],share=shareOf(p,goal);
+    const ctx=contexts(p,style),coinRate=planner.coinRate?.(p)??0,rows=[],share=shareOf(p,style);
     const shardValue=planner.saleValue(p,data.shardId,1);
     for(const slot of slotsFor(p,style)) {
       const current=p.equipment[slot]??null,worn=planner.equipmentStats(current);
@@ -234,8 +245,8 @@ export function createInvestments(data,planner) {
   }
   let computing=false;
   function options(p,style,goal=null) {
-    const key=JSON.stringify([p.id,style,p.equipment,lvOf(p),goal?.skill??null,goal?.recipeId??null,goal?.recipes??null,goal?.monsterId??null,
-      goal?.upgrade?.id??null,p.route?.jobId??null,p.route?.zoneId??null]);
+    // The goal adds only its gear project's row.
+    const key=JSON.stringify([p.id,style,p.equipment,lvOf(p),goal?.upgrade?.slot??null,goal?.upgrade?.id??null,p.route?.jobId??null,p.route?.zoneId??null]);
     // Pricing a row can reach code that asks for the planned gear (held
     // materials), which reads this table: that inner ask sees no rows.
     if(computing)return [];

@@ -35,6 +35,7 @@ test('crafted surplus is sold by default; higher rarities and gathered goods are
   const ore = smelt.inputs[0].itemId;
   const sold = [];
   planner.marketSale = (p, vendor) => { sold.push(vendor); return vendor; };
+  planner.investmentOptions = () => []; // the sale rules alone: no gear step before the sale
   const bank = d.banks[0];
   const p = player(planner, {levels: {smithing: 10, mining: 10}, x: bank.x, y: bank.y,
     bank: {[bar]: 400, [rareBar]: 30, [ore]: 400}, coins: 100, hp: 100, activity: 'idle', path: null, held: false});
@@ -86,6 +87,7 @@ test('crafted gear: only one copy of the highest rarity that could be an upgrade
   // The economy sells the rarity copies through the market-only path.
   const sold = [];
   planner.marketSale = (q, vendor) => { sold.push(vendor); return vendor; };
+  planner.investmentOptions = () => []; // the sale rules alone: no gear step before the sale
   // The rare helmet is worn (an unworn better piece would be put on first).
   const rareOnly = {...p, equipment: {...p.equipment, helmet: id + 2 * R}, bank: {[id + R]: 2, [id + 2 * R]: 1}};
   createEconomy(d, planner, {autoSell: false}).maintenance(rareOnly, {skill: 'smithing', target: 2, budget: {items: {}, coins: 0}}, 'melee', 'balanced');
