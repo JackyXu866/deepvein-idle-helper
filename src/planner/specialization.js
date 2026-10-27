@@ -185,8 +185,8 @@ export function createSpecialization(data,planner) {
     }
     const excluded={...deferred};
     for(const [skill,until]of Object.entries(pausedUntil))if(until>now)excluded[skill]=true;
-    const candidates=planner.candidates(p,style,excluded,{sustainable:true})
-      .filter(c=>!c.estimate.unlocks?.length&&(!c.monsterId||
+    const candidates=planner.candidates(p,style,excluded)
+      .filter(c=>!c.rarity&&!c.estimate.unlocks?.length&&(!c.monsterId||
         matchesProfessionWeapon(planner.equipmentStats(p.equipment.weapon),style)));
     // Round-robin the skill groups before the market's bounded watch list, so
     // dozens of equipment recipes cannot hide every gathering opportunity.
@@ -199,7 +199,14 @@ export function createSpecialization(data,planner) {
     }
     const preferred=candidates.find(c=>c.recipeId===focus?.recipeId)?.output?.itemId;
     planner.watchMarket?.(p,[preferred,...ids].filter(Boolean),preferred);
-    const choices=incomeChoices(p,candidates,style);
+    // The gold table's lasting rows (incomeRows: what the gold rate and the plan
+    // tab's gold column read; held stock charged at its sale value), outside
+    // the skills set aside, each run by its candidate.
+    const match=r=>candidates.find(c=>r.monsterId!=null?c.monsterId===r.monsterId:c.recipeId===r.recipeId);
+    const choices=(planner.incomeRows?.(p,style)??[]).filter(r=>!r.oneOff&&r.coins>0&&!excluded[r.skill]).map(r=>{
+      const c=match(r);
+      return c?{...c,rate:{xp:r.xp,coins:r.coins},saleItems:r.saleItems,marketProceeds:r.saleItems.length?1:0}:null;
+    }).filter(Boolean);
     let best=choices[0];
     const current=choices.find(c=>c.skill===focus?.skill);
     if(current&&(now-focus.since<1800||!outscores(best.rate.coins,current.rate.coins)))best=current;

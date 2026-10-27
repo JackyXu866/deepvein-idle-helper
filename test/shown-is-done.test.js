@@ -182,6 +182,17 @@ test('one combat evaluation: a goal\'s monster is rated as fight() rates it', ()
   }
 });
 
+test('business mode picks and states income as the gold table prices it', () => {
+  const {planner, p} = fighter();
+  const goal = planner.specialistChooseGoal(p, {}, {}, 'melee', 'auto');
+  assert.ok(goal, 'a trade');
+  const row = planner.incomeRows(p, 'melee').find(r => !r.oneOff && (goal.monsterId != null ? r.monsterId === goal.monsterId : r.recipeId === goal.recipeId));
+  assert.equal(goal.rate.coins, row.coins);
+  const top = planner.incomeRows(p, 'melee').find(r => !r.oneOff && r.coins > 0);
+  assert.equal(row, top, 'the table\'s top lasting row');
+  assert.match(goal.reason, new RegExp(`${Math.round(row.coins * 60)} 金币/分`));
+});
+
 test('a potion left unbought because every ask is above its value names that reason', () => {
   const planner = makePlanner(), d = planner.data;
   let clock = 1_000_000_000;

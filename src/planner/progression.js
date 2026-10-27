@@ -155,16 +155,13 @@ export function createProgression(data,planner) {
     // leveling time but are not free inputs in a repeatable business forecast.
     const tradable=choices.filter(c=>c.output&&c.output.itemId!==data.coinId);
     planner.watchMarket?.(p,tradable.map(c=>c.output.itemId));
-    const earning=planner.incomeChoices?.(p,choices.filter(c=>!c.unpriced).map(c=>{
-      const estimate=planner.routeEstimate(p,c.recipeId??{monsterId:c.monsterId},50,{style,ignoreStock:true,completeTrips:true,buyInputs:true});
-      const job=data.jobs.find(j=>j.id===c.recipeId);
-      const output=job?{itemId:job.output.itemId,qty:Math.floor(planner.estimateWork(p,job).commonOutput*50)}:undefined;
-      return {...c,output,estimate,rate:estimate.rate??{xp:0,coins:0}};
-    }).filter(c=>Number.isFinite(c.estimate.seconds)),style)??[];
+    // Income as the gold table prices it (incomeRows), the rows every gold
+    // figure reads.
+    const income=planner.incomeRows?.(p,style)??[];
     const coinRate=Math.max(1,planner.coinRate?.(p)??0);
     for(const c of choices) {
-      const income=earning.find(e=>e.skill===c.skill);
-      c.incomeRate=income?.rate.coins??0;
+      const row=income.find(r=>!r.oneOff&&(c.monsterId!=null?r.monsterId===c.monsterId:r.recipeId===c.recipeId));
+      c.incomeRate=Math.max(0,row?.coins??0);
       c.score*=1+Math.min(1,c.incomeRate/coinRate)*.5;
     }
     // Within the band, value decides: speed, unlocks other skills use, income.
