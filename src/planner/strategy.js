@@ -240,9 +240,11 @@ export function createStrategy(data, planner) {
         if (!work(bonus,missing/bonus.bonus.chance,next)) return false;
         stock[id]=Math.max(0,(stock[id]??0)-missing);return true;
       }
+      // The monster fight() would take for this drop: the one combat score
+      // (planner.combatChoice, per drop or shard, food and travel included).
+      const dropScore=c=>planner.combatChoice?.(p,style,c.monster,{requiredItem:id})?.score??0;
       const monster=combatOptions(p,style).filter(c=>c.monster.drop===id&&(c.monster.dropChance??1)>0||id===data.shardId)
-        .sort((a,b)=>a.seconds/(id===data.shardId?a.shards:(a.monster.dropChance??1))-
-          b.seconds/(id===data.shardId?b.shards:(b.monster.dropChance??1)))[0];
+        .sort((a,b)=>dropScore(b)-dropScore(a)||a.monster.id-b.monster.id)[0];
       if (!monster) return false;
       // A primary drop is one item of a rolled quality, not one ordinary item.
       // Use the same baseline rarity model as workEstimate; temporary bonuses
