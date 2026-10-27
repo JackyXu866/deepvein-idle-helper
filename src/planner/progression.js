@@ -115,9 +115,18 @@ export function createProgression(data,planner) {
     // keeps the cheap levels coming without forcing lockstep.
     const lowest=Math.min(...open.map(s=>lv[s])),top=Math.min(maxLevel,lowest+BAND);
     function project(skill,cap) {
-      // Do not credit a workshop for experience gained fetching its ingredients.
-      let best=candidates.filter(c=>c.skill===skill)
-        .sort((a,b)=>(b.mainXpRate??b.rate.xp)-(a.mainXpRate??a.rate.xp))[0];
+      const unlocks=data.jobs.filter(j=>j.skill===skill&&j.levelReq>lv[skill]);
+      const next=Math.min(...unlocks.map(j=>j.levelReq));
+      const checkpoint=(Math.floor(lv[skill]/5)+1)*5;
+      const target=Math.max(lv[skill]+1,Math.min(skill==='farming'?farmLevel:maxLevel,cap,next<=lv[skill]+10?next:checkpoint));
+      // A craft skill's stage chooses its recipe by the whole-stage rating
+      // (train()'s stage plan): the project is chosen and timed by the same.
+      const jobOf=c=>data.jobs.find(j=>j.id===c.recipeId);
+      const own=candidates.filter(c=>c.skill===skill);
+      const crafts=own.filter(c=>!c.rarity&&jobOf(c)?.inputs.length&&!jobOf(c).grow)
+        .map(c=>({c,rate:planner.stageRating?.(p,jobOf(c),target,{profession:style})??c.rate.xp})).sort((a,b)=>b.rate-a.rate);
+      let best=crafts[0]?{...crafts[0].c,mainXpRate:crafts[0].rate}:
+        own.sort((a,b)=>(b.mainXpRate??b.rate.xp)-(a.mainXpRate??a.rate.xp))[0];
       if(!best) {
         const job=data.jobs.filter(j=>j.skill===skill&&j.levelReq<=lv[skill]&&data.sites.some(s=>s.jobIds.includes(j.id)))
           .sort((a,b)=>b.xp/(b.baseTicks+(b.grow??0))-a.xp/(a.baseTicks+(a.grow??0)))[0];
@@ -128,10 +137,6 @@ export function createProgression(data,planner) {
         } else if(skill===professionSkill(style))best={rate:{xp:0,coins:0},budget:{coins:0,items:{}},unpriced:true};
       }
       if(!best)return null;
-      const unlocks=data.jobs.filter(j=>j.skill===skill&&j.levelReq>lv[skill]);
-      const next=Math.min(...unlocks.map(j=>j.levelReq));
-      const checkpoint=(Math.floor(lv[skill]/5)+1)*5;
-      const target=Math.max(lv[skill]+1,Math.min(skill==='farming'?farmLevel:maxLevel,cap,next<=lv[skill]+10?next:checkpoint));
       const xpRate=best.mainXpRate??best.rate.xp;
       const seconds=!best.unpriced&&xpRate>0?planner.xpTo(p,skill,target)/xpRate:Infinity;
       const unlocked=unlocks.filter(j=>j.levelReq<=target);

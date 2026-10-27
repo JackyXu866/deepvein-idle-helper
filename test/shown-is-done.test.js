@@ -152,6 +152,26 @@ test('one coin reserve: buying, housing and the sale review keep the same coins'
   assert.equal(combinedBudget(d, planner, p, [goal, planner.pendingEquipmentPlan()]).coins, 6000, 'housing');
 });
 
+test('a goal is chosen by the ratings its work runs on: the development recipe is the stage\'s', () => {
+  const planner = makePlanner(), d = planner.data;
+  planner.watchMarket = () => {};
+  // Only cooking is behind: the development project is a cooking stage.
+  const levels = Object.fromEntries(d.skills.map(s => [s, 74]));
+  Object.assign(levels, {cooking: 64});
+  const p = player(planner, {levels, coins: 1e6, hp: 700, x: d.banks[0].x, y: d.banks[0].y, path: null, activity: 'idle', bank: {20: 2000}});
+  const goal = planner.growthChooseGoal(p, {}, {}, 'melee');
+  assert.equal(goal?.skill, 'cooking', goal?.reason);
+  const chosen = goal.recipeId;
+  const job = id => d.jobs.find(j => j.id === id);
+  // The project's recipe is the best cooking recipe by the stage rating ...
+  const crafts = d.jobs.filter(j => j.skill === 'cooking' && j.inputs.length && !j.grow && j.levelReq <= 64 && d.sites.some(s => s.jobIds.includes(j.id)));
+  const rate = j => planner.stageRating(p, j, goal.target, {profession: 'melee'});
+  assert.equal(rate(job(chosen)), Math.max(...crafts.map(rate)));
+  // ... and the stage keeps it.
+  planner.plan(p, goal, 'melee');
+  assert.equal(goal.recipes.cooking, chosen);
+});
+
 test('a potion left unbought because every ask is above its value names that reason', () => {
   const planner = makePlanner(), d = planner.data;
   let clock = 1_000_000_000;

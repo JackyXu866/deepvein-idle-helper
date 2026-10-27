@@ -306,8 +306,11 @@ export function createStrategy(data, planner) {
       const extras=!job.inputs.length&&job.output.itemId!==data.coinId?{actions:amount,
         qualityPerAction:e.tierOutput.slice(1),
         ...(job.bonus?{bonusPerAction:{itemId:job.bonus.itemId,qty:e.bonusOutput}}:{})}:{};
-      candidates.push({skill:job.skill,recipeId:job.id,mainXpRate:e.xp*amount/estimate.seconds,output:{itemId:job.output.itemId,qty:Math.floor(e.commonOutput*amount)},...extras,recipes:{...estimate.recipes,[job.skill]:job.id},
-        supplyRecipes:estimate.supplyRecipes,batch,estimate,rate:estimate.rate,horizon,
+      // Rated as train() rates it (the shared batch rating); the route
+      // estimate stays for its time, coins and budget.
+      const rated=planner.batchRating?.(p,job,{profession:style})??estimate.rate.xp;
+      candidates.push({skill:job.skill,recipeId:job.id,mainXpRate:rated,output:{itemId:job.output.itemId,qty:Math.floor(e.commonOutput*amount)},...extras,recipes:{...estimate.recipes,[job.skill]:job.id},
+        supplyRecipes:estimate.supplyRecipes,batch,estimate,rate:{...estimate.rate,xp:rated},horizon,
         budget:routeEstimate(p,job,batch,{style,buyInputs:true}).budget,target:lv[job.skill]+1,stage:lv[job.skill]+1});
       // The same recipe in a quality the held matched sets make (planned gear's
       // materials kept), valued at that quality: its output is worth more.
@@ -319,9 +322,10 @@ export function createStrategy(data, planner) {
           const q=routeEstimate(p,recipe,n,{...routeOptions,buyInputs:false});
           if(!Number.isFinite(q.seconds)||!q.xp)continue;
           const qe=estimateWork(p,recipe,lv);
-          candidates.push({skill:job.skill,recipeId:job.id,rarity:tier,mainXpRate:qe.xp*n/q.seconds,
+          const qualityRate=planner.batchRating?.(p,recipe,{profession:style,n:Math.min(20,n),reserve:hold})??q.rate.xp;
+          candidates.push({skill:job.skill,recipeId:job.id,rarity:tier,mainXpRate:qualityRate,
             output:{itemId:recipe.output.itemId,qty:Math.floor(qe.commonOutput*n)},recipes:{...q.recipes,[job.skill]:job.id},
-            recipeRarities:{[job.skill]:tier},supplyRecipes:q.supplyRecipes,batch:n,estimate:q,rate:q.rate,horizon,
+            recipeRarities:{[job.skill]:tier},supplyRecipes:q.supplyRecipes,batch:n,estimate:q,rate:{...q.rate,xp:qualityRate},horizon,
             budget:q.budget,target:lv[job.skill]+1,stage:lv[job.skill]+1});
         }
       }

@@ -571,6 +571,47 @@ export function createPlanner(data) {
     return skill ? {skill,target:Math.min(stage,lv[skill]+1),stage} : null;
   };
 
+  // Shared job ratings: train()'s recipe choice and every goal chooser read
+  // these, so a goal is chosen by the same numbers its work then runs on.
+  function siteOf(p,job) {
+    let choices=sites.filter(s=>s.jobIds.includes(job.id));
+    if(job.grow){const allowed=farmFields(p).map(s=>s.id);choices=choices.filter(s=>allowed.includes(s.id));}
+    return choices.sort((a,b)=>distance(p,a)-distance(p,b))[0];
+  }
+  const jobTimeOf=(p,job)=>{const e=strategy.estimateWork(p,job,levels(p));
+    return e.seconds/e.success+(job.grow??0)/Math.max(1,farmFields(p).length)*data.tickMs/1000;};
+  // The shared input cost's options for a plan: the profession's trained
+  // skills credit their XP (not for quests and item targets); a crop costs one
+  // growth per field share, plus its seed unless one is held.
+  function inputOptionsOf(p,profession,{credit=true,trail=[]}={}) {
+    return {style:profession,credit,trail,grow:(j,seen)=>{
+      if(!allowedCrop(j)&&!farmPlots(p).some(f=>f.job.id===j.id))return Infinity;
+      const seed=hasSeed(p,j)||Object.values(p.plots??{}).some(plot=>base(plot.seedItemId)===j.inputs[0].itemId);
+      return (jobTimeOf(p,j)+(seed?0:api.inputCost.unitSeconds(p,j.inputs[0].itemId,1,inputOptionsOf(p,profession,{credit,trail:seen}))))/
+        harvestCrops(levels(p).farming,hoeBonus(p));
+    }};
+  }
+  // XP per second of n actions of a job (a batch): its inputs got the cheapest
+  // way (input-cost.js) and the walk to its site counted. train() ranks
+  // recipes by it; experience and business goals are chosen by it.
+  function batchRating(p,job,{profession='magic',credit=true,trail=[],n=20,reserve=null}={}) {
+    const e=strategy.estimateWork(p,job,levels(p)),site=siteOf(p,job);
+    const travel=site?distance(p,site)*data.tickMs/1000:0;
+    if(job.rarity) {
+      const ingredients=Math.max(0,api.crafting.estimate(withoutItem(p,job.output.itemId),job.output.itemId,n*job.output.qty,{reserve:reserve??{}}).seconds-e.seconds*n);
+      return e.xp*n/(e.seconds*n+ingredients+travel);
+    }
+    if(job.grow||!job.inputs.length)return (job.grow?job.xp:e.xp)*n/((job.grow?jobTimeOf(p,job):e.seconds)*n+travel);
+    const made=api.inputCost.recipe(p,job,n,inputOptionsOf(p,profession,{credit,trail}));
+    return made.xp/(made.seconds+travel);
+  }
+  // XP per second of a whole leveling stage of a recipe to `target`, the
+  // gathering of every input it still lacks included: a development stage
+  // chooses its recipe by it, and the development project is chosen by it.
+  function stageRating(p,job,target,{profession='magic',trail=[]}={}) {
+    const made=api.inputCost.recipe(p,job,stageCraftCount(p,job.skill,target,job),inputOptionsOf(p,profession,{trail}));
+    return made.seconds>0?made.xp/made.seconds:0;
+  }
   function plan(p, goal, profession='magic') {
     api.styleHint=profession;
     // Supply tools need no step of their own: the one gear step runs on supply
@@ -596,14 +637,7 @@ export function createPlanner(data) {
     const combatStyle = () => weaponStyle(gear.get(base(p.equipment.weapon??0)));
 
     const canWear = id => canWearWith(data,lv,id);
-    function siteFor(job) {
-      let choices = sites.filter(s=>s.jobIds.includes(job.id));
-      if (job.grow) {
-        const allowed = farmFields(p).map(s=>s.id);
-        choices = choices.filter(s=>allowed.includes(s.id));
-      }
-      return choices.sort((a,b)=>distance(p,a)-distance(p,b))[0];
-    }
+    const siteFor=job=>siteOf(p,job);
     // Include failures, common-material yields and owned tools. Walking, house,
     // potion and mastery effects still make this a base-rate estimate.
     function jobEstimate(job) {
@@ -625,21 +659,10 @@ export function createPlanner(data) {
     }
     // The shared input cost (input-cost.js) for this plan: the profession's
     // trained skills credit their XP, except for quests and item targets.
-    function inputOptions(trail){return {style:profession,credit:!goal.quest&&!goal.itemTarget,trail,
-      // A crop: one growth per field share, plus its seed unless one is held.
-      grow:(j,seen)=>{
-        if(!allowedCrop(j)&&!farmPlots(p).some(f=>f.job.id===j.id))return Infinity;
-        const seed=hasSeed(p,j)||Object.values(p.plots??{}).some(plot=>base(plot.seedItemId)===j.inputs[0].itemId);
-        return (jobTime(j)+(seed?0:cost(j.inputs[0].itemId,seen)))/harvestCrops(lv.farming,hoeBonus(p));
-      }};}
+    const inputOptions=trail=>inputOptionsOf(p,profession,{credit:!goal.quest&&!goal.itemTarget,trail});
     // Seconds per unit of an input when `quantity` are needed, stock aside.
     function cost(id,trail=[],quantity=1){return api.inputCost.unitSeconds(p,id,quantity,inputOptions(trail));}
-    // `n` crafts of a recipe, its inputs got the cheapest way (stock at sale value).
-    function recipeCost(j,n,trail=[]){return api.inputCost.recipe(p,j,n,inputOptions(trail));}
-    function jobTime(job) {
-      const e=jobEstimate(job);
-      return e.seconds/e.success + (job.grow??0)/Math.max(1,farmFields(p).length)*data.tickMs/1000;
-    }
+    const jobTime=job=>jobTimeOf(p,job);
     function batch(job, amount, trail=[]) {
       const site = siteFor(job);
       if (!site) return blocked(`${job.name} 没有可用地点`);
@@ -808,13 +831,7 @@ export function createPlanner(data) {
       const score = j => {
         if(scores.has(j))return scores.get(j);
         const e=jobEstimate(j),n = Math.min(20,j.rarity?trainingLimit(j):50,Math.ceil(neededXp/(j.grow?j.xp:e.xp)));
-        const travel = distance(p,siteFor(j))*data.tickMs/1000;
-        let value;
-        if(j.rarity) {
-          const ingredients=Math.max(0,api.crafting.estimate(withoutItem(p,j.output.itemId),j.output.itemId,n*j.output.qty,{reserve:qualityReserve()}).seconds-e.seconds*n);
-          value=e.xp*n/(e.seconds*n+ingredients+travel);
-        } else if(j.grow||!j.inputs.length) value=(j.grow?j.xp:e.xp)*n/((j.grow?jobTime(j):e.seconds)*n+travel);
-        else {const made=recipeCost(j,n,trail);value=made.xp/(made.seconds+travel);}
+        const value=batchRating(p,j,{profession,credit:!goal.quest&&!goal.itemTarget,trail,n,reserve:j.rarity?qualityReserve():null});
         scores.set(j,value);return value;
       };
       choices.sort((a,b)=>score(b)-score(a)||a.id-b.id);
@@ -832,10 +849,8 @@ export function createPlanner(data) {
       // fishing); what was gathered stays in the bank.
       const stageRates=new Map();
       const stageRate=j=>{
-        if(stageRates.has(j))return stageRates.get(j);
-        const made=recipeCost(j,stageCrafts(j),trail);
-        const value=made.seconds>0?made.xp/made.seconds:0;
-        stageRates.set(j,value);return value;
+        if(!stageRates.has(j))stageRates.set(j,stageRating(p,j,goal.target??lv[skill]+1,{profession,trail}));
+        return stageRates.get(j);
       };
       const plainBest=stagePlan?choices.filter(j=>!j.rarity&&j.inputs.length&&!j.grow).sort((a,b)=>stageRate(b)-stageRate(a)||a.id-b.id)[0]:null;
       if(stagePlan&&plainBest&&goal.craftPreparation&&!goal.craftPreparation.rarity&&goal.craftPreparation.jobId!==plainBest.id) {
@@ -1638,7 +1653,7 @@ export function createPlanner(data) {
     acquireEstimate:(p,id,qty,style='magic')=>rarity(id)>0?api.crafting.estimate(
       withoutItem(p,id),id,qty,{buy:true}):
       strategy.routeEstimate(p,{itemId:id},qty,{style}),
-    gearScore,combatRate,incomeRows,coinRate,stageSupply,stageCraftCount,questQualitySets,recipeRatings:()=>recipeRatings,
+    gearScore,combatRate,batchRating,stageRating,incomeRows,coinRate,stageSupply,stageCraftCount,questQualitySets,recipeRatings:()=>recipeRatings,
     // What one unit would sell for, net of tax: the market's sale layers, else the merchant.
     saleValue:(p,id,qty=1)=>api.marketUnitValue?.(p,id,qty)??merchantPrice(data,id)});
   const growth=createProgression(data,api);
