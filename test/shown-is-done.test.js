@@ -172,6 +172,16 @@ test('a goal is chosen by the ratings its work runs on: the development recipe i
   assert.equal(goal.recipes.cooking, chosen);
 });
 
+test('one combat evaluation: a goal\'s monster is rated as fight() rates it', () => {
+  const {planner, d, p} = fighter();
+  const fights = planner.candidates(p, 'melee', {}).filter(c => c.monsterId != null);
+  assert.ok(fights.length > 0);
+  for (const c of fights) {
+    const choice = planner.combatChoice(p, 'melee', d.monsters.find(m => m.id === c.monsterId));
+    assert.ok(Math.abs(c.rate.xp - choice.xpPerMinute / 60) < 1e-9, `${choice.name}`);
+  }
+});
+
 test('a potion left unbought because every ask is above its value names that reason', () => {
   const planner = makePlanner(), d = planner.data;
   let clock = 1_000_000_000;

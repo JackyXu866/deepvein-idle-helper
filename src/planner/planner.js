@@ -8,7 +8,6 @@ import {combatSafe, combatStats, weaponStyle} from './rates.js';
 import {action, waiting} from './result.js';
 import {RARITY_NAMES, qualityName, baseId, merchantPrice, mountScale, seedVendorPrice, distance, itemLabel, itemName, nearBank as nearBankAt, nearestBank as nearestBankTo, heldIds, ownedQty, packCapacity, packFree, packQty, plusOf, qualityPrefix, rarityOf, withoutItem} from './items.js';
 import {createCrafting, finishTaskReason} from './crafting.js';
-import {combatEstimate} from './estimates.js';
 import {combatSupplies, foodEligible} from './supplies.js';
 import {createStrategy, outscores} from './strategy.js';
 import {POTION_FLOOR, farmingStocks, harvestCrops, herbloreNeeds} from './farming.js';
@@ -78,7 +77,7 @@ export function createPlanner(data) {
   // fight() ranks monsters by, and what combat gear is rated by (defence
   // shows up as less food to make).
   function combatTiming(p,m,stats,{horizon=strategy.horizon,excludeFoodIds=[]}={}) {
-    const estimate=combatEstimate(data,m,stats),zone=zones.find(z=>z.monsterId===m.id);
+    const estimate=strategy.calibratedCombat(p,m,stats),zone=zones.find(z=>z.monsterId===m.id);
     const supplies=combatSupplies(data,api,p,estimate,{zone,monster:m,foodItemId:0,excludeFoodIds,horizon,
       supplyCost:id=>strategy.supplyCost(p,id)});
     const unitCost=strategy.supplyCost(p,supplies.foodItemId);
@@ -93,6 +92,25 @@ export function createPlanner(data) {
     const common=1-Math.min(1,data.rarityChance.uncommon*(1+(equipmentStats(p.equipment.amulet)?.luck??0)));
     return Math.min(Infinity,...monsters.filter(m=>m.drop===id&&(m.dropChance??1)>0&&zones.some(z=>z.monsterId===m.id)&&combatSafe(lv,stats,m))
       .map(m=>{const t=combatTiming(p,m,stats);return t.supplies.sustainable?t.seconds/((m.dropChance??1)*common):Infinity;}));
+  }
+  // One fight as every combat choice weighs it (fight(), the goal choosers,
+  // the gear table's monster): a kill with its food, restocking and the
+  // approach spread over the trip, scored by what the fight is for (XP, or a
+  // drop or shards per second). Null when unsafe or not kept fed.
+  function combatChoice(p,profession,m,{requiredItem=null,horizon=strategy.horizon,excludeFoodIds=[]}={}) {
+    const lv=levels(p),fightSkill=professionSkill(profession);
+    const stats={...combatStats(data,api,p,profession,p.equipment,lv),style:fightSkill,level:lv[fightSkill]};
+    if(!combatSafe(lv,stats,m)||!zones.some(z=>z.monsterId===m.id))return null;
+    const {estimate,zone,supplies,foodSeconds}=combatTiming(p,m,stats,{horizon,excludeFoodIds});
+    if(!supplies.sustainable)return null;
+    const bank=nearestBankTo(data,zone),tickSeconds=data.tickMs/1000;
+    const approach=p.route?.zoneId===zone.id?0:(distance(p,bank)+distance(bank,zone))*tickSeconds/Math.max(1,supplies.horizonKills);
+    const travelSeconds=approach+supplies.restockSeconds,seconds=estimate.seconds+foodSeconds+travelSeconds;
+    const yieldPerKill=requiredItem===data.shardId?estimate.shards:requiredItem!==null?
+      (m.drop===requiredItem?(m.dropChance??1):m.bonus.chance):estimate.xp;
+    return {...estimate,monsterId:m.id,name:m.name,monsterMaxHit:m.maxHit,zone,foodSeconds,travelSeconds,supplies,
+      xpPerMinute:60*estimate.xp/seconds,mainXpPerMinute:60*estimate.mainXp/seconds,
+      coinsPerMinute:60*estimate.coins/seconds,score:yieldPerKill/seconds};
   }
   // Main-skill XP per second against a monster wearing `equipment`, by the
   // game formulas; 0 when that fight is unsafe or cannot be kept fed.
@@ -1128,12 +1146,10 @@ export function createPlanner(data) {
         const g=gear.get(base(id));
         return matchesProfessionWeapon(g,profession)&&canWear(id);
       });
-      const weaponScore = id => {
-        return gearScore(id,style);
-      };
-      weapons.sort((a,b)=>weaponScore(b)-weaponScore(a));
+      // As the gear step rates weapons (compareGear), on paths it does not run on.
+      weapons.sort((a,b)=>compareGear('weapon',b,a));
       // upgrade() already compared owned alternatives and the bank trip. Keep
-      // its decision instead of immediately overriding it with a raw stat sort.
+      // its decision instead of immediately overriding it.
       const weapon=weapons.includes(p.equipment.weapon)?p.equipment.weapon:weapons[0];
       if (weapon===undefined) {
         const starter=starterWeapon(profession);
@@ -1148,20 +1164,9 @@ export function createPlanner(data) {
       if (!safeMonsters.length) return blocked('当前生命／防御不足以稳定战斗，请先检查装备与生命值');
       const choices=safeMonsters.filter(m=>(!fixedMonster||m.id===fixedMonster.id)&&zones.some(z=>z.monsterId===m.id)&&
         (requiredItem===null||requiredItem===data.shardId||m.drop===requiredItem&&(m.dropChance??1)>0||
-          (goal.itemTarget||goal.mastery)&&m.bonus?.itemId===requiredItem&&m.bonus.chance>0)).map(m=>{
-        const {estimate,zone,supplies,foodSeconds}=combatTiming(p,m,stats,{horizon:goal.horizon??strategy.horizon,
-          excludeFoodIds:goal.itemTarget?[goal.targetItemId]:[]});
-        const bank=nearestBank(zone),tickSeconds=data.tickMs/1000;
-        const windowKills=Math.max(1,supplies.horizonKills);
-        const approach=p.route?.zoneId===zone.id?0:(distance(p,bank)+distance(bank,zone))*tickSeconds/windowKills;
-        const restock=supplies.restockSeconds;
-        const travelSeconds=approach+restock,seconds=estimate.seconds+foodSeconds+travelSeconds;
-        const yieldPerKill=requiredItem===data.shardId?estimate.shards:requiredItem!==null?
-          (m.drop===requiredItem?(m.dropChance??1):m.bonus.chance):estimate.xp;
-        return {...estimate,monsterId:m.id,name:m.name,monsterMaxHit:m.maxHit,zone,foodSeconds,travelSeconds,supplies,
-          xpPerMinute:60*estimate.xp/seconds,mainXpPerMinute:60*estimate.mainXp/seconds,
-          coinsPerMinute:60*estimate.coins/seconds,score:yieldPerKill/seconds};
-      }).filter(c=>c.supplies.sustainable);
+          (goal.itemTarget||goal.mastery)&&m.bonus?.itemId===requiredItem&&m.bonus.chance>0))
+        .map(m=>combatChoice(p,profession,m,{requiredItem,horizon:goal.horizon??strategy.horizon,
+          excludeFoodIds:goal.itemTarget?[goal.targetItemId]:[]})).filter(Boolean);
       choices.sort((a,b)=>b.score-a.score||b.coinsPerMinute-a.coinsPerMinute);
       // Small estimate changes should not cause repeated travel between similar spots.
       const current=choices.find(c=>c.zone.id===p.route?.zoneId);
@@ -1661,7 +1666,7 @@ export function createPlanner(data) {
   api.crafting=createCrafting(data,api);
   Object.assign(api,{inputCost:createInputCost(data,api),chooseGoal:strategy.chooseGoal,routeEstimate:strategy.routeEstimate,combatOptions:strategy.combatOptions,
     candidates:strategy.candidates,estimateWork:strategy.estimateWork,setMeasurements:strategy.setMeasurements,byFormula:strategy.byFormula,rateSource:strategy.rateSource,routeMeasurement:strategy.routeMeasurement,
-    gearScore,combatRate,dropSeconds,batchRating,stageRating,incomeRows,coinRate,stageSupply,stageCraftCount,questQualitySets,recipeRatings:()=>recipeRatings,
+    gearScore,combatRate,combatChoice,dropSeconds,batchRating,stageRating,incomeRows,coinRate,stageSupply,stageCraftCount,questQualitySets,recipeRatings:()=>recipeRatings,
     // What one unit would sell for, net of tax: the market's sale layers, else the merchant.
     saleValue:(p,id,qty=1)=>api.marketUnitValue?.(p,id,qty)??merchantPrice(data,id)});
   const growth=createProgression(data,api);

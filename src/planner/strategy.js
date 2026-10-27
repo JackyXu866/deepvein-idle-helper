@@ -99,6 +99,9 @@ export function createStrategy(data, planner) {
     return calibrated(p,key,workEstimate(data,j,lv[j.skill],{...inputs,
       rarityFactor:measured>(1+inputs.luck)*1.15?measured:undefined}),lv);
   }
+  // A fight's estimate calibrated by this account's measured efficiency (the
+  // formula alone inside byFormula, as gear comparisons need).
+  const calibratedCombat=(p,m,stats,lv=planner.levels(p))=>calibrated(p,combatKey(m.id),combatEstimate(data,m,stats),lv);
   function combatOptions(p,profession='magic') {
     const lv=planner.levels(p);
     if (!matchesProfessionWeapon(planner.equipmentStats(p.equipment.weapon),profession)) return [];
@@ -107,14 +110,17 @@ export function createStrategy(data, planner) {
       .map(m=>({monster:m,zone:data.zones.find(z=>z.monsterId===m.id),
         ...calibrated(p,combatKey(m.id),combatEstimate(data,m,stats),lv)}));
   }
-  function supplyCost(p,id,trail=[]) {
-    if (trail.includes(id)) return Infinity;
-    const lv=planner.levels(p),next=[...trail,id];
-    const choices=jobs.filter(j=>j.output.itemId===id&&j.levelReq<=lv[j.skill]&&!j.grow);
-    return choices.length?Math.min(...choices.map(j=>{
-      const e=estimateWork(p,j,lv);
-      return (e.seconds+j.inputs.reduce((n,i)=>n+i.qty*supplyCost(p,i.itemId,next),0))/e.commonOutput;
-    })):Infinity;
+  // Seconds to get one more unit of a supply (fight food): the shared input
+  // cost's price (bought, or made with the XP credited), the one price every
+  // combat choice and the food purchase use. Remembered per state.
+  const supplyCosts=new Map();
+  function supplyCost(p,id) {
+    const key=JSON.stringify([p.id,p.lastTick,id,planner.styleHint??'magic']);
+    if(!supplyCosts.has(key)) {
+      if(supplyCosts.size>=256)supplyCosts.delete(supplyCosts.keys().next().value);
+      supplyCosts.set(key,planner.inputCost?planner.inputCost.unitSeconds(p,id,1,{style:planner.styleHint??'magic'}):Infinity);
+    }
+    return supplyCosts.get(key);
   }
   function routeEstimate(p,jobOrId,amount=20,{style='magic',ignoreStock=false,includeTravel=true,completeTrips=false,buyInputs=false,credit=true}={}) {
     const root=typeof jobOrId==='object'?jobOrId:jobs.find(j=>j.id===jobOrId);
@@ -343,9 +349,12 @@ export function createStrategy(data, planner) {
       estimate.seconds+=preparation.seconds;estimate.xp+=preparation.xp;estimate.coins+=preparation.coins;
       estimate.rate={xp:estimate.xp/estimate.seconds,coins:estimate.coins/estimate.seconds};
       const kills=Math.max(1,Math.floor(supplies.horizonKills));
+      // Rated as fight() rates it (planner.combatChoice); the route estimate
+      // stays for its time, coins and budget.
+      const choice=planner.combatChoice?.(fighter,style,c.monster);
       if (Number.isFinite(estimate.seconds)) candidates.push({skill,monsterId:c.monster.id,kills,drops:c.drops,
-        mainXpRate:c.mainXp*kills/estimate.seconds,
-        estimate,rate:estimate.rate,horizon,budget:routeEstimate(fighter,{monsterId:c.monster.id},20,{style}).budget,
+        mainXpRate:choice?choice.mainXpPerMinute/60:c.mainXp*kills/estimate.seconds,
+        estimate,rate:{...estimate.rate,xp:choice?choice.xpPerMinute/60:estimate.rate.xp},horizon,budget:routeEstimate(fighter,{monsterId:c.monster.id},20,{style}).budget,
         recipes:estimate.recipes,target:lv[skill]+1,stage:lv[skill]+1});
     }
     return candidates.sort((a,b)=>b.rate.xp-a.rate.xp||b.rate.coins-a.rate.coins||a.recipeId-b.recipeId);
@@ -386,6 +395,6 @@ export function createStrategy(data, planner) {
     }
     return goal;
   }
-  return {chooseGoal,candidates,routeEstimate,estimateWork,combatOptions,byFormula,setMeasurements,efficiencyRuntime,supplyCost,horizon,rateSource,
+  return {chooseGoal,candidates,routeEstimate,estimateWork,combatOptions,calibratedCombat,byFormula,setMeasurements,efficiencyRuntime,supplyCost,horizon,rateSource,
     routeMeasurement:(p,key)=>usableMeasurement(p,key)};
 }

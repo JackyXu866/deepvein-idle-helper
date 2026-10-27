@@ -50,7 +50,7 @@ export function createInvestments(data,planner) {
     const safe=(planner.combatOptions?.(p,style)??[]).map(c=>c.monster);
     const monster=safe.find(m=>m.id===work.find(r=>r.combat&&safe.some(s=>s.id===r.id))?.id)??
       data.monsters.find(m=>m.id===data.zones.find(z=>z.id===p.route?.zoneId)?.monsterId)??
-      [...safe].sort((a,b)=>planner.combatRate(p,style,b.id)-planner.combatRate(p,style,a.id))[0]??null;
+      [...safe].sort((a,b)=>(planner.combatChoice?.(p,style,b)?.score??0)-(planner.combatChoice?.(p,style,a)?.score??0))[0]??null;
     const usable=j=>!j.grow&&lv[j.skill]>=j.levelReq&&data.sites.some(s=>s.jobIds.includes(j.id));
     const jobFor=toolSkill=>data.jobs.find(j=>j.id===work.find(r=>!r.combat&&r.skill===toolSkill&&usable(data.jobs.find(x=>x.id===r.id)))?.id)??
       data.jobs.find(j=>j.id===p.route?.jobId&&j.skill===toolSkill)??
@@ -87,7 +87,7 @@ export function createInvestments(data,planner) {
     else if(toolSkill) {
       const job=ctx.jobFor(toolSkill);
       if(job){const e=formulaWork(data,planner,p,job,lvOf(p),equipment);value=e.xp/e.seconds;}
-    } else if(ctx.monster) value=planner.combatRate(p,style,ctx.monster.id,equipment);
+    } else if(ctx.monster) value=planner.byFormula(()=>planner.combatRate(p,style,ctx.monster.id,equipment));
     ctx.rates.set(key,value);
     return value;
   }
