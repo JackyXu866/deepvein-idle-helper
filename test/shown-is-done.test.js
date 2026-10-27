@@ -99,6 +99,18 @@ test('enhancing follows the table: a worthwhile enhancement is not dropped by a 
   else assert.ok(!result.enhancement, result.reason);
 });
 
+test('one gear step on every slot: a better pickaxe held is put on while thieving', () => {
+  const planner = makePlanner(), d = planner.data;
+  const pick = name => d.gear.find(g => g.slot === 'pickaxe' && d.items[g.itemId].name === name).itemId;
+  const bank = d.banks[0];
+  const p = player(planner, {levels: {thieving: 60, mining: 60}, x: bank.x, y: bank.y, path: null, activity: 'idle',
+    equipment: {pickaxe: pick('Iron pickaxe')}, bank: {[pick('Cobalt pickaxe')]: 1}});
+  const row = planner.investmentOptions(p, 'melee', {skill: 'thieving'}).find(r => r.slot === 'pickaxe' && r.kind === 'owned');
+  assert.ok(row?.cheapest, 'the table\'s pick for the pickaxe');
+  const plan = planner.plan(p, {skill: 'thieving', target: 61, budget: {coins: 0, items: {}}}, 'melee');
+  assert.ok(plan?.intent?.itemId === pick('Cobalt pickaxe') || /已持有更好的/.test(plan?.reason ?? ''), JSON.stringify([plan?.intent, plan?.reason]));
+});
+
 test('a potion left unbought because every ask is above its value names that reason', () => {
   const planner = makePlanner(), d = planner.data;
   let clock = 1_000_000_000;

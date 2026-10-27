@@ -674,20 +674,20 @@ export function createPlanner(data) {
         // Planning reaches here at task boundaries only (a load banked), so the
         // worn tools are reviewed there even when the same work goes on: a
         // day-long stage of cooking would otherwise never reconsider the pan.
-        const review=(trail.length?(goal.mastery?null:ownedSwap(job.skill)):upgrade(job.skill))??hoeMarket();
+        const review=trail.length?gearStep():upgrade(job.skill);
         // A purchase waiting for its live ask holds this boundary for the few
         // seconds the quote takes; the next boundary would be a whole load later.
         if(review?.intent||review?.marketWaiting)return review;
         return wait(`继续 ${job.name}`);
       }
       if (!trail.length) {
-        const improvement=upgrade(job.skill)??hoeMarket();
+        const improvement=upgrade(job.skill);
         if (improvement) return improvement;
-      } else if(!goal.mastery) {
-        // Supply work (food for fights, materials for a craft) skips gear
-        // projects, but a better tool already owned is still put on first.
-        const swap=ownedSwap(job.skill)??hoeMarket();
-        if(swap)return swap;
+      } else {
+        // Supply work (food for fights, materials for a craft) starts no gear
+        // project, but the gear step runs as everywhere.
+        const step=gearStep();
+        if(step)return step;
       }
       // A project can span many native backpack trips. Truncating its demand
       // here also truncates every upstream recipe and forces repeated swaps.
@@ -1052,118 +1052,82 @@ export function createPlanner(data) {
     const gearSlots=skill=>slotsFor(data,skill,{combat:attacks.includes(skill),profession,weapon:equipmentStats(p.equipment.weapon??0)});
     // A better piece already owned is worn whatever the goal: it costs only the
     // bank visit, and a legendary piece stays with the player while worn.
-    // Filler and temporary work used to skip gear entirely, so a legendary
-    // shield in the bank was never put on while fighting as filler.
-    // The hoe serves the farm fields whatever is trained (its extra crops,
-    // client 1.0.1202): it is checked at every boundary while fields are farmed.
-    const farmSlots=skill=>farmFields(p).length&&!gearSlots(skill).includes('hoe')?['hoe']:[];
-    // Rated as the investment table rates it (its 已持有 row is this choice).
-    function ownedSwap(skill) {
-      for(const slot of [...gearSlots(skill),...farmSlots(skill)]) {
+    // One gear step for every path (the goal's own work, supply work, the same
+    // work going on, fights, quests, filler), on every slot, by the investment
+    // table: a better piece held is put on (the table's 已持有 row, ownedBest;
+    // ties by stats), then each slot whose pick is a market row has it bought,
+    // holding the boundary the few seconds its live ask takes. Enhancing is the
+    // maintenance step's, by the same table; making a piece is the goal's gear
+    // project (upgrade). Separate rules used to act on parts of the table only
+    // (owned swaps on the current skill's slots, market buys inside the goal's
+    // own upgrade step, a hoe step), so a row marked 值得，可做 could sit unbought.
+    function gearStep() {
+      if(goal.mastery)return null;
+      const slots=[...new Set([...gearSlots(professionSkill(profession)),...Object.keys(data.toolSkills)])];
+      for(const slot of slots) {
         const current=p.equipment[slot],best=api.ownedBest(p,profession,goal,slot);
         if(best==null)continue;
         const result=equip(best);
         result.reason=`已持有更好的 ${fullName(best)}，换下 ${current!=null?fullName(current):'空位'}：只需一趟仓库，${rarity(best)===LEGENDARY?'传说装备穿上仍归你':'不另外制作或购买'}`;
         return result;
       }
+      if(goal.itemTarget)return null;
+      for(const row of (api.investmentOptions?.(p,profession,goal)??[]).filter(r=>r.cheapest&&r.source==='市场')) {
+        const market=api.marketEquipment?.(p,goal,profession,{ids:[base(row.id)],row});
+        if(market?.intent||market?.marketWaiting)return market;
+      }
       return null;
     }
-    // The hoe serves the fields whatever is trained, so the investment table's
-    // pick for it is bought at every boundary: the goal's own work, supply work
-    // or the same work going on. It comes after the goal's own gear, and holds
-    // the boundary the few seconds its live ask takes, as every purchase does
-    // (without that the quote was stale by the next boundary and nothing was
-    // ever bought, while the table said 值得，可做).
-    function hoeMarket() {
-      if(goal.mastery||goal.itemTarget||!farmFields(p).length)return null;
-      const row=(api.investmentOptions?.(p,profession,goal)??[]).find(r=>r.slot==='hoe'&&r.cheapest);
-      if(row?.source!=='市场')return null;
-      const market=api.marketEquipment?.(p,goal,profession,{ids:[base(row.id)],row});
-      return market?.intent||market?.marketWaiting?market:null;
-    }
+    // Two pieces for a slot as the table rates them (ownedBest's rule): rate,
+    // then stats when the rates tie (an amulet's luck). Positive:  is better.
+    const compareGear=(slot,a,b)=>api.gearRate(p,profession,goal,slot,a??null)-api.gearRate(p,profession,goal,slot,b??null)||
+      gearScore(a,data.toolSkills[slot]??professionSkill(profession))-gearScore(b,data.toolSkills[slot]??professionSkill(profession));
     function upgrade(skill) {
-      if(goal.mastery)return null;
-      const swap=ownedSwap(skill);
-      if(swap)return swap;
-      if(goal.itemTarget||completedUpgrade)return null;
+      const step=gearStep();
+      if(step)return step;
+      if(goal.mastery||goal.itemTarget||completedUpgrade)return null;
       const rareCrafts=slot=>{
         const ids=data.gear.filter(g=>fitsSlot(g,slot,skill,profession)&&canWear(g.itemId)).flatMap(g=>[1,2,3,4].map(t=>g.itemId+t*data.rarityScale))
-          .filter(id=>gearScore(id,skill)>gearScore(p.equipment[slot],skill)&&
+          .filter(id=>compareGear(slot,id,p.equipment[slot])>0&&
             api.crafting.ingredients(id).some(material=>rarity(material)===rarity(id)&&count(p,material)>0));
         api.watchPurchases?.(p,ids.flatMap(id=>api.crafting.ingredients(id)));
         return ids.filter(id=>Number.isFinite(api.crafting.estimate(p,id,1,
           {reserve:goal.budget?.items,coins:goal.budget?.coins,buy:true}).seconds));
       };
-      // A market buy is the investment table's pick for the slot, when that pick
-      // is bought (not made, enhanced or already held). `marketOnly` (filler,
-      // which never crafts): the best worthwhile market row. The quotes of the
-      // likeliest pieces are watched so the table can price them.
-      const shop=(slot,marketOnly=false)=>{
-        const rows=(api.investmentOptions?.(p,profession,goal)??[]).filter(r=>r.slot===slot&&r.worth);
-        const row=marketOnly?rows.filter(r=>r.source==='市场').sort((a,b)=>b.net-a.net)[0]:rows.find(r=>r.cheapest);
-        const current=p.equipment[slot],watched=data.gear.filter(g=>fitsSlot(g,slot,skill,profession)&&canWear(g.itemId)&&
-          gearScore(g.itemId+4*data.rarityScale+5*data.plusScale,skill)>gearScore(current,skill)).map(g=>g.itemId)
-          .sort((a,b)=>gearScore(b,skill)-gearScore(a,skill)).slice(0,3);
-        if(current!=null&&gear.has(base(current))&&!watched.includes(base(current)))watched.push(base(current));
-        return api.marketEquipment?.(p,goal,profession,{ids:watched,row:row?.source==='市场'?row:null});
-      };
-      // Filler and temporary work (thieving while crops grow) skips gear
-      // projects, crafting a piece or a standing upgrade goal, but still buys a
-      // worthwhile piece on the market: it costs one bank visit, and filler can
-      // fill days, so a much better tool repays itself there too. A bought
-      // piece is put on at the next boundary (ownedSwap). A quest too: it is
-      // short and mandatory, and a stage-gear project waiting on missing epic
-      // materials used to set every daily aside.
-      if(goal.quest||goal.developmentFiller||goal.temporary&&!goal.upgrade?.priority) {
-        for(const slot of gearSlots(skill)) {
-          const market=shop(slot,true);
-          if(market?.intent||market?.marketWaiting)return market;
-        }
-        return null;
-      }
+      // Filler and temporary work (thieving while crops grow) and quests never
+      // start a gear project (crafting a piece): the gear step above still puts
+      // on and buys what the table picks. A stage-gear project waiting on
+      // missing epic materials used to set every daily aside.
+      if(goal.quest||goal.developmentFiller||goal.temporary&&!goal.upgrade?.priority)return null;
       if (goal.upgrade) {
         const {slot}=goal.upgrade;let id=goal.upgrade.id;
         if(count(p,id)<=0) {
-          const better=rareCrafts(slot).filter(candidate=>gearScore(candidate,skill)>gearScore(id,skill))
-            .sort((a,b)=>gearScore(b,skill)-gearScore(a,skill))[0];
+          const better=rareCrafts(slot).filter(candidate=>compareGear(slot,candidate,id)>0)
+            .sort((a,b)=>compareGear(slot,b,a))[0];
           if(better!=null)goal.upgrade.id=id=better;
         }
         const current=p.equipment[slot],worn=equipmentStats(current);
         const suitable=fitsSlot(worn,slot,skill,profession);
-        if (current===id||suitable&&gearScore(current,skill)>=gearScore(id,skill)) {
+        if (current===id||suitable&&compareGear(slot,current,id)>=0) {
           delete goal.upgrade;completedUpgrade=true;return null;
         }
         else {
-          if(count(p,id)<=0) {
-            const market=shop(slot);
-            if(market) {
-              if(market.equipmentItemId)goal.upgrade={...goal.upgrade,id:market.equipmentItemId};
-              return market;
-            }
-          }
           const result=count(p,id)>0?equip(id):need(id,1);
           result.reason=`完成装备升级 ${name(id)}：${result.reason||result.label}`;
           if(result.blocked)delete goal.upgrade;
           return result;
         }
       }
-      for (const ownedOnly of goal.growth?[true,false]:[false]) for (const slot of gearSlots(skill)) {
+      // A gear project: a piece to make for this skill's slots (pieces held or
+      // on the market are the gear step's).
+      for (const slot of gearSlots(skill)) {
         const matches=id=>canWear(id)&&fitsSlot(gear.get(base(id)),slot,skill,profession);
-        const owned=held(p).filter(matches);
-        const craftable=ownedOnly?[]:[...data.gear.filter(g=>matches(g.itemId)&&made(g.itemId).length&&selfSupply(g.itemId)).map(g=>g.itemId),...rareCrafts(slot)];
+        const craftable=[...data.gear.filter(g=>matches(g.itemId)&&made(g.itemId).length&&selfSupply(g.itemId)).map(g=>g.itemId),...rareCrafts(slot)];
         const current=p.equipment[slot];
-        if(!ownedOnly) {
-          const market=shop(slot);
-          if(market) {
-            if(market.equipmentItemId)goal.upgrade={id:market.equipmentItemId,slot,skill,priority:true};
-            return market;
-          }
-        }
-        const candidates=[...new Set([...owned,...craftable])]
-          .filter(id=>id!==current&&(current==null||!matches(current)||gearScore(id,skill)>gearScore(current,skill)))
-          .map(id=>({id,investment:upgradeReturn(id,slot,skill,owned.includes(id))}))
+        const candidates=[...new Set(craftable)].filter(id=>id!==current&&count(p,id)<=0&&
+            (current==null||!matches(current)||compareGear(slot,id,current)>0))
+          .map(id=>({id,investment:upgradeReturn(id,slot,skill,false)}))
           .filter(c=>c.investment.affordable).sort((a,b)=>{
-            if(goal.growth&&owned.includes(a.id)!==owned.includes(b.id))return Number(owned.includes(b.id))-Number(owned.includes(a.id));
             if(goal.growth)return b.investment.after-a.investment.after||a.investment.seconds-b.investment.seconds;
             const value=c=>(c.investment.after??1)*(c.investment.horizon??goal.horizon??strategy.horizon)-
               (c.investment.seconds??0)*(c.investment.after??1);
@@ -1171,9 +1135,6 @@ export function createPlanner(data) {
           });
         if (!candidates.length) continue;
         const {id:best,investment}=candidates[0];
-        if (owned.includes(best)) {
-          const result=equip(best);result.investment=investment;return result;
-        }
         goal.upgrade={id:best,slot,skill,priority:true,xpRate:investment.after};
         const result=need(best,1);
         if(result.blocked)delete goal.upgrade;
@@ -1233,7 +1194,7 @@ export function createPlanner(data) {
         if(!zones.some(z=>z.monsterId===fixedMonster.id))return blocked(`固定怪物 ${fixedMonster.name} 没有可用地点`);
       }
       if (prepareGear) {
-        const improvement=upgrade(style)??hoeMarket();
+        const improvement=upgrade(style);
         if (improvement) return improvement;
       }
       const weapons = held(p).filter(id=>{
