@@ -6,7 +6,7 @@ import {createInputCost} from './input-cost.js';
 import {combatKey, jobKey} from './keys.js';
 import {combatSafe, combatStats, weaponStyle} from './rates.js';
 import {action, waiting} from './result.js';
-import {RARITY_NAMES, qualityName, bankTripSeconds, baseId, merchantPrice, mountScale, seedVendorPrice, distance, itemLabel, itemName, nearBank as nearBankAt, nearestBank as nearestBankTo, heldIds, ownedQty, packCapacity, packFree, packQty, plusOf, qualityPrefix, rarityOf, withoutItem} from './items.js';
+import {RARITY_NAMES, qualityName, baseId, merchantPrice, mountScale, seedVendorPrice, distance, itemLabel, itemName, nearBank as nearBankAt, nearestBank as nearestBankTo, heldIds, ownedQty, packCapacity, packFree, packQty, plusOf, qualityPrefix, rarityOf, withoutItem} from './items.js';
 import {createCrafting, finishTaskReason} from './crafting.js';
 import {combatEstimate} from './estimates.js';
 import {combatSupplies, foodEligible} from './supplies.js';
@@ -22,8 +22,8 @@ import {planGatheringSurplus} from './gathering-surplus.js';
 import {perkOverview} from './perks.js';
 import {chooseFallback} from './fallback.js';
 import {createInvestments} from './investment.js';
-import {fitsSlot, slotsFor, useSeconds} from './gear.js';
-import {goldToSeconds, payback as paybackRule} from './gold.js';
+import {slotsFor} from './gear.js';
+import {goldToSeconds} from './gold.js';
 import {createCollectionMastery} from './collection.js';
 import {HOT_FOLLOW_SKILLS, hotSkillAt, hotWindows} from '../runtime/hot-follow.js';
 import {createAutomationPolicy, normalizeAutomation} from '../runtime/automation-policy.js';
@@ -674,14 +674,14 @@ export function createPlanner(data) {
         // Planning reaches here at task boundaries only (a load banked), so the
         // worn tools are reviewed there even when the same work goes on: a
         // day-long stage of cooking would otherwise never reconsider the pan.
-        const review=trail.length?gearStep():upgrade(job.skill);
+        const review=trail.length?gearStep():upgrade();
         // A purchase waiting for its live ask holds this boundary for the few
         // seconds the quote takes; the next boundary would be a whole load later.
         if(review?.intent||review?.marketWaiting)return review;
         return wait(`继续 ${job.name}`);
       }
       if (!trail.length) {
-        const improvement=upgrade(job.skill);
+        const improvement=upgrade();
         if (improvement) return improvement;
       } else {
         // Supply work (food for fights, materials for a craft) starts no gear
@@ -1043,12 +1043,6 @@ export function createPlanner(data) {
       if (p.pack.some(i=>i.itemId===itemId)) return action({t:'wear',itemId},`装备 ${name(itemId)}`);
       return bankAction(p,{t:'equipFromBank',itemId},`装备 ${name(itemId)}`);
     }
-    function selfSupply(id,trail=[]) {
-      if (trail.includes(id)) return false;
-      if (count(p,id)>0 || id===data.coinId || id===data.shardId) return true;
-      if (jobs.some(j=>j.bonus?.itemId===id) || monsters.some(m=>m.drop===id||m.bonus.itemId===id)) return true;
-      return made(id).some(j=>j.inputs.every(i=>selfSupply(i.itemId,[...trail,id])));
-    }
     const gearSlots=skill=>slotsFor(data,skill,{combat:attacks.includes(skill),profession,weapon:equipmentStats(p.equipment.weapon??0)});
     // A better piece already owned is worn whatever the goal: it costs only the
     // bank visit, and a legendary piece stays with the player while worn.
@@ -1082,111 +1076,42 @@ export function createPlanner(data) {
     // then stats when the rates tie (an amulet's luck). Positive:  is better.
     const compareGear=(slot,a,b)=>api.gearRate(p,profession,goal,slot,a??null)-api.gearRate(p,profession,goal,slot,b??null)||
       gearScore(a,data.toolSkills[slot]??professionSkill(profession))-gearScore(b,data.toolSkills[slot]??professionSkill(profession));
-    function upgrade(skill) {
+    function upgrade() {
       const step=gearStep();
       if(step)return step;
       if(goal.mastery||goal.itemTarget||completedUpgrade)return null;
-      const rareCrafts=slot=>{
-        const ids=data.gear.filter(g=>fitsSlot(g,slot,skill,profession)&&canWear(g.itemId)).flatMap(g=>[1,2,3,4].map(t=>g.itemId+t*data.rarityScale))
-          .filter(id=>compareGear(slot,id,p.equipment[slot])>0&&
-            api.crafting.ingredients(id).some(material=>rarity(material)===rarity(id)&&count(p,material)>0));
-        api.watchPurchases?.(p,ids.flatMap(id=>api.crafting.ingredients(id)));
-        return ids.filter(id=>Number.isFinite(api.crafting.estimate(p,id,1,
-          {reserve:goal.budget?.items,coins:goal.budget?.coins,buy:true}).seconds));
-      };
       // Filler and temporary work (thieving while crops grow) and quests never
       // start a gear project (crafting a piece): the gear step above still puts
       // on and buys what the table picks. A stage-gear project waiting on
       // missing epic materials used to set every daily aside.
       if(goal.quest||goal.developmentFiller||goal.temporary&&!goal.upgrade?.priority)return null;
+      // Gear projects follow the investment table too: a piece is made when it
+      // is a slot's pick and its source is 自制 (the making time, inputs at
+      // their sale value or price, less the XP earned, against the time it
+      // saves while worn), and a project goes on while its row still pays back.
+      const rows=api.investmentOptions?.(p,profession,goal)??[];
       if (goal.upgrade) {
-        const {slot}=goal.upgrade;let id=goal.upgrade.id;
-        if(count(p,id)<=0) {
-          const better=rareCrafts(slot).filter(candidate=>compareGear(slot,candidate,id)>0)
-            .sort((a,b)=>compareGear(slot,b,a))[0];
-          if(better!=null)goal.upgrade.id=id=better;
-        }
-        const current=p.equipment[slot],worn=equipmentStats(current);
-        const suitable=fitsSlot(worn,slot,skill,profession);
-        if (current===id||suitable&&compareGear(slot,current,id)>=0) {
+        const {slot,id}=goal.upgrade,row=rows.find(r=>r.slot===slot&&r.id===id);
+        const current=p.equipment[slot];
+        if (current===id||compareGear(slot,current,id)>=0||count(p,id)<=0&&!row?.worth) {
           delete goal.upgrade;completedUpgrade=true;return null;
         }
-        else {
-          const result=count(p,id)>0?equip(id):need(id,1);
-          result.reason=`完成装备升级 ${name(id)}：${result.reason||result.label}`;
-          if(result.blocked)delete goal.upgrade;
-          return result;
-        }
-      }
-      // A gear project: a piece to make for this skill's slots (pieces held or
-      // on the market are the gear step's).
-      for (const slot of gearSlots(skill)) {
-        const matches=id=>canWear(id)&&fitsSlot(gear.get(base(id)),slot,skill,profession);
-        const craftable=[...data.gear.filter(g=>matches(g.itemId)&&made(g.itemId).length&&selfSupply(g.itemId)).map(g=>g.itemId),...rareCrafts(slot)];
-        const current=p.equipment[slot];
-        const candidates=[...new Set(craftable)].filter(id=>id!==current&&count(p,id)<=0&&
-            (current==null||!matches(current)||compareGear(slot,id,current)>0))
-          .map(id=>({id,investment:upgradeReturn(id,slot,skill,false)}))
-          .filter(c=>c.investment.affordable).sort((a,b)=>{
-            if(goal.growth)return b.investment.after-a.investment.after||a.investment.seconds-b.investment.seconds;
-            const value=c=>(c.investment.after??1)*(c.investment.horizon??goal.horizon??strategy.horizon)-
-              (c.investment.seconds??0)*(c.investment.after??1);
-            return value(b)-value(a);
-          });
-        if (!candidates.length) continue;
-        const {id:best,investment}=candidates[0];
-        goal.upgrade={id:best,slot,skill,priority:true,xpRate:investment.after};
-        const result=need(best,1);
+        const result=count(p,id)>0?equip(id):need(id,1);
+        result.reason=`完成装备升级 ${name(id)}：${result.reason||result.label}`;
         if(result.blocked)delete goal.upgrade;
-        result.reason=goal.growth?`阶段装备 ${name(best)}：${result.reason||result.label}`:
-          `装备升级 ${name(best)}，自制预计 ${Math.ceil(investment.payback/60)} 分钟回本：${result.reason||result.label}`;
-        result.investment=investment;
         return result;
       }
-      return null;
+      const row=rows.find(r=>r.cheapest&&r.source==='自制');
+      if(!row)return null;
+      goal.upgrade={id:row.id,slot:row.slot,skill:data.toolSkills[row.slot]??professionSkill(profession),priority:true,
+        xpRate:api.gearRate(p,profession,goal,row.slot,row.id)};
+      const result=need(row.id,1);
+      if(result.blocked)delete goal.upgrade;
+      result.reason=`装备项目 ${name(row.id)}：投资表首选（自制约 ${(row.paid/3600).toFixed(1)} 小时，已扣制作经验；`+
+        `使用期内省约 ${(row.saved/3600).toFixed(1)} 小时）：${result.reason||result.label}`;
+      result.investment=row;
+      return result;
     }
-    function upgradeReturn(id,slot,skill,owned) {
-      const recipe=made(base(id)).sort((a,b)=>a.levelReq-b.levelReq)[0],next={...p,equipment:{...p.equipment,[slot]:id}};
-      // Native equipping a two-handed weapon removes the shield.
-      if (slot==='weapon'&&equipmentStats(id)?.twoHanded) next.equipment.shield=null;
-      const horizon=goal.horizon??strategy.horizon;
-      const preparation=owned?0:rarity(id)>0?api.crafting.estimate(p,id,1,{reserve:goal.budget?.items,coins:goal.budget?.coins,buy:true}):
-        recipe?strategy.routeEstimate(p,recipe,1,{style:profession}):{seconds:Infinity,xp:0};
-      // Reaching a wear requirement unlocks a directed manufacturing project.
-      // Accessories without a wear skill still need an affordable return; a
-      // level-one character must not pursue endgame jewellery before fighting.
-      const requirement=gearRequirement(id),stageUpgrade=!owned&&requirement.skill!=='none'&&requirement.level>1;
-      const stageReady=Number.isFinite(owned?0:preparation.seconds)&&(stageUpgrade||!(preparation.unlocks?.length));
-      const equipmentTrip=nearBank(p)||p.pack.some(i=>i.itemId===id)?0:bankTripSeconds(data,p);
-      const cost=(owned?0:preparation.seconds)+equipmentTrip+data.tickMs/1000;
-      // Both sides of the swap by the investment table's rate (the game
-      // formulas; combat with the food each kill costs): a measurement exists
-      // only for the worn set and carries potions and house bonuses.
-      let before=api.gearRate(p,profession,goal,slot,p.equipment[slot]??null),after=api.gearRate(p,profession,goal,slot,id),enabling=false;
-      if (attacks.includes(skill)) {
-        const oldOptions=strategy.combatOptions(p,profession),newOptions=strategy.combatOptions(next,profession);
-        // A first profession weapon: nothing to compare against yet.
-        enabling=!oldOptions.length&&newOptions.length>0;
-        if(enabling)after=Math.max(0,...newOptions.map(c=>combatRate(next,profession,c.monster.id)));
-      }
-      else if(!(after>0)&&!(before>0)) return {affordable:false,seconds:cost,payback:Infinity};
-      // A missing profession weapon is an enabling investment, not a return
-      // percentage against an unrelated combat style.
-      if (enabling) return {affordable:goal.growth||stageUpgrade?stageReady:Number.isFinite(cost)&&cost<=horizon,
-        seconds:cost,payback:cost,before,after,horizon};
-      const gain=after-before;
-      // Judge gear over the time it will actually be worn, not the planner's
-      // 30-minute rolling window.
-      const wear=Math.max(horizon,useSeconds(data,api,p,id,slot,after,skill));
-      // Shared payback rule (investment.js): time saved over the wear period
-      // must beat the preparation time, less the XP that preparation earns.
-      const {worth,paid}=paybackRule({seconds:cost,credit:after>0?(preparation.xp??0)/after:0,before,after,useSeconds:wear});
-      // Play time until the saving repays the preparation (shown in minutes).
-      const payback=gain>0?Math.max(cost,paid/(1-before/after)):Infinity;
-      return {affordable:goal.growth||stageUpgrade?stageReady&&gain>0:worth&&cost<=wear,
-        seconds:cost,payback,before,after,horizon:wear};
-    }
-
     function fight(style, requiredItem=null, prepareGear=true) {
       const fixedMonster=requiredItem===null&&goal.fixedMonsterId!=null?monsters.find(m=>m.id===goal.fixedMonsterId):null;
       if(requiredItem===null&&goal.fixedMonsterId!=null) {
@@ -1194,7 +1119,7 @@ export function createPlanner(data) {
         if(!zones.some(z=>z.monsterId===fixedMonster.id))return blocked(`固定怪物 ${fixedMonster.name} 没有可用地点`);
       }
       if (prepareGear) {
-        const improvement=upgrade(style);
+        const improvement=upgrade();
         if (improvement) return improvement;
       }
       const weapons = held(p).filter(id=>{
@@ -1333,11 +1258,11 @@ export function createPlanner(data) {
     }
     if (Object.values(p.overflow??{}).some(n=>n>0)) return blocked('仓库已有溢出物品，请整理后继续');
     if(goal.upgrade?.priority) {
-      const result=upgrade(goal.upgrade.skill??data.toolSkills[goal.upgrade.slot]??style);
+      const result=upgrade();
       if(result)return {...result,goal,...(goal.professionOnly||goal.toolOnly?{priorityGear:true,investmentGoal:goal}:{})};
     }
     if (goal.professionOnly||goal.toolOnly) {
-      const result=upgrade(goal.toolOnly?goal.skill:style);
+      const result=upgrade();
       if (!result) return null;
       return {...result,priorityGear:true,investmentGoal:goal};
     }

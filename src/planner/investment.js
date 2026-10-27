@@ -99,17 +99,21 @@ export function createInvestments(data,planner) {
     return best;
   }
 
-  // Cheapest way to get an item: owned, made (time and bought inputs) or bought.
+  // Cheapest way to get an item: owned, made or bought. Made by the shared
+  // input cost (input-cost.js), as every recipe is priced: the work and
+  // getting its inputs (held ones at their sale value, bought ones at their
+  // price, as time), less the XP it earns in trained skills at their best rate.
   function acquire(p,id,coinRate) {
     if(planner.count(p,id)>0)return {gold:0,seconds:0,source:'已持有'};
     const options=[];
-    const job=data.jobs.find(j=>j.output.itemId===baseId(data,id)&&j.inputs.length&&!j.grow);
-    if(job&&rarityOf(data,id)>0&&craftRecipe(data,job,rarityOf(data,id))) {
-      const made=planner.crafting.estimate(p,id,1,{buy:true});
-      if(Number.isFinite(made.seconds))options.push({gold:made.money??0,seconds:made.seconds,source:'自制'});
-    } else if(job) {
-      const made=planner.routeEstimate(p,job,1,{});
-      if(Number.isFinite(made.seconds))options.push({gold:made.budget?.coins??0,seconds:made.seconds,source:'自制'});
+    const original=data.jobs.find(j=>j.output.itemId===baseId(data,id)&&j.inputs.length&&!j.grow);
+    const recipe=original&&id<data.plusScale&&(rarityOf(data,id)>0?craftRecipe(data,original,rarityOf(data,id)):original);
+    if(recipe&&lvOf(p)[recipe.skill]>=recipe.levelReq&&planner.inputCost) {
+      // Plus the walking the route adds (to the mine, the furnace, the anvil):
+      // the input cost counts the work only, which made a Bronze hoe look free.
+      const made=planner.inputCost.make(p,recipe,1),route=planner.routeEstimate(p,recipe,1,{});
+      const travel=Number.isFinite(route.seconds)?Math.max(0,route.seconds-made.seconds):0;
+      if(Number.isFinite(made.effective))options.push({gold:0,seconds:made.effective+travel,source:'自制'});
     }
     const ask=planner.marketAsk?.(p,id);
     if(ask>0)options.push({gold:ask,seconds:0,source:'市场'});
