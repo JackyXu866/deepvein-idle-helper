@@ -44,15 +44,19 @@ export function createPlanner(data) {
   const plus = id => plusOf(data,id);
   const rarity = id => rarityOf(data,id);
   const mastery = createCollectionMastery(data);
+  // Pure per item id, so computed once (the gear table asks tens of thousands
+  // of times). Callers read the stats; none changes them.
+  const statsCache=new Map();
   function equipmentStats(id) {
+    if(statsCache.has(id))return statsCache.get(id);
     const g=gear.get(base(id));
-    if (!g) return null;
-    const tier=rarityPower(data,id), scale=1+data.enhanceScale*plus(id);
-    return {...g,itemId:id,accuracy:Math.round(Math.round((g.accuracy??0)*tier)*scale),
+    const tier=g&&rarityPower(data,id), scale=1+data.enhanceScale*plus(id);
+    const stats=!g?null:{...g,itemId:id,accuracy:Math.round(Math.round((g.accuracy??0)*tier)*scale),
       strength:Math.round(Math.round((g.strength??0)*tier)*scale),
       defence:Math.round(Math.round((g.defence??0)*tier)*scale),
       bonus:(g.bonus??0)*(g.slot==='mount'?mountScale(data,id):tier*scale),
       luck:(g.luck??0)*tier*scale};
+    statsCache.set(id,stats);return stats;
   }
   const name = id => itemName(data,id);
   const fullName = id => itemLabel(data,id,name(id));
@@ -76,9 +80,11 @@ export function createPlanner(data) {
   // One kill with the food it costs and the restocking that food needs: what
   // fight() ranks monsters by, and what combat gear is rated by (defence
   // shows up as less food to make).
-  function combatTiming(p,m,stats,{horizon=strategy.horizon,excludeFoodIds=[]}={}) {
+  // `foodItemId`: price with this food (a gear swap keeps the worn gear's
+  // food; choosing it again for every piece rated was most of the gear table).
+  function combatTiming(p,m,stats,{horizon=strategy.horizon,excludeFoodIds=[],foodItemId=0}={}) {
     const estimate=strategy.calibratedCombat(p,m,stats),zone=zones.find(z=>z.monsterId===m.id);
-    const supplies=combatSupplies(data,api,p,estimate,{zone,monster:m,foodItemId:0,excludeFoodIds,horizon,
+    const supplies=combatSupplies(data,api,p,estimate,{zone,monster:m,foodItemId,excludeFoodIds,horizon,
       supplyCost:id=>strategy.supplyCost(p,id)});
     const unitCost=strategy.supplyCost(p,supplies.foodItemId);
     const foodSeconds=estimate.damage/supplies.heal*(Number.isFinite(unitCost)?unitCost:0);
@@ -114,13 +120,21 @@ export function createPlanner(data) {
   }
   // Main-skill XP per second against a monster wearing `equipment`, by the
   // game formulas; 0 when that fight is unsafe or cannot be kept fed.
-  function combatRate(p,style,monsterId,equipment=p.equipment) {
+  // `foodItemId`: the food to price it with (0: choose it).
+  function combatRate(p,style,monsterId,equipment=p.equipment,foodItemId=0) {
     const m=monsters.find(x=>x.id===monsterId),lv=levels(p);
     if(!m||!zones.some(z=>z.monsterId===m.id))return 0;
     const stats=combatStats(data,api,p,style,equipment,lv);
     if(!combatSafe(lv,stats,m))return 0;
-    const t=combatTiming({...p,equipment},m,stats);
+    const t=combatTiming({...p,equipment},m,stats,{foodItemId});
     return t.supplies.sustainable?t.estimate.mainXp/t.seconds:0;
+  }
+  // The food the worn gear's fight against a monster is priced with.
+  function combatFood(p,style,monsterId) {
+    const m=monsters.find(x=>x.id===monsterId),lv=levels(p);
+    if(!m||!zones.some(z=>z.monsterId===m.id))return 0;
+    const stats=combatStats(data,api,p,style,p.equipment,lv);
+    return combatTiming(p,m,stats).supplies.foodItemId??0;
   }
     const wait = reason => waiting('等待当前任务',reason);
   const blocked = reason => ({intent:null,label:'需要处理',reason,blocked:true});
@@ -1674,7 +1688,7 @@ export function createPlanner(data) {
   api.crafting=createCrafting(data,api);
   Object.assign(api,{inputCost:createInputCost(data,api),chooseGoal:strategy.chooseGoal,routeEstimate:strategy.routeEstimate,combatOptions:strategy.combatOptions,
     candidates:strategy.candidates,estimateWork:strategy.estimateWork,setMeasurements:strategy.setMeasurements,byFormula:strategy.byFormula,rateSource:strategy.rateSource,routeMeasurement:strategy.routeMeasurement,
-    gearScore,combatRate,combatChoice,dropSeconds,bonusSource,bonusSeconds,batchRating,stageRating,incomeRows,coinRate,stageSupply,stageCraftCount,questQualitySets,recipeRatings:()=>recipeRatings,
+    gearScore,combatRate,combatFood,combatChoice,dropSeconds,bonusSource,bonusSeconds,batchRating,stageRating,incomeRows,coinRate,stageSupply,stageCraftCount,questQualitySets,recipeRatings:()=>recipeRatings,
     // What one unit would sell for, net of tax: the market's sale layers, else the merchant.
     saleValue:(p,id,qty=1)=>api.marketUnitValue?.(p,id,qty)??merchantPrice(data,id)});
   const growth=createProgression(data,api);

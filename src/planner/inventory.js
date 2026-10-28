@@ -234,6 +234,20 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
   p.pack.forEach(i=>add(i.itemId,i.qty,'pack'));
   Object.values(p.equipment).forEach(id=>add(id,1,'worn'));
   Object.entries(p.overflow??{}).forEach(([id,qty])=>add(Number(id),qty,'overflow'));
+  // The gear comparisons below need every held piece; they are built only
+  // when a piece of gear is reviewed (the income table asks about one product
+  // at a time, usually not gear).
+  let gearIndex=null;
+  const gearOf=()=>gearIndex??=(()=>{
+    const held=[...stock.values()].filter(row=>row.bank+row.pack+row.worn>0).map(row=>planner.equipmentStats(row.itemId)).filter(Boolean);
+    const lines=new Map(),copies=new Map();
+    for(const h of held){const key=line(h);if(!lines.has(key))lines.set(key,[]);lines.get(key).push(h);}
+    for(const row of stock.values())if(row.bank+row.pack+row.worn+row.overflow>0) {
+      const g=planner.equipmentStats(row.itemId),b=planner.base(row.itemId);
+      if(g){if(!copies.has(b))copies.set(b,[]);copies.get(b).push(g);}
+    }
+    return {lines,copies};
+  })();
   // What the current batch makes or uses (any quality) is judged when it ends.
   const routeJob=p.route&&!p.route.errand?data.jobs.find(j=>j.id===p.route.jobId):null;
   const batchBases=new Set(routeJob?[routeJob.output.itemId,...routeJob.inputs.map(i=>i.itemId)]:[]);
@@ -241,8 +255,6 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
   const {ids:locked,variants:lockedVariants}=lockedGear(data,p,goal);
   const requirement=g=>gearRequirementOf(data,g.itemId).level;
   const wearable=g=>canWear(data,lv,g.itemId);
-  const heldGear=[...stock.values()].filter(row=>row.bank+row.pack+row.worn>0)
-    .map(row=>planner.equipmentStats(row.itemId)).filter(Boolean);
   const sourced=new Map();
   const selfSource=(id,trail=[])=>{
     if(!trail.length&&sourced.has(id))return sourced.get(id);
@@ -255,8 +267,6 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
   // style. A better piece replaces it only once that piece can be worn no later
   // than this one, so the wearable-now piece for a lower level is kept.
   const line=g=>[g.slot,g.style??'',g.needs??'',!!g.twoHanded,g.slot==='weapon'&&g.needs==='ranged'?g.speed:''].join('|');
-  const lines=new Map();
-  for(const h of heldGear){const key=line(h);if(!lines.has(key))lines.set(key,[]);lines.get(key).push(h);}
   // Two held pieces compared as the gear step compares them (ownedBest): the
   // profession's own gear by the investment table's rate, stats on a tie; gear
   // of another style by `otherwise` (it has no rate for this profession).
@@ -267,21 +277,16 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
     return (rate(h.itemId)-rate(g.itemId)||(planner.gearScore?.(h.itemId,skill)??0)-(planner.gearScore?.(g.itemId,skill)??0))>0;
   };
   function dominated(g) {
-    return (lines.get(line(g))??[]).some(h=>h.itemId!==g.itemId&&
+    return (gearOf().lines.get(line(g))??[]).some(h=>h.itemId!==g.itemId&&
       (wearable(h)||requirement(h)<=requirement(g))&&beats(h,g,statsDominate));
   }
   // Of one piece of gear only the best copy (other styles: the highest rarity,
   // then enhancement) is a possible upgrade; the rest are surplus even before
   // they can be worn.
   const rank=id=>rarityOf(data,id)*1000+plusOf(data,id);
-  const copies=new Map();
-  for(const row of stock.values())if(row.bank+row.pack+row.worn+row.overflow>0) {
-    const g=planner.equipmentStats(row.itemId),b=planner.base(row.itemId);
-    if(g){if(!copies.has(b))copies.set(b,[]);copies.get(b).push(g);}
-  }
   const superseded=id=>{
     const g=planner.equipmentStats(id);
-    return !!g&&(copies.get(planner.base(id))??[]).some(h=>h.itemId!==id&&beats(h,g,(a,b)=>rank(a.itemId)>rank(b.itemId)));
+    return !!g&&(gearOf().copies.get(planner.base(id))??[]).some(h=>h.itemId!==id&&beats(h,g,(a,b)=>rank(a.itemId)>rank(b.itemId)));
   };
   const reviewed=only?[...stock.values()].filter(row=>only.includes(row.itemId)):[...stock.values()];
   const items=reviewed.map(row=>{

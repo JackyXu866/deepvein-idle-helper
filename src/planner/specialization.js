@@ -1,6 +1,6 @@
 import {matchesProfessionWeapon, professionSkill} from './professions.js';
 import {outscores} from './strategy.js';
-import {reviewInventory} from './inventory.js';
+import {inventoryBudget, reviewInventory} from './inventory.js';
 import {packCapacity} from './items.js';
 import {marketQuality} from './quality.js';
 
@@ -33,12 +33,12 @@ export function createSpecialization(data,planner) {
         const minSale=['mining','fishing','woodcutting'].includes(c.skill)&&!data.items[itemId]?.stackable?
           Math.min(qty,packCapacity(p)):1;
         // The sale review's verdict on this product alone, before and after the batch.
-        const only={only:[itemId]};
-        const before=reviewInventory(data,planner,p,c,style,undefined,only).items[0];
+        const only={only:[itemId]},budget=inventoryBudget(data,planner,p,c);
+        const before=reviewInventory(data,planner,p,c,style,budget,only).items[0];
         let saleQty=0,multiplier=1;
         for(;multiplier<=4;multiplier++) {
           const next={...p,bank:{...p.bank,[itemId]:(p.bank[itemId]??0)+qty*multiplier}};
-          const after=reviewInventory(data,planner,next,c,style,undefined,only).items[0];
+          const after=reviewInventory(data,planner,next,c,style,budget,only).items[0];
           saleQty=Math.max(0,(after?.sell??0)-(before?.sell??0));
           if(saleQty>=minSale)break;
         }

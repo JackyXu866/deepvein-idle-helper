@@ -87,7 +87,11 @@ export function createInvestments(data,planner) {
     else if(toolSkill) {
       const job=ctx.jobFor(toolSkill);
       if(job){const e=formulaWork(data,planner,p,job,lvOf(p),equipment);value=e.xp/e.seconds;}
-    } else if(ctx.monster) value=planner.byFormula(()=>planner.combatRate(p,style,ctx.monster.id,equipment));
+    } else if(ctx.monster) {
+      // Every piece is rated with the food the worn gear's fight uses.
+      ctx.food??=planner.byFormula(()=>planner.combatFood?.(p,style,ctx.monster.id)??0);
+      value=planner.byFormula(()=>planner.combatRate(p,style,ctx.monster.id,equipment,ctx.food));
+    }
     ctx.rates.set(key,value);
     return value;
   }

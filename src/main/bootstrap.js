@@ -309,8 +309,11 @@ import {itemLabel, packQty} from '../planner/items.js';
       noteEngine(result.engine);
       const ms=Date.now()-requested;
       // Native work continues while computing. Do not stop it to acquire a lock.
+      // A slow result is not an error: it is applied when nothing changed while
+      // it was computed (the state check below; the 8-second limit still ends a
+      // runaway one). The trace names the slowest steps.
       const phases=Object.entries(result.timings??{}).sort((a,b)=>b[1]-a[1]).filter(([,t])=>t>=50).map(([k,t])=>`${k} ${t}`).join('、');
-      if(ms>3000)throw new Error(`本次规划耗时过长（${ms} 毫秒${phases?`：${phases}`:''}），重新计算`);
+      if(ms>3000)trace('较慢',{ms,why:phases||null});
       const held=!trainer.active?'未运行':!trainer.compatible?'协议不兼容':trainer.awaitInitial?'等待首个状态':
         Date.now()-trainer.received>45000?'状态过期':trainer.pending?`待确认：${trainer.pending.label}`:
         trainer.recovery?'重连中':trainer.snapshotSequence<=trainer.syncAfter?'等待新快照':null;

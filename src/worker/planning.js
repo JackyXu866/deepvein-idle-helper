@@ -86,6 +86,15 @@ export function runPlanning(data,input,inspectOnly=false) {
   const economy=createEconomy(data,planner,input.settings),market=createMarket(data,planner,{...input.settings,storage,now:()=>input.now});
   economy.runtime(input.economy);market.runtime(input.market);
   wirePlanner(planner,market,()=>economy,()=>!!input.settings.potionRestock);
+  // Time inside the decision by step (inclusive: a step's own calls to the
+  // others count in both), so a slow calculation names the step.
+  const steps={plan:'计划',maintenance:'整理',housingPlan:'房屋',consumable:'药水食物',selectGoal:'选目标',questChooseGoal:'任务',
+    harvest:'收菜',investmentOptions:'投资表',candidates:'候选',gatheringSurplus:'采集清理',chooseFallback:'备用'};
+  for(const [name,label]of Object.entries(steps)) {
+    const fn=planner[name];
+    if(typeof fn!=='function')continue;
+    planner[name]=function(...args){const start=clock();try{return fn.apply(this,args);}finally{timings[label]=Math.round((timings[label]??0)+clock()-start);}};
+  }
   const commands=[],trainer=new Trainer(data,planner,intent=>commands.push(intent),()=>input.now);
   Object.assign(trainer,input.trainer);
   trainer.hotFollow=normalizeHotFollow(input.settings.hotFollow??trainer.hotFollow);
