@@ -31,7 +31,14 @@ export function priceUp(price) {
 export function createMarket(data,planner,{now=Date.now,storage=null,historyStorage=null,autoSell=false,capacitySales=false,salePricing='list'}={}) {
   const key='deepvein-market-v1',ttl=15000,waitMs=4000,coolMs=30000;
   const reviewMs=1800000,recycleMs=7200000;
-  const ironmanReason='铁人角色不支持普通玩家市场交易；保留盈余，请手动整理仓库';
+  // The player market is closed to an ironman, and to an account the game
+  // refuses for having no verified email (email-needed). That refusal is kept
+  // per character for six hours (or until the game reports the email
+  // verified); then one order tries again.
+  const gateMs=6*3600000;
+  const closed=p=>!!p&&(p.ironman===true||(saved.players[p.id]?.tradeGateUntil??0)>now());
+  const closedReason=p=>p.ironman?'铁人角色不支持普通玩家市场交易；保留盈余，请手动整理仓库':
+    '账号没有验证过的邮箱，游戏不允许市场交易；保留盈余，按自给规划（在游戏“账号”里验证邮箱后自动恢复）';
   let saved={players:{}},savedText=null,storageReadable=true;
   let playerId=null,state=null,orders=[],ordersKnown=false,revision=0,taxBp=200,snapshotTick=-Infinity;
   let quotes=new Map(),requests=new Map(),cooldowns=new Map(),lastQuery=-Infinity,lastSync=-Infinity;
@@ -122,6 +129,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     refresh();
     const fillOccurrences=new Map();
     for(const message of frame.m) {
+      if(message.t==='emailVerified'&&state?.tradeGateUntil){delete state.tradeGateUntil;persist();}
       if((message.t==='welcome'||message.t==='snapshot')&&message.you?.id!=null) {
         const p=message.you;
         if(!Number.isFinite(frame.tick)||!Number.isFinite(p.lastTick)||!Number.isFinite(p.coins)||
@@ -200,7 +208,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   }
   function query(p) {
     select(p);
-    if(p.ironman)return null;
+    if(closed(p))return null;
     if((!ordersKnown||state.attempt)&&now()-lastSync>=5000) {
       lastSync=now();return {t:'resync'};
     }
@@ -240,7 +248,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   function watch(p,itemIds,priorityItemId=null) {
     select(p);
     // Quotes are read-only: always fetch them so planning can value sales.
-    watched=p.ironman?[]:[...new Set(itemIds.filter(id=>tradable(id)&&!saleProtectionReason(data,id)))].slice(0,32);
+    watched=closed(p)?[]:[...new Set(itemIds.filter(id=>tradable(id)&&!saleProtectionReason(data,id)))].slice(0,32);
     watchCursor%=watched.length||1;
     priorityItem=watched.includes(priorityItemId)?priorityItemId:null;
     for(const [id,request]of requests)if(request.background&&!watched.includes(id))requests.delete(id);
@@ -248,7 +256,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   function watchPotions(p,itemIds) {
     select(p);
     if(procurement?.enabled)scan(p,itemIds.flatMap(variants));
-    potionWatched=p.ironman?[]:[...new Set(itemIds.filter(id=>POTIONS.some(potion=>potion.itemId===id)&&tradable(id)))].slice(0,8);
+    potionWatched=closed(p)?[]:[...new Set(itemIds.filter(id=>POTIONS.some(potion=>potion.itemId===id)&&tradable(id)))].slice(0,8);
     for(const [id,request]of requests)if(request.potionBackground&&!potionWatched.includes(id))requests.delete(id);
   }
   // Sale value of new output: the best of filling current bids, listing at the
@@ -257,7 +265,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   // while market quotes are missing, stale or cooling down.
   function opportunity(p,itemId,qty) {
     select(p);
-    if(p.ironman)return null;
+    if(closed(p))return null;
     if(!tradable(itemId)||saleProtectionReason(data,itemId)||!valid(qty))return null;
     const floor=merchantPrice(data,itemId);
     let merchant={net:floor*qty,qty,merchant:true};
@@ -303,6 +311,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   // The lowest ask for one unit: a fresh live top of book, else the price feed.
   function askPrice(p,id) {
     select(p);
+    if(closed(p))return null;
     const top=topOfBook(id);
     return top?.ask>0&&top.askQty>0?top.ask:null;
   }
@@ -313,7 +322,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   function unitValue(p,id,qty=1) {
     select(p);
     const merchant=merchantPrice(data,id);
-    if(p.ironman)return merchant;
+    if(closed(p))return merchant;
     // Protected ordinary items (e.g. bonus gems) have no sale quote: value them
     // like quality items, at the best fresh bid.
     const best=id===planner.base(id)?opportunity(p,id,qty):null;
@@ -395,7 +404,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   }
   // What may be spent: the coins above the one reserve (inventory.coinReserve).
   function purchaseAllowance(p,goal=null) {
-    return !procurement?.enabled||p.ironman?0:Math.max(0,p.coins-coinReserve(planner,p,goal));
+    return !procurement?.enabled||closed(p)?0:Math.max(0,p.coins-coinReserve(planner,p,goal));
   }
   function scan(p,ids) {
     select(p);
@@ -414,14 +423,14 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   // Infinity when it cannot be bought automatically.
   function marketBuyPrice(p,id,qty=1) {
     select(p);const top=topOfBook(id);
-    if(p.ironman||!purchasable(id)||!procurement?.enabled||state.attempt||hasOrder(id)||!slots(p,'buy')||
+    if(closed(p)||!purchasable(id)||!procurement?.enabled||state.attempt||hasOrder(id)||!slots(p,'buy')||
       (cooldowns.get(id)??0)>now()||!(top?.ask>0)||top.askQty<qty||
       top.ask*qty>purchaseAllowance(p))return Infinity;
     return top.ask;
   }
   function surplusValue(p,id,qty) {
     select(p);
-    if(p.ironman||!tradable(id)||!valid(qty))return Infinity;
+    if(closed(p)||!tradable(id)||!valid(qty))return Infinity;
     const book=quote(id);
     // Unknown/stale markets never make goods "worthless". This query does not
     // pause gathering or authorize a sale; it only bounds the cost of disposal.
@@ -435,7 +444,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     return worth(Math.max(lowestAsk(book)??0,...book.bids.map(r=>r.price),...recent.map(r=>r.price)));
   }
   function buy(p,id,qty,goal,label,reason,priceCap=Infinity) {
-    if(p.ironman||p.enhance||playerQueued(p)||!purchasable(id)||!valid(qty)||state.attempt||!slots(p,'buy')||hasOrder(id))return null;
+    if(closed(p)||p.enhance||playerQueued(p)||!purchasable(id)||!valid(qty)||state.attempt||!slots(p,'buy')||hasOrder(id))return null;
     const capacity=inventoryBudget(data,planner,p,goal);
     if(capacity.freeSlots<=0&&!(p.bank[id]>0))return null;
     const book=quote(id);
@@ -451,7 +460,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     status=result.reason;return result;
   }
   function balancedPurchase(p,id,qty,goal,profession) {
-    if(p.ironman||!purchasable(id)||!valid(qty)||state.attempt||!purchaseAllowance(p,goal))return null;
+    if(closed(p)||!purchasable(id)||!valid(qty)||state.attempt||!purchaseAllowance(p,goal))return null;
     need={itemId:id,qty,at:now()};
     const listed=orders.find(o=>o.itemId===id&&o.side==='sell'&&state.owned[o.id]);
     if(listed){reviewOrderId=null;return atBank(p,{t:'marketCancel',orderId:listed.id},'撤回自有挂单 · 当前计划需要',true);}
@@ -522,7 +531,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     select(p);
     const name=itemName(data,planner.base(itemId));
     if(!procurement?.enabled)return {key:'procurement-off',message:`药水未喝：${name}库存不足，按收益采购已关闭`};
-    if(p.ironman)return {key:'procurement-off',message:`药水未喝：${name}库存不足，铁人角色不采购市场药水`};
+    if(closed(p))return {key:'procurement-off',message:`药水未喝：${name}库存不足；${closedReason(p)}`};
     if(!planner.nearBank(p)||p.route||p.path?.length||playerQueued(p))
       return {key:'route',message:`药水未喝：${name}库存不足，当前路线或位置不在安全补货边界`};
     const allowance=purchaseAllowance(p,goal);
@@ -593,7 +602,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     return result;
   }
   function buffFood(p,goal,{duration,enemyDps,healing,damageReduction,foodValue,fedShare=0}) {
-    select(p);if(!procurement?.enabled||p.ironman)return null;
+    select(p);if(!procurement?.enabled||closed(p))return null;
     const ids=Object.values(data.items).filter(i=>i.heals).flatMap(i=>variants(i.id));
     const reserve=inventoryBudget(data,planner,p,goal,true).items,rate=planner.coinRate(p);
     const choices=scan(p,ids).map(top=>{
@@ -687,7 +696,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   }
   function sale(p,vendorPlan,goal=null,profession='magic') {
     select(p);
-    if(p.ironman)return defer(ironmanReason);
+    if(closed(p))return defer(closedReason(p));
     const capacitySale=capacitySalesEnabled&&vendorPlan?.capacitySale===true;
     // Output of a task chosen for its sale income is sold even when everyday
     // selling is off; economy marks only those items as profitSale.
@@ -834,7 +843,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   }
   function issued(before,intent,plan=null) {
     select(before);
-    if(before.ironman&&['marketBuy','marketSell','marketCancel','marketDump'].includes(intent.t))return false;
+    if(closed(before)&&['marketBuy','marketSell','marketCancel','marketDump'].includes(intent.t))return false;
     if(intent.t==='marketBuy'&&!autoUsableMaterial(data,intent.itemId))return false;
     const equipmentSale=intent.t==='marketSell'&&plan?.equipmentSale;
     if(['marketSell','marketDump'].includes(intent.t)&&saleProtectionReason(data,intent.itemId,!!equipmentSale))return false;
@@ -948,7 +957,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   }
   function next(p,goal=null,profession='magic') {
     select(p);
-    if(p.ironman){status=ironmanReason;return null;}
+    if(closed(p)){status=closedReason(p);return null;}
     if(state.attempt) {
       if(confirmed(null,p,state.attempt.intent))settled(p,state.attempt.intent);
       else if(staleAttempt(p)){state.attempt=null;persist();status='上次交易没有执行（无新挂单、无成交），已解除等待，恢复比价';}
@@ -998,6 +1007,10 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   function setSalePricing(value) {pricing=value==='bid'?'bid':'list';}
   function rejected(code) {
     refresh();
+    if(code==='email-needed'||code==='email-changed') {
+      if(state){state.tradeGateUntil=now()+gateMs;state.attempt=null;status=closedReason({});persist();}
+      return;
+    }
     const known=['not-at-bank','price-changed','not-tradable','too-many-orders','cannot-afford',
       'below-floor','nothing-to-sell','no-such-order','storage-full','bank-full','pack-full',
       'nothing-to-deposit','nothing-to-withdraw','nothing-to-eat','cannot-enhance','cannot-fight',
@@ -1024,7 +1037,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   }
   // deepveinDebug(): the store's size and age, and each watched sale item at a glance.
   const historyReport=()=>({...history.summary(),watched:Object.fromEntries(watched.map(id=>[itemName(data,id),history.describe(id)]))});
-  return {runtime,receive,next,sale,purchase,restockPotion,restockIngredient,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setSalePricing,setBuyback,setPriceFeed,unitValue,askPrice,priceFeedAge:()=>feed?now()-feed.at:null,
+  return {runtime,receive,next,sale,purchase,restockPotion,restockIngredient,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setSalePricing,setBuyback,setPriceFeed,unitValue,askPrice,closed,priceFeedAge:()=>feed?now()-feed.at:null,
     averagePrice:history.averagePrice,dailyVolume:history.dailyVolume,priceTrend:history.priceTrend,historyReport,
     configureProcurement,equipmentPurchase,foodPurchase,buffFood,potionDose,marketBuyPrice,surplusValue,watchPurchases:scan,
     purchaseAllowance:(p,goal)=>{select(p);return purchaseAllowance(p,goal);}};

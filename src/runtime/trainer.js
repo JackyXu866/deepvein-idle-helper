@@ -25,6 +25,9 @@ export const GUILD_REFUSALS=new Set(['guild-name','guild-tag','guild-name-taken'
   'guild-already-in','guild-not-in','guild-no-such-player','guild-full','guild-rank','guild-not-invited',
   'guild-leader-cannot-leave','guild-self','guild-not-material','guild-not-tradable','guild-bank-full','guild-short','guild-room-full']);
 export function isGuildRefusal(code) {return GUILD_REFUSALS.has(code);}
+// The account may not trade (no verified email, or a recent email change):
+// the market counts as closed (market.closed), never a pause.
+export const TRADE_GATE_REFUSALS=new Set(['email-needed','email-changed']);
 // Optional quest-board actions. Their refusal codes are not reviewed, so a
 // refusal disables the action for a while instead of pausing the helper.
 // Growth modes and their labels (the UI uses the same names).
@@ -524,6 +527,15 @@ export class Trainer {
       }
       if (!this.active&&!this.recovery) continue;
       if (message.t==='error') {
+        if(TRADE_GATE_REFUSALS.has(message.code)) {
+          this.market?.rejected(message.code);
+          if(this.active&&this.pending&&(MARKET_ACTIONS.has(this.pending.intent.t)||this.pending.intent.t==='marketDump')) {
+            this.pending=null;this.resolution=null;this.plan=null;this.syncAfter=this.snapshotSequence;this.nextSync=0;
+            this.nextAction=this.now()+1000;
+          }
+          this.log('游戏要求账号有验证过的邮箱才能用市场；不再挂单买卖，按自给继续（验证邮箱后自动恢复）');
+          continue;
+        }
         if(isGuildRefusal(message.code)) {
           this.log(`公会提示：${message.code==='guild-already-in'?'相关角色已在公会中':message.code}；不影响自动练级`);
           continue;
@@ -678,7 +690,7 @@ export class Trainer {
     if(!prepared)plan=this.prepareIssue(plan);
     this.plan=plan;const {intent,label}=plan;
     if((MARKET_ACTIONS.has(intent.t)||intent.t==='marketDump')&&this.market?.issued(this.player,intent,plan)===false) {
-      this.message=this.player.ironman?'铁人角色不能执行普通玩家市场交易；保留物品':'采购报价或预算未通过复核，跳过本次购买';return;
+      this.message=(this.market?.closed?.(this.player)??this.player.ironman)?'玩家市场对此角色关闭；保留物品':'采购报价或预算未通过复核，跳过本次购买';return;
     }
     if(['setRoute','fight','walk','clearRoute'].includes(intent.t))this.bankedLoad=false;
     if(plan.potionBrew)this.potionBrew={playerId:this.player.id,jobId:plan.potionBrew.jobId,until:this.now()+1200000};
@@ -747,7 +759,7 @@ export class Trainer {
   runItemTarget(p) {
     const g=this.itemTarget;
     if(!g||g.status==='completed')return false;
-    const listed=p.ironman?0:this.market?.listedQuantity?.(p,g.itemId)??(this.market?.listedQuantity?null:0);
+    const listed=(this.market?.closed?.(p)??p.ironman)?0:this.market?.listedQuantity?.(p,g.itemId)??(this.market?.listedQuantity?null:0);
     if(listed===null){this.message='正在同步目标物品的已有挂单，避免撤单被计作新增';return true;}
     g.listedQty=listed;
     const owned=ownedQty(p,g.itemId,listed);

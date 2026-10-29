@@ -497,25 +497,28 @@ import {itemLabel, packQty} from '../planner/items.js';
   catch {trainer.mainJobId=null;}
   try {trainer.mainMonsterId=validMainMonster(JSON.parse(localStorage.getItem(mainMonsterKey)||'null'),trainer.mainTrade);}
   catch {trainer.mainMonsterId=null;}
-  try {
-    const saved=JSON.parse(sessionStorage.getItem(runKey)||'null');
-    if (saved?.playerId!=null&&Object.hasOwn(PROFESSIONS,saved.style)) {
-      trainer.style=saved.style;
-      trainer.mode=Object.hasOwn(TRAINING_MODE_LABELS,saved.mode)?saved.mode:'balanced';
-      trainer.mainTrade=Object.hasOwn(MAIN_TRADES,saved.mainTrade)?saved.mainTrade:'auto';
-      trainer.mainJobId=validMainJob(saved.mainJobId,trainer.mainTrade);
-      trainer.mainMonsterId=validMainMonster(saved.mainMonsterId,trainer.mainTrade);
-      trainer.boss.restore(saved.boss);
-      if(saved.development?.owner===saved.playerId)planner.developmentRuntime(saved.development);
-      if(saved.housing?.owner===saved.playerId)planner.housingRuntime(saved.housing);
-      if(saved.mastery?.owner===saved.playerId)planner.masteryRuntime(saved.mastery);
-      if(saved.buffRefill?.playerId===saved.playerId)trainer.buffRefill=saved.buffRefill;
-      if(saved.hotParkedGoal)trainer.hotParkedGoal=saved.hotParkedGoal;
-      trainer.recovery={playerId:saved.playerId,lastTick:saved.lastTick};
-      trainer.awaitingWelcome=true;
-      trainer.message='等待游戏登录，同一角色登录后自动恢复本标签页的调度';
-    }
-  } catch { /* In-page reconnection still works without session storage. */ }
+  // A run saved by this tab resumes after a reload. The run itself is restored
+  // first; each piece of saved state after it on its own, so one that no longer
+  // reads (an older build's shape) cannot lose the run.
+  let restoredRun=null;
+  try {restoredRun=JSON.parse(sessionStorage.getItem(runKey)||'null');} catch { /* In-page reconnection still works without session storage. */ }
+  if (restoredRun?.playerId!=null&&Object.hasOwn(PROFESSIONS,restoredRun.style)) {
+    trainer.style=restoredRun.style;
+    trainer.mode=Object.hasOwn(TRAINING_MODE_LABELS,restoredRun.mode)?restoredRun.mode:'balanced';
+    trainer.mainTrade=Object.hasOwn(MAIN_TRADES,restoredRun.mainTrade)?restoredRun.mainTrade:'auto';
+    trainer.recovery={playerId:restoredRun.playerId,lastTick:restoredRun.lastTick};
+    trainer.awaitingWelcome=true;
+    trainer.message='等待游戏登录，同一角色登录后自动恢复本标签页的调度';
+    const restore=(name,fn)=>{try {fn();} catch(error) {trainer.log(`刷新前的${name}未能恢复（${error.message}），重新规划`);}};
+    restore('固定工作',()=>{trainer.mainJobId=validMainJob(restoredRun.mainJobId,trainer.mainTrade);});
+    restore('固定怪物',()=>{trainer.mainMonsterId=validMainMonster(restoredRun.mainMonsterId,trainer.mainTrade);});
+    restore('世界 Boss 状态',()=>trainer.boss.restore(restoredRun.boss));
+    restore('发展计划',()=>{if(restoredRun.development?.owner===restoredRun.playerId)planner.developmentRuntime(restoredRun.development);});
+    restore('房屋计划',()=>{if(restoredRun.housing?.owner===restoredRun.playerId)planner.housingRuntime(restoredRun.housing);});
+    restore('精通计划',()=>{if(restoredRun.mastery?.owner===restoredRun.playerId)planner.masteryRuntime(restoredRun.mastery);});
+    if(restoredRun.buffRefill?.playerId===restoredRun.playerId)trainer.buffRefill=restoredRun.buffRefill;
+    if(restoredRun.hotParkedGoal)trainer.hotParkedGoal=restoredRun.hotParkedGoal;
+  }
   try {trainer.boss.setParticipation(localStorage.getItem(bossParticipationKey));}catch{}
   let savedRun='',savedItemTarget='';
   function saveRun() {
