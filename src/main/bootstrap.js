@@ -469,7 +469,8 @@ import {itemLabel, packQty} from '../planner/items.js';
       efficiency:planner.runtime().efficiency}));}
     catch { /* On-screen measurements remain available without storage. */ }
   }
-  try { trainer.setStyle(localStorage.getItem(styleKey)); } catch { /* Default to mage. */ }
+  // The saved profession, set quietly: loading the page is not choosing one.
+  try { const style=localStorage.getItem(styleKey); if(Object.hasOwn(PROFESSIONS,style))trainer.style=style; } catch { /* Default to mage. */ }
   try {
     const saved=localStorage.getItem(modeKey);
     trainer.mode=Object.hasOwn(TRAINING_MODE_LABELS,saved)?saved:'balanced';
@@ -597,7 +598,8 @@ import {itemLabel, packQty} from '../planner/items.js';
       super(...args);
       const url=new URL(String(args[0]),location.href);
       if (url.host!==location.host||url.pathname!=='/ws') return;
-      if (socket) trainer.connectionLost();
+      // A closed socket was already handled by its close event.
+      if (socket&&socket.readyState!==NativeWebSocket.CLOSED) trainer.connectionLost();
       socket=this;
       noteConnection('open');
       this.addEventListener('close',event=>noteConnection('close',{code:event.code,current:socket===this}));

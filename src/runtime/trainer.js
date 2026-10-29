@@ -189,10 +189,13 @@ export class Trainer {
     if(this.player)this.planner.watchPotions?.(this.player,[]);
     this.active=false; this.pending=null; this.recentDeposit=null; this.recovery=null;this.resolution=null;this.stallCheck=null;this.bankedLoad=false; this.log(reason);
   }
+  // A running helper resumes on the same character's next welcome. When it
+  // was not running, a drop changes nothing: the panel keeps saying why it
+  // stopped instead of naming the drop as the cause.
   connectionLost(reason) {
     const resume=!reason&&(this.active||this.recovery);
     const previous=this.recovery??{playerId:this.player?.id,lastTick:this.player?.lastTick};
-    this.pause(reason??(resume?'连接已断开，等待游戏自动重连；连上后自动继续':'连接已断开，调度保持暂停'),!!resume);
+    if(resume||reason)this.pause(reason??'连接已断开，等待游戏自动重连；连上后自动继续',!!resume);
     this.compatible=false; this.awaitingWelcome=true;
     if (resume) this.recovery=previous;
   }
