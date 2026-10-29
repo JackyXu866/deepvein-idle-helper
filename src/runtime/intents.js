@@ -12,7 +12,9 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
   // Quality holds follow the player's profession; the page's planner never
   // runs plan(), which otherwise sets it, so a check would use magic's holds.
   if(planner)planner.styleHint=style;
-  if(['drink','eat','chooseFood','enhance','marketBuy','marketSell','marketDump','dropItem'].includes(intent.t)&&
+  // Legendary stock is the player's: never drunk, eaten, traded or dropped.
+  // Enhancing worn legendary gear keeps it with the player, so it may run.
+  if(['drink','eat','chooseFood','marketBuy','marketSell','marketDump','dropItem'].includes(intent.t)&&
     !autoUsableMaterial(data,intent.itemId))return false;
   if(intent.t==='foodMaxTier')return Number.isInteger(intent.tier)&&intent.tier>=0&&intent.tier<LEGENDARY;
   if(intent.t==='deposit'||intent.t==='depositItem') {

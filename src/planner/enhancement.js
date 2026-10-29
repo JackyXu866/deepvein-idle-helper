@@ -1,6 +1,5 @@
 import {gearRequirementOf, professionSkill, statsDominate} from './professions.js';
 import {fitsSlot, shieldless} from './gear.js';
-import {autoUsableMaterial} from './quality.js';
 import {ENHANCEMENT_BASELINE, enhanceQuote} from './inventory.js';
 import {heldIds, itemLabel, plusOf} from './items.js';
 
@@ -76,7 +75,7 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
   let deferredReason='暂无值得强化的在用装备：先换阶段装备，或等待有实际属性收益的升级；不制造备用装备刷强化等级';
   for(const [slot,itemId]of Object.entries(p.equipment)) {
     const gear=planner.equipmentStats(itemId);
-    if(!relevant(gear)||!autoUsableMaterial(data,itemId)||plusOf(data,itemId)>=ENHANCEMENT_BASELINE||goal?.upgrade?.slot===slot)continue;
+    if(!relevant(gear)||plusOf(data,itemId)>=ENHANCEMENT_BASELINE||goal?.upgrade?.slot===slot)continue;
     if(goal?.enhancement&&goal.enhancement.itemId!==itemId)continue;
     const quote=enhanceQuote(data,planner,p,itemId),after=planner.equipmentStats(itemId+data.plusScale);
     const target=planner.equipmentStats(itemId%data.plusScale+ENHANCEMENT_BASELINE*data.plusScale);

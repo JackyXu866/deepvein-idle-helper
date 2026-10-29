@@ -205,8 +205,9 @@ export function createInvestments(data,planner) {
         }).filter(([id,cost])=>cost&&rate(p,style,ctx,slot,id)>floor)
         .map(([id,cost])=>priced(kind,id,`换 ${itemLabel(data,id)}`,cost)).filter(Boolean)
         .sort((a,b)=>b.net-a.net)[0]??null;
-      // Enhance the worn piece: the best stopping point up to +5.
-      if(current!=null&&autoUsableMaterial(data,current)&&plusOf(data,current)<ENHANCEMENT_BASELINE) {
+      // Enhance the worn piece, any quality (a legendary one stays worn): the
+      // best stopping point up to +5. A failure never destroys the piece.
+      if(current!=null&&plusOf(data,current)<ENHANCEMENT_BASELINE) {
         let best=null;
         for(let to=plusOf(data,current)+1;to<=ENHANCEMENT_BASELINE;to++) {
           const cost=expectedEnhancement(data,planner,p,current,to),target=current%data.plusScale+to*data.plusScale;

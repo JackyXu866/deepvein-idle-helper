@@ -85,3 +85,17 @@ test('enhancement runs only on the worthwhile route, up to its stopping point', 
   assert.ok(chosen?.worth && chosen.cheapest, JSON.stringify(result));
   assert.notEqual(result.enhancement.slot, 'helmet');
 });
+
+test('worn legendary gear is enhanced by the same table (it stays worn; other legendary use stays blocked)', async () => {
+  const {validateIntent} = await import('../src/runtime/intents.js');
+  const {planner, d, p} = fighter(5_000_000);
+  p.bank[d.shardId] = 10000;
+  const legendary = p.equipment.weapon + 4 * d.rarityScale;
+  p.equipment.weapon = legendary;
+  const row = planner.investmentOptions(p, 'melee', null).find(r => r.slot === 'weapon' && r.kind === 'enhance');
+  assert.ok(row, 'the worn legendary blade has an enhance row');
+  assert.equal(row.current, legendary);
+  assert.notEqual(validateIntent(d, p, {t: 'enhance', itemId: legendary, toPlus: row.toPlus}, {planner}), false,
+    'the enhance command is not refused for being legendary');
+  assert.equal(validateIntent(d, p, {t: 'marketSell', itemId: legendary, qty: 1, price: 100}, {planner}), false, 'never sold');
+});
