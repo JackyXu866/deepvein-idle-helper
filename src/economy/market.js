@@ -713,6 +713,11 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     if(state.attempt)return defer('交易结果待确认，保留盈余并继续练级');
     if(!ordersKnown)return defer('等待同步市场订单，保留盈余并继续练级');
     if(hasOrder(id))return defer('同类物品已有订单，等待成交并继续练级');
+    // One sale per item every 30 minutes (the listing review's cadence): output
+    // gathers into one larger batch instead of a stop and a small sale on every
+    // bank visit. A full bank still sells at once.
+    if(!capacitySale&&now()-(state.soldAt?.[id]??-Infinity)<reviewMs)
+      return defer(`${labelOf(id)} 30 分钟内已卖过一批；攒成一批再卖，继续当前任务`);
     if(!slots(p))return defer('挂单槽暂满，保留盈余并继续练级');
     if((cooldowns.get(id)??0)>now())return defer('市场短暂冷却，稍后重新报价');
     const book=quote(id);
@@ -765,7 +770,9 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     }
     if(bid&&safeQty>0&&!preferListing) {
       status=pricing==='list'?'卖盘价没有明显更高或近期成交不足，直接成交买单':'优先成交税后高于系统回收的买单';
-      return scoped(atBank(p,{t:'marketSell',itemId:id,qty:Math.min(safeQty,bid.qty),price:bid.price},
+      // Every buy order at that price in one sale, not only the first one.
+      const depth=book.bids.filter(row=>row.price===bid.price).reduce((n,row)=>n+row.qty,0);
+      return scoped(atBank(p,{t:'marketSell',itemId:id,qty:Math.min(safeQty,depth),price:bid.price},
         `市场出售 · ${itemName(data,id)}，单价 ${bid.price}`));
     }
     if(previous?.listedMs>=recycleMs&&previous.rounds>=2) {
@@ -865,7 +872,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     if(intent.t==='marketDump') {
       // Consume this batch's allowance before submission. An uncertain result
       // must not authorize recycling newly produced stock after a refresh.
-      delete state.sales[intent.itemId];persist();
+      delete state.sales[intent.itemId];(state.soldAt??={})[intent.itemId]=now();persist();
       return;
     }
     if(!['marketBuy','marketSell','marketCancel'].includes(intent.t)||state.attempt)return plan?.consumablePurchase||plan?.procurement?false:undefined;
@@ -904,6 +911,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
       if(!persist()) {state.potionPurchases.pop();state.attempt=null;return false;}
       return true;
     }
+    if(intent.t==='marketSell')(state.soldAt??={})[intent.itemId]=now();
     persist();
   }
   function confirmed(before,p,intent) {
