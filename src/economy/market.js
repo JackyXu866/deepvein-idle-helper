@@ -28,7 +28,7 @@ export function priceUp(price) {
 
 // Limit orders can rest after a partial fill. Track only orders we submitted;
 // inventory removed into escrow is not evidence of a sale or realized income.
-export function createMarket(data,planner,{now=Date.now,storage=null,historyStorage=null,autoSell=false,capacitySales=false,salePricing='list'}={}) {
+export function createMarket(data,planner,{now=Date.now,storage=null,historyStorage=null,autoSell=false,capacitySales=false}={}) {
   const key='deepvein-market-v1',ttl=15000,waitMs=4000,coolMs=30000;
   const reviewMs=1800000,recycleMs=7200000;
   // The player market is closed to an ironman, and to an account the game
@@ -46,10 +46,6 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   let watched=[],potionWatched=[],watchCursor=0,priorityItem=null;
   let salesEnabled=autoSell===true;
   let capacitySalesEnabled=capacitySales===true;
-  // 'list': sell by listing just under the lowest ask when that pays clearly
-  // more than the best bid and recent trades show buyers at that price;
-  // 'bid': fill the best buy order immediately (the original behaviour).
-  let pricing=salePricing==='bid'?'bid':'list';
   // Town buyback (城镇回购, /api/buyback): once a day the town buys
   // over-supplied common goods listed at up to 1.5x the merchant price.
   let buyback=null;
@@ -297,14 +293,14 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
       stock-=old;remaining-=take;net+=proceeds;
       if(!remaining){bidValue={net,qty};break;}
     }
-    // Listing mode: value at the listing price when recent buyers at that
-    // price could take this output after existing stock and the queue ahead.
-    if(pricing==='list'&&book.tradesKnown===true) {
-      const listing=listingQuote(p,book,floor);
+    // The sale rule lists (the day's price clearly above the bid): value at
+    // the listing price when recent buyers at that price could take this
+    // output after existing stock and the queue ahead.
+    if(book.tradesKnown===true) {
+      const best=bidsHighFirst(book)[0]?.price,listing=listable(itemId,best)?listingQuote(p,book,itemId,floor):null;
       const room=listing?listing.demand.volume-listing.demand.ahead-quantity(p,itemId):0;
-      const best=bidsHighFirst(book)[0]?.price,listed=listing&&netOf(steady(itemId,listing.price,'ask'),qty);
-      if(listing&&room>=qty&&listingWorthIt(listing,best)&&listed>floor*qty&&
-        listed>(bidValue?.net??0))return {net:listed,qty,listed:true};
+      const listed=listing&&netOf(steady(itemId,listing.price,'ask'),qty);
+      if(listing&&room>=qty&&listed>floor*qty&&listed>(bidValue?.net??0))return {net:listed,qty,listed:true};
     }
     return bidValue&&bidValue.net>merchant.net?bidValue:merchant;
   }
@@ -342,7 +338,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     for(const [key,row]of Object.entries(value.items)) {
       const id=Number(key);
       if(!valid(id)||!row||typeof row!=='object')continue;
-      items[id]={ask:price(row.lowestSell),askQty:amount(row.sellQty),bid:price(row.highestBuy),bidQty:amount(row.buyQty)};
+      items[id]={ask:price(row.lowestSell),askQty:amount(row.sellQty),bid:price(row.highestBuy),bidQty:amount(row.buyQty),avg:price(Math.round(row.avg7d??0))};
     }
     feed={at,items};
     // History keeps tradable ids, ordinary items before their quality and
@@ -646,16 +642,20 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     const ahead=book.asks.filter(row=>row.price<=price).reduce((n,row)=>n+row.qty,0);
     return {volume,ahead,illiquid:book.tradesKnown===true&&volume<=ahead};
   }
-  // The price a new listing would use (just under the lowest ask, never above
-  // recent trades, -10% per re-list) and the demand at that price.
-  function listingQuote(p,book,floor,previous=null) {
-    const prices=[...book.asks.map(row=>row.price),...book.trades.filter(row=>
-      row.tick<=p.lastTick&&(p.lastTick-row.tick)*data.tickMs<=600000).map(row=>row.price)];
+  // One sale-price rule. The day's price is the volume-weighted price of the
+  // trades seen over the last 24 hours, else the price feed's 7-day average.
+  // A bid within 5% of it is filled at once; otherwise the batch is listed.
+  const dayPrice=id=>history.tradePrice(id,{hours:24})??feedRow(id)?.avg??null;
+  const listable=(id,bidPrice)=>{const day=dayPrice(id);return day>0&&(bidPrice==null||day>bidPrice*1.05);};
+  // A listing's price: the day's price, one step under the lowest ask, 10%
+  // lower on each re-list, never under the merchant after tax; and the demand
+  // at that price.
+  function listingQuote(p,book,id,floor,previous=null) {
     const minimum=priceUp(minListPrice(floor,taxBp));
-    const reference=prices.length?Math.min(...prices):floor*2;
-    const recentDemand=book.trades.some(row=>row.tick<=p.lastTick&&(p.lastTick-row.tick)*data.tickMs<=recycleMs);
-    const ask=recentDemand&&book.asks.length?stepBelow(lowestAsk(book)):reference;
-    const price=Math.max(minimum,priceDown(Math.min(ask,previous?Math.min(reference,Math.floor(previous.price*.9)):reference)));
+    const caps=[dayPrice(id),book.asks.length?stepBelow(lowestAsk(book)):null,
+      previous?Math.floor(previous.price*.9):null].filter(n=>n>0);
+    if(!caps.length)return null;
+    const price=Math.max(minimum,priceDown(Math.min(...caps)));
     if(!valid(price)||price>1e9)return null;
     return {price,demand:saleDemand(p,book,price,floor)};
   }
@@ -685,10 +685,6 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     return {qty:row.qty,ratio:buyback.ratio,merchant,cap:Math.floor(merchant*1.5),nextTick};
   }
   const buybackHolds=()=>Object.values(state?.owned??{}).filter(o=>o.buyback).length;
-  // Listing is worth waiting for: >5% more after tax than the bid, and buyers
-  // traded at that price recently beyond what is already queued ahead.
-  const listingWorthIt=(listing,bidPrice)=>!!listing&&listing.demand.volume>listing.demand.ahead&&
-    (bidPrice==null||netOf(listing.price,1)>netOf(bidPrice,1)*1.05);
   function listedQuantity(p,itemId) {
     select(p);
     return ordersKnown?orders.filter(o=>o.itemId===itemId&&o.side==='sell')
@@ -740,10 +736,10 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     const net=netOf;
     const bid=bidsHighFirst(book).find(row=>
       net(row.price,Math.min(safeQty,row.qty))>intent.floor*Math.min(safeQty,row.qty));
-    // In listing mode, wait for buyers at the ask unless this batch already
-    // failed to sell through two re-pricings.
-    const preferListing=pricing==='list'&&!(previous?.rounds>=2)&&book.tradesKnown===true&&
-      listingWorthIt(listingQuote(p,book,intent.floor,previous),bid?.price);
+    // List at the day's price when it is clearly above the bid, unless this
+    // batch already failed to sell through two re-pricings.
+    const listing=listingQuote(p,book,id,intent.floor,previous);
+    const preferListing=!(previous?.rounds>=2)&&listable(id,bid?.price)&&!!listing&&(!bid||listing.price>bid.price);
     // Town buyback: list one below the cheapest ask, never above 1.5x the
     // merchant price, and hold through the next daily run. Taken only when
     // the bid pays less than the buyback's observed average and no ordinary
@@ -769,7 +765,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
         reason:'上次回购没有买下本批挂单，按商人价出售剩余盈余'});
     }
     if(bid&&safeQty>0&&!preferListing) {
-      status=pricing==='list'?'卖盘价没有明显更高或近期成交不足，直接成交买单':'优先成交税后高于系统回收的买单';
+      status='买单接近当日成交均价，直接成交买单';
       // Every buy order at that price in one sale, not only the first one.
       const depth=book.bids.filter(row=>row.price===bid.price).reduce((n,row)=>n+row.qty,0);
       return scoped(atBank(p,{t:'marketSell',itemId:id,qty:Math.min(safeQty,depth),price:bid.price},
@@ -780,7 +776,6 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
       return scoped({...vendorPlan,intent:{...intent,qty:safeQty},label:`长期未售出 · ${itemName(data,id)} × ${safeQty}，系统回收`,
         reason:`累计挂售 ${Math.floor(previous.listedMs/60000)} 分钟、${previous.rounds} 轮；最新买单无更高税后收益，仅回收本批剩余盈余`});
     }
-    const listing=listingQuote(p,book,intent.floor,previous);
     // Profit-task output was valued at no less than the merchant price. When
     // no bid beats the merchant and no recent buyers could absorb a listing,
     // sell to the merchant now instead of parking an unsellable listing.
@@ -805,7 +800,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     const qty=Math.min(safeQty,demand.volume>0?Math.max(1,demand.volume-demand.ahead):
       daily==null?100:Math.max(1,Math.min(100,Math.floor(daily))));
     if(valid(price)&&price<=1e9&&net(price,qty)>intent.floor*qty) {
-      status='市场挂卖；每 30 分钟顺路复核降价，累计至少 2 小时才回收';
+      status='当日成交均价明显高于买单，按均价挂卖；每 30 分钟顺路复核降价，累计至少 2 小时才回收';
       return scoped(atBank(p,{t:'marketSell',itemId:id,qty,price},
         `${previous?'市场重新定价':'市场挂卖'} · ${itemName(data,id)} × ${qty}，单价 ${price}`,false));
     }
@@ -1012,7 +1007,6 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     status=salesEnabled?'市场优先；挂售至少 2 小时并重新定价后才回收':'平时出售已关闭，物品留给玩家处理';
   }
   function setCapacitySales(enabled) {capacitySalesEnabled=enabled===true;}
-  function setSalePricing(value) {pricing=value==='bid'?'bid':'list';}
   function rejected(code) {
     refresh();
     if(code==='email-needed'||code==='email-changed') {
@@ -1040,12 +1034,12 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   const summary=()=>`${status}${buybackSummary()}${feedSummary()}；成交净收入 ${state?.income??0}，采购支出 ${state?.spent??0}，自有挂单 ${Object.keys(state?.owned??{}).length}；近一小时补药承诺 ${potionBudgetSpent()}`+
     (procurement?.enabled?`；按收益／节时采购，无固定金币底线和小时限额；近一小时承诺 ${purchaseSpent()}`:'');
   function runtime(value) {
-    if(value) {({saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status}=value);if(value.pricing)pricing=value.pricing;if('buyback' in value)buyback=value.buyback;if('feed' in value)feed=value.feed;if(value.history)history.adopt(value.history);state=playerId===null?null:playerState(playerId);}
-    return {saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status,pricing,buyback,feed,history:history.state()};
+    if(value) {({saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status}=value);if('buyback' in value)buyback=value.buyback;if('feed' in value)feed=value.feed;if(value.history)history.adopt(value.history);state=playerId===null?null:playerState(playerId);}
+    return {saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status,buyback,feed,history:history.state()};
   }
   // deepveinDebug(): the store's size and age, and each watched sale item at a glance.
   const historyReport=()=>({...history.summary(),watched:Object.fromEntries(watched.map(id=>[itemName(data,id),history.describe(id)]))});
-  return {runtime,receive,next,sale,purchase,restockPotion,restockIngredient,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setSalePricing,setBuyback,setPriceFeed,unitValue,askPrice,closed,priceFeedAge:()=>feed?now()-feed.at:null,
+  return {runtime,receive,next,sale,purchase,restockPotion,restockIngredient,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setBuyback,setPriceFeed,unitValue,askPrice,closed,priceFeedAge:()=>feed?now()-feed.at:null,
     averagePrice:history.averagePrice,dailyVolume:history.dailyVolume,priceTrend:history.priceTrend,historyReport,
     configureProcurement,equipmentPurchase,foodPurchase,buffFood,potionDose,marketBuyPrice,surplusValue,watchPurchases:scan,
     purchaseAllowance:(p,goal)=>{select(p);return purchaseAllowance(p,goal);}};

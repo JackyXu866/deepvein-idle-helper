@@ -119,6 +119,16 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
       }
     }
     if(recovery)recovery=null;
+    // Enhancing runs beside any task (the game neither stops the route nor
+    // needs the bank), so the table's worthwhile, affordable step starts now,
+    // not at a batch end that a sale or the next batch then takes over.
+    if(!overflow&&!goal?.temporary&&!goal?.developmentFiller&&!goal?.itemTarget&&!upgrading&&!goal?.upgrade&&
+      (mode==='balanced'||goal&&(goal.specialization||mode==='experience'))) {
+      // Every slot, as the investment table values it for this goal (its use share);
+      // never the slot a gear project is replacing.
+      const enhancement=planEnhancement(data,planner,p,style,{...goal,budget:capacity,upgrade:investmentGoal?.upgrade});
+      if(enhancement?.intent)return enhancement;
+    }
     if(p.route?.errand&&!overflow)return null;
     if(!overflow&&p.coins>=capacity.coins&&finishTaskReason(data,p))return null;
     if(!overflow&&!upgrading&&!goal?.temporary&&!goal?.developmentFiller&&!goal?.itemTarget&&!goal?.mastery&&planner.professionUpgrade&&p.lastTick>=gearDeferredUntil&&
@@ -201,12 +211,6 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
           '剩余库存均受保护；继续不新增物品种类的任务，保留稀有、种子及计划物资',
         {capacityLimited:true,...((planner.marketClosed?.(p)??p.ironman)&&deferredSale?{reason:
           `${deferredSale.reason}；暂做不新增物品种类的工作`}:{})});
-    }
-    if(goal?.temporary||goal?.developmentFiller||goal?.itemTarget||upgrading)return deferredSale;
-    if((mode==='balanced'||goal&&(goal.specialization||mode==='experience'))&&!goal?.upgrade) {
-      // Every slot, as the investment table values it for this goal (its use share).
-      const enhancement=planEnhancement(data,planner,p,style,{...goal,budget:reserve});
-      if(enhancement?.intent)return enhancement;
     }
     return deferredSale;
   }

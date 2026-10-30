@@ -86,6 +86,19 @@ test('enhancement runs only on the worthwhile route, up to its stopping point', 
   assert.notEqual(result.enhancement.slot, 'helmet');
 });
 
+test('enhancing starts mid-task: it runs beside the route, so no batch end is awaited', async () => {
+  const {createEconomy} = await import('../src/economy/economy.js');
+  const {planner, d, p} = fighter(5_000_000);
+  p.bank[d.shardId] = 10000;
+  const crop = d.jobs.find(j => j.grow);
+  const site = d.sites.find(s => s.jobIds.includes(crop.id));
+  const working = {...p, route: {jobId: crop.id, siteId: site.id, phase: 'working', errand: true, limit: 0}};
+  const plan = createEconomy(d, planner, {}).maintenance(working, null, 'melee', 'balanced');
+  assert.equal(plan?.intent?.t, 'enhance', JSON.stringify(plan));
+  const row = planner.investmentOptions(p, 'melee', null).find(r => r.kind === 'enhance' && r.cheapest && r.worth);
+  assert.equal(plan.intent.itemId, row.current, 'the table\'s pick');
+});
+
 test('worn legendary gear is enhanced by the same table (it stays worn; other legendary use stays blocked)', async () => {
   const {validateIntent} = await import('../src/runtime/intents.js');
   const {planner, d, p} = fighter(5_000_000);

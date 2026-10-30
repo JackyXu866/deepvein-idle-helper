@@ -70,9 +70,6 @@ import {itemLabel, packQty} from '../planner/items.js';
     catch {/* Without it, a helper-set fallback later reads as the player's and is left alone. */}
   }
   // How sales are priced: 'list' at the ask (wait for buyers) or 'bid' (sell now).
-  const salePricingKey='deepvein-sale-pricing-v1';
-  let salePricing='list';
-  try {salePricing=localStorage.getItem(salePricingKey)==='bid'?'bid':'list';}catch{}
   // Experience mode: minimum gold per hour a chosen task must earn (0 = off).
   const profitFloorKey='deepvein-profit-floor-v1';
   const validProfitFloor=value=>Number.isFinite(value)&&value>0?Math.min(1e9,Math.floor(value)):0;
@@ -82,7 +79,7 @@ import {itemLabel, packQty} from '../planner/items.js';
   const enhancementStore=enhancementStorage(localStorage);
   planner.enhancementTraining=createEnhancementTraining(GAME_DATA,planner,enhancementStore);
   let economy=createEconomy(GAME_DATA,planner,{autoSell,capacitySales,sellCrafted});
-  const market=createMarket(GAME_DATA,planner,{now:()=>Date.now(),storage:localStorage,historyStorage:localStorage,autoSell,capacitySales,salePricing});
+  const market=createMarket(GAME_DATA,planner,{now:()=>Date.now(),storage:localStorage,historyStorage:localStorage,autoSell,capacitySales});
   const procurementKey='deepvein-procurement-v1';
   let procurement;
   try {procurement=market.configureProcurement(JSON.parse(localStorage.getItem(procurementKey)||'{}'));}
@@ -264,7 +261,7 @@ import {itemLabel, packQty} from '../planner/items.js';
     const url=URL.createObjectURL(new Blob([PLANNING_WORKER_SOURCE],{type:'text/javascript'}));
     try{return new Worker(url);}finally{URL.revokeObjectURL(url);}
   }):null;
-  const planningSettings=()=>({autoSell,capacitySales,sellCrafted,autoFallback,autoSeedQuality,autoHousing,automation,potionRestock,profitFloor,salePricing,hotFollow:trainer.getHotFollow()});
+  const planningSettings=()=>({autoSell,capacitySales,sellCrafted,autoFallback,autoSeedQuality,autoHousing,automation,potionRestock,profitFloor,hotFollow:trainer.getHotFollow()});
   function planningStorage() {
     return Object.fromEntries(PLANNING_STORAGE_KEYS.map(key=>[key,localStorage.getItem(key)]));
   }
@@ -1766,7 +1763,7 @@ import {itemLabel, packQty} from '../planner/items.js';
                 </div>
                 <div data-profit-floor-controls hidden>
                   <label>最低收益（金币/小时）<input type="number" min="0" step="100" inputmode="numeric" data-profit-floor aria-label="最低收益（金币/小时）"></label>
-                  <p class="muted setting-note">只选择收益不低于此值的工作，再比经验；出售收入按“出售方式”扣税估算；选中的工作产出会被出售。都达不到时改做最赚钱的工作。0 为不限制。</p>
+                  <p class="muted setting-note">只选择收益不低于此值的工作，再比经验；出售收入按当日成交均价的出售规则扣税估算；选中的工作产出会被出售。都达不到时改做最赚钱的工作。0 为不限制。</p>
                   <p class="label">按当前角色的建议（点击使用）</p>
                   <div data-profit-suggestions class="suggestions"><p class="muted setting-note">打开本页后计算…</p></div>
                 </div>
@@ -1849,14 +1846,13 @@ import {itemLabel, packQty} from '../planner/items.js';
                   <p class="fine-print">制作先用现货，缺口优先比较市场供料；缺货、过贵或买不起再自备。按整批原料的价格、数量与省下的时间选择配方，不设固定金币底线或每小时限额，保留任务必需开销。背包、仓库同品质原料合批制作；稀有材料保留，已被完全替代的品质／强化装备仅按实际品级卖市场。</p>
                   <p class="fine-print">自主发展／经验优先练采矿、伐木时，可在原地清理不需要的普通主产物，省下的往返时间须超过产物价值；钓鱼、偷窃不自动丢。保留至少 50 件周转物资、计划材料、所有稀有物及副产物，不启用游戏的一键丢弃采集物。</p>
                   <label>平时也出售多余物品<input type="checkbox" data-auto-sell aria-label="平时也出售多余物品"></label>
-                  <p class="fine-print">开启：每次回仓时，把所有超出保留量的普通物品按下方“出售方式”挂单或卖出。关闭：只出售为赚钱而选择的工作的产出（主业经营、最低收益按售价选中的工作，其收益本就按出售计算），其他物品只在仓库满时按“满仓时出售普通盈余”清理。保留量：当前计划和供料链需要的材料、每种 50 件周转材料、3 趟战斗食物、种子与作物储备；药水、稀有／特殊掉落、坐骑宠物、传说物品、强化材料和装备方案一律不卖。关闭时会撤回助手自己尚未成交的挂单，不动你的手动挂单。</p>
+                  <p class="fine-print">开启：每次回仓时，把所有超出保留量的普通物品按下方出售价格规则挂单或卖出。关闭：只出售为赚钱而选择的工作的产出（主业经营、最低收益按售价选中的工作，其收益本就按出售计算），其他物品只在仓库满时按“满仓时出售普通盈余”清理。保留量：当前计划和供料链需要的材料、每种 50 件周转材料、3 趟战斗食物、种子与作物储备；药水、稀有／特殊掉落、坐骑宠物、传说物品、强化材料和装备方案一律不卖。关闭时会撤回助手自己尚未成交的挂单，不动你的手动挂单。</p>
                   <label>满仓时出售普通盈余<input type="checkbox" data-capacity-sales aria-label="满仓时出售普通盈余"></label>
                   <label>出售制作产出（保留可能的升级）<input type="checkbox" data-sell-crafted aria-label="出售制作产出，保留可能的升级"></label>
                   <p class="fine-print">烹饪、锻造、制箭、制作的产出，超出计划用量、周转库存和口粮储备的部分会出售。装备按位置和职业分别比较，每款只留一件最高品质；当前能穿的低级件和还穿不上的高级件都保留，被更好且已可穿的装备取代后才出售；其余品质／强化件按同品质成交价仅挂市场。传说、药水和稀有材料不卖。平时出售关闭时也生效。</p>
-                  <label>出售方式<select data-sale-pricing aria-label="出售方式"><option value="list">挂单：按卖盘价等待成交</option><option value="bid">直接卖给买单：立即成交</option></select></label>
-                  <p class="fine-print">挂单：比最低卖价低一档挂出，税后须比最高买单多 5% 以上，且近 2 小时成交量足以消化同价排队卖量，否则直接卖给买单；同一批挂两轮仍未卖完时改为卖给买单。商人（系统回收，基础价值 40%）始终可卖，是所有估值的下限：为赚钱选中的工作，市场无法高于商人价时直接卖给商人。城镇回购：每小时读取回购记录；上次被回购的普通物品按其实付均价（约商人价的倍数）估值，挂单价不超过商人价 1.5 倍并低于最低卖价一档，保留到下次回购后才复核，未成交转商人；同时最多 2 笔，留出挂单槽。收益规划也按同样方式估值。</p>
+                  <p class="fine-print">出售价格按当日成交均价（近 24 小时看到的成交，没有时用价格总表的 7 天均价）：最高买单不低于均价 5% 以内就直接卖给买单，一次吃掉同价的所有买单；均价明显更高时按均价挂单，并低于最低卖价一档，每 30 分钟复核降价 10%；同一批挂两轮仍未卖完时改为卖给买单。同一物品 30 分钟内只卖一批。商人（系统回收，基础价值 40%）始终可卖，是所有估值的下限：为赚钱选中的工作，市场无法高于商人价时直接卖给商人。城镇回购：每小时读取回购记录；上次被回购的普通物品按其实付均价（约商人价的倍数）估值，挂单价不超过商人价 1.5 倍并低于最低卖价一档，保留到下次回购后才复核，未成交转商人；同时最多 2 笔，留出挂单槽。收益规划也按同样方式估值。</p>
                   <p data-market class="muted"></p>
-                  <details><summary>出售范围与保护</summary><p class="fine-print">日常出售默认关闭，满仓清理默认开启。扣除计划用量后处理普通盈余和淘汰装备。品质／强化装备只有已有可穿戴且属性全面更好的替代品、没有在用或套装／目标引用时才可卖；按同品质同强化近 2 小时成交中位价参考，最多下浮 10%，没有可靠行情或需求不足则保留，绝不转系统回收。所有坐骑、宠物、低概率掉落（含白色）、稀有材料、种子、药水、食物储备和装备方案均保留。保护也覆盖旧版脚本挂单，未成交的会撤回，不动玩家手动单。按所选出售方式挂单或成交买单；挂售量参考近 2 小时可见成交和排队卖量。满仓且最新有效记录显示滞销的普通盈余可直接系统回收；其他仍需挂售至少 2 小时并重新定价。查询失败、历史缺失或挂单槽满不会触发直接回收。不自动捐赠。</p></details>
+                  <details><summary>出售范围与保护</summary><p class="fine-print">日常出售默认关闭，满仓清理默认开启。扣除计划用量后处理普通盈余和淘汰装备。品质／强化装备只有已有可穿戴且属性全面更好的替代品、没有在用或套装／目标引用时才可卖；按同品质同强化近 2 小时成交中位价参考，最多下浮 10%，没有可靠行情或需求不足则保留，绝不转系统回收。所有坐骑、宠物、低概率掉落（含白色）、稀有材料、种子、药水、食物储备和装备方案均保留。保护也覆盖旧版脚本挂单，未成交的会撤回，不动玩家手动单。按当日成交均价规则挂单或成交买单；挂售量参考近 2 小时可见成交和排队卖量。满仓且最新有效记录显示滞销的普通盈余可直接系统回收；其他仍需挂售至少 2 小时并重新定价。查询失败、历史缺失或挂单槽满不会触发直接回收。不自动捐赠。</p></details>
                 </details>
                 <details data-buffs-details><summary>药水与食物</summary>
                   <p data-buffs class="muted"></p>
@@ -2021,12 +2017,6 @@ import {itemLabel, packQty} from '../planner/items.js';
       try {localStorage.setItem(sellCraftedKey,String(sellCrafted));}
       catch {trainer.log('出售制作产出设置无法保存，刷新后恢复为开启');}
       render();
-    };
-    panel.querySelector('[data-sale-pricing]').onchange=event=>{
-      salePricing=event.currentTarget.value==='bid'?'bid':'list';market.setSalePricing(salePricing);
-      try {localStorage.setItem(salePricingKey,salePricing);}
-      catch {trainer.log('出售方式无法保存，刷新后恢复为挂单');}
-      planner.resetSpecialization();render();
     };
     panel.querySelector('[data-capacity-sales]').onchange=event=>{
       capacitySales=event.currentTarget.checked===true;
@@ -3021,7 +3011,6 @@ import {itemLabel, packQty} from '../planner/items.js';
       panel.querySelector('[data-fallback-status]').textContent=!p?'':
         `当前：${name??'未设置'}${owner==='player'?'（你设置的，保持不变）':owner==='helper'?'（助手设置）':owner==='cleared'?'（你已清除；重新勾选可恢复自动设置）':''}`;
     }
-    panel.querySelector('[data-sale-pricing]').value=salePricing;
     panel.querySelector('[data-mode-info]').textContent=modeInfo[trainer.mode];
     panel.querySelector('[data-training-policy]').textContent=trainer.mode==='assist'?
       '不安排练级、装备、交易或采购任务；不采种、不解锁新作物。玩家可继续编辑自己的队列，手动操作优先。':

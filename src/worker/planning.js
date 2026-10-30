@@ -31,7 +31,7 @@ export const planningState=trainer=>Object.fromEntries(inputFields.map(key=>[key
 // left out: they change every few seconds, partly by planning itself, and a
 // purchase re-checks the live book before it is sent.
 const MARKET_GUARD=['playerId','orders','ordersKnown','saved','cooldowns','procurement','salesEnabled','capacitySalesEnabled',
-  'pricing','buyback','taxBp','recentOwned','reviewOrderId'];
+  'buyback','taxBp','recentOwned','reviewOrderId'];
 export const marketGuard=runtime=>Object.fromEntries(MARKET_GUARD.map(key=>[key,runtime[key]]));
 export function planningGuard(trainer,planner,market,settings) {
   const boss=trainer.boss.status();
