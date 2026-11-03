@@ -500,7 +500,7 @@ export function createPlanner(data) {
       ...Object.entries(p.bank??{}).filter(([id,n])=>n>0&&Number(id)%data.plusScale===t.itemId).map(([id])=>({id:Number(id),slot:null}))]
       .sort((a,b)=>Number(b.slot===t.slot)-Number(a.slot===t.slot)||plus(b.id)-plus(a.id));
     const copy=copies[0];
-    const per=`共 ${t.points} 点，约 ${Math.round(t.gold/t.points).toLocaleString()} 金币/点`;
+    const per=`共 ${t.points} 点，`+(t.gold<0?`净省约 ${Math.round(-t.gold).toLocaleString()} 金币`:`约 ${Math.round(t.gold/t.points).toLocaleString()} 金币/点`);
     if(!copy) {
       if(t.acquire!=='市场'||!(t.ask>0))return null;
       return api.marketEquipment?.(p,goal,style,{ids:[t.itemId],row:{id:t.itemId,gold:t.ask,label:`补精通 · 强化记录用 ${itemLabel(data,t.itemId)}`,

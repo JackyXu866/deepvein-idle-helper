@@ -56,6 +56,9 @@ export function createCollectionMastery(data,{price=null,forge=null}={}) {
   const name=target=>target.forge?`${qualityName(target.rarity)} ${target.tier+1} 档强化记录（${itemName(data,target.base)}）`:
     `${qualityName(target.rarity)} ${itemName(data,target.base)}`;
   const perPoint=t=>Math.round(t.gold/t.points).toLocaleString();
+  // Gold per point, or the net gain when what it saves exceeds what it costs
+  // (a worn piece forged: its stronger stats repay more than the enhancing).
+  const costText=t=>t.gold<0?`净省约 ${Math.round(-t.gold).toLocaleString()} 金币（变强省下的超过花费）`:`约 ${perPoint(t)} 金币/点`;
   function rank(p,style) {
     if(owner===p.id&&p.lastTick-rankedAt<Math.ceil(600000/data.tickMs))return ranked;
     owner=p.id;rankedAt=p.lastTick;
@@ -74,12 +77,12 @@ export function createCollectionMastery(data,{price=null,forge=null}={}) {
     if(target.make) {
       const job=data.jobs.find(j=>j.output.itemId===target.base&&j.inputs.length&&!j.grow);
       return {mastery:{...target},skill:job?.skill??professionSkill(style),target:Infinity,recipeId:job?.id,budget:{coins:0,items:{}},
-        reason:`补精通 · 自制 ${qualityName(target.rarity)} ${itemName(data,target.base)} 用于${name(target)} → +${target.toPlus}：${target.points} 点，约 ${perPoint(target)} 金币/点（含制作时间，当前最划算）`};
+        reason:`补精通 · 自制 ${qualityName(target.rarity)} ${itemName(data,target.base)} 用于${name(target)} → +${target.toPlus}：${target.points} 点，${costText(target)}（含制作时间，当前最划算）`};
     }
     const job=data.jobs.find(j=>j.output.itemId===target.base)??data.jobs.find(j=>j.bonus?.itemId===target.base);
     return {mastery:{...target},skill:job?.skill??professionSkill(style),target:Infinity,
       recipeId:job?.id,budget:{coins:0,items:{}},
-      reason:`补精通 · ${name(target)}：${count(p,target)} / ${target.target}，${target.points} 点，约 ${perPoint(target)} 金币/点（当前最划算）`};
+      reason:`补精通 · ${name(target)}：${count(p,target)} / ${target.target}，${target.points} 点，${costText(target)}（当前最划算）`};
   }
   // The forge level to enhance toward beside the work: the cheapest per point,
   // only while it is cheaper than the work's collection.
@@ -99,7 +102,7 @@ export function createCollectionMastery(data,{price=null,forge=null}={}) {
   function status(p,style='magic') {
     if(!p?.collections)return '等待服务器收藏计数；购买成品不计入精通。';
     const targets=rank(p,style).slice(0,6);
-    return targets.length?targets.map((t,index)=>`${index+1}. ${name(t)}${t.forge?` → +${t.toPlus}${t.acquire&&t.acquire!=='已持有'?`（${t.acquire === '市场'?'先买':'先做'}一件）`:''}`:`：${count(p,t)} / ${t.target}`}，${t.points} 点，约 ${perPoint(t)} 金币/点`).join('\n'):
+    return targets.length?targets.map((t,index)=>`${index+1}. ${name(t)}${t.forge?` → +${t.toPlus}${t.acquire&&t.acquire!=='已持有'?`（${t.acquire === '市场'?'先买':'先做'}一件）`:''}`:`：${count(p,t)} / ${t.target}`}，${t.points} 点，${costText(t)}`).join('\n'):
       '暂无可补的奖励项（已跳过传说与种植）；等待收藏进度变化。';
   }
   return {chooseGoal,forgeNext,completed,skipped,status,name,reset:()=>{owner=null;ranked=[];rankedAt=-Infinity;},
