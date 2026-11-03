@@ -490,8 +490,11 @@ export class Trainer {
             this.log(`游戏未确认清空队列：`+this.queueSummary()+'；请在游戏里检查后再开始');}
         }
         if(this.pending?.intent.t==='walk'){
+          // A walk under way (a step taken or a path set) gets the long wait,
+          // renewed with each step; one never started is checked like any command.
           const position=`${this.player.x},${this.player.y}`;
-          if(this.pending.position&&this.pending.position!==position)this.pending.sentAt=this.now();
+          if(this.pending.position&&this.pending.position!==position){this.pending.sentAt=this.now();this.pending.moving=true;}
+          if(this.player.path?.length)this.pending.moving=true;
           this.pending.position=position;
         }
         if (!this.active&&first) this.message=this.compatible?'已同步，可开始收益规划':'游戏协议版本不匹配';
@@ -898,7 +901,7 @@ export class Trainer {
       }
       return;
     }
-    if (this.pending && now-this.pending.sentAt>(this.pending.intent.t==='walk'?300000:30000))
+    if (this.pending && now-this.pending.sentAt>(this.pending.intent.t==='walk'&&this.pending.moving?300000:30000))
       this.checkCommand(`操作未得到确认：${this.pending.label}`);
     // A due periodic sync must not discard a response received since the last one.
     // Background timers can fire less often than the sync interval.
