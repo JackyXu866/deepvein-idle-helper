@@ -1,7 +1,7 @@
 import {autoUsableMaterial, pricePerEffect, rarityPower, usableQualities} from '../planner/quality.js';
 import {action, waiting} from '../planner/result.js';
 import {POTIONS, foodEffects, foodHealing} from '../planner/supplies.js';
-import {coinReserve, inventoryBudget, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
+import {ENHANCEMENT_MAX, coinReserve, inventoryBudget, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
 import {goldToSeconds, maxPrice, pays, secondsToGold} from '../planner/gold.js';
 import {bankTripSeconds, dayTicks as dayTicksOf, playerQueued, distance, itemLabel, itemName, merchantPrice, minListPrice, netProceeds, plusOf, rarityOf, reachableQty, stockQty, tradableBase} from '../planner/items.js';
 import {MARKET_HISTORY_KEY, createMarketHistory} from './market-history.js';
@@ -385,7 +385,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   const tier=id=>rarityOf(data,id);
   const labelOf=id=>itemLabel(data,id);
   const variants=id=>usableQualities(data,id);
-  const purchasable=id=>valid(id)&&autoUsableMaterial(data,id)&&plusOf(data,id)<=5&&
+  const purchasable=id=>valid(id)&&autoUsableMaterial(data,id)&&plusOf(data,id)<=ENHANCEMENT_MAX&&
     tradable(planner.base(id))&&(id<data.plusScale||!!planner.equipmentStats(id));
   function configureProcurement(value={}) {
     // Old reserve/hourly preferences migrate to value-based purchasing.
@@ -411,6 +411,9 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
       // The price feed answers without a query; buy() re-checks the live ask.
       const top=topOfBook(id);
       if(top){if(valid(top.ask)&&top.askQty>0)found.push(top.at!=null?top:{itemId:id,ask:top.ask,askQty:top.askQty,feed:true});continue;}
+      // The fresh feed lists every item with an order: one it leaves out has
+      // nothing for sale, so its book is not asked for.
+      if(feed&&now()-feed.at<feedTtl)continue;
       if(!bookRequests.has(id))bookRequests.set(id,{sentAt:null});
     }
     return found;
@@ -481,12 +484,12 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   // once its live ask is confirmed at no more than the table's price: the table
   // already weighed every quality, enhancement, making it and enhancing the worn
   // piece by one payback rule. `ids`: the pieces whose quotes are watched (every
-  // quality and +0..+5) so the table can price them.
+  // quality and +0..+20) so the table can price them.
   function equipmentPurchase(p,goal,profession,{ids,row=null}) {
     select(p);if(!ids.length||!purchaseAllowance(p,goal))return null;
     const scanKey=JSON.stringify([profession,p.equipment,planner.levels(p)]);
     if(equipmentScan?.key!==scanKey)equipmentScan={key:scanKey,startedAt:now()};
-    const candidates=ids.flatMap(id=>variants(id).flatMap(quality=>Array.from({length:6},(_,plus)=>quality+plus*data.plusScale)));
+    const candidates=ids.flatMap(id=>variants(id).flatMap(quality=>Array.from({length:ENHANCEMENT_MAX+1},(_,plus)=>quality+plus*data.plusScale)));
     scan(p,candidates);
     if(row&&row.gold<=purchaseAllowance(p,goal)) {
       const result=buy(p,row.id,1,goal,'市场升级装备',`投资表首选：${row.label}，约 ${(row.paid/3600).toFixed(1)} 小时金币，`+

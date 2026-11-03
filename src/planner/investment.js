@@ -1,4 +1,4 @@
-import {ENHANCEMENT_BASELINE, ENHANCEMENT_MAX, enhanceQuote} from './inventory.js';
+import {ENHANCEMENT_MAX, enhanceQuote} from './inventory.js';
 import {formulaWork} from './rates.js';
 import {canWear, professionSkill} from './professions.js';
 import {LEGENDARY, autoUsableMaterial, craftRecipe} from './quality.js';
@@ -194,9 +194,9 @@ export function createInvestments(data,planner) {
       // Every quality of a piece that beats the floor, priced; the best net
       // saving wins (the cheapest quality that beats may save far less than a
       // dearer one: common Bone gloves +1% against rare +13%).
-      // Enhanced copies (+1..+5) on the market count too: the buy step buys
+      // Enhanced copies (+1..+20) on the market count too: the buy step buys
       // only what this table priced.
-      const bestQuality=(kind,base,tiers)=>tiers.flatMap(r=>Array.from({length:ENHANCEMENT_BASELINE+1},
+      const bestQuality=(kind,base,tiers)=>tiers.flatMap(r=>Array.from({length:ENHANCEMENT_MAX+1},
         (_,plus)=>base+r*data.rarityScale+plus*data.plusScale))
         .map(id=>{
           if(!plusOf(data,id))return [id,acquire(p,id,coinRate)];
@@ -222,10 +222,11 @@ export function createInvestments(data,planner) {
         }
         if(best)rows.push(best);
       }
-      // A higher quality of the same piece.
+      // A better copy of the same piece: a higher quality, or the same quality
+      // at a higher +N on sale (only copies that beat the worn one survive).
       if(current!=null) {
-        const higher=Array.from({length:Math.max(0,LEGENDARY-rarityOf(data,current)-1)},(_,i)=>rarityOf(data,current)+1+i);
-        const quality=bestQuality('quality',baseId(data,current),higher);
+        const tiers=Array.from({length:Math.max(0,LEGENDARY-rarityOf(data,current))},(_,i)=>rarityOf(data,current)+i);
+        const quality=bestQuality('quality',baseId(data,current),tiers);
         if(quality)rows.push(quality);
       }
       // Another piece wearable now, in its quality with the best net saving.

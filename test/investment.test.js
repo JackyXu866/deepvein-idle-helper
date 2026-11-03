@@ -107,6 +107,17 @@ test('stopping points reach past +5 when cheap gold makes them pay (up to the ga
   assert.ok(rows.every(r => r.toPlus <= 20));
 });
 
+test('a copy of the worn piece at a higher +N on sale (past +5) is priced against enhancing it', () => {
+  const {planner, d, p} = fighter(5_000_000);
+  const copy = p.equipment.weapon + 8 * d.plusScale;
+  planner.marketAsk = (_p, id) => id === copy ? 1000 : null;
+  const row = planner.investmentOptions(p, 'melee', null).find(r => r.slot === 'weapon' && r.id === copy);
+  assert.ok(row, 'the +8 copy has a row');
+  assert.equal(row.kind, 'quality');
+  assert.equal(row.gold, 1000);
+  assert.ok(row.worth && row.cheapest, 'at 1,000 gold it beats enhancing the worn blade');
+});
+
 test('a failed attempt does not block the piece: the table decides whether to try again', async () => {
   const {createEnhancementTraining} = await import('../src/planner/enhancement.js');
   const {planner, d, p} = fighter(5_000_000);
