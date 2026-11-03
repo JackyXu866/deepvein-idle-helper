@@ -64,9 +64,18 @@ export function createCollectionMastery(data,{price=null,forge=null}={}) {
       .sort((a,b)=>a.gold/a.points-b.gold/b.points||b.points-a.points);
     return ranked;
   }
+  // A piece held at any +N (a forge level's piece to make is then done).
+  const held=(p,id)=>Object.values(p.equipment??{}).some(e=>e!=null&&e%data.plusScale===id)||
+    Object.entries(p.bank??{}).some(([e,n])=>n>0&&Number(e)%data.plusScale===id);
   function chooseGoal(p,style='magic') {
     if(!p.collections)return null;
-    const target=rank(p,style).find(t=>!t.forge);if(!target)return null;
+    // The work: the cheapest collection, or making the piece a cheaper forge level needs.
+    const target=rank(p,style).find(t=>!t.forge||t.make&&!held(p,t.itemId));if(!target)return null;
+    if(target.make) {
+      const job=data.jobs.find(j=>j.output.itemId===target.base&&j.inputs.length&&!j.grow);
+      return {mastery:{...target},skill:job?.skill??professionSkill(style),target:Infinity,recipeId:job?.id,budget:{coins:0,items:{}},
+        reason:`补精通 · 自制 ${qualityName(target.rarity)} ${itemName(data,target.base)} 用于${name(target)} → +${target.toPlus}：${target.points} 点，约 ${perPoint(target)} 金币/点（含制作时间，当前最划算）`};
+    }
     const job=data.jobs.find(j=>j.output.itemId===target.base)??data.jobs.find(j=>j.bonus?.itemId===target.base);
     return {mastery:{...target},skill:job?.skill??professionSkill(style),target:Infinity,
       recipeId:job?.id,budget:{coins:0,items:{}},
@@ -79,18 +88,18 @@ export function createCollectionMastery(data,{price=null,forge=null}={}) {
     // A level reached since the list was drawn: draw it again (the next level is priced anew).
     if(rank(p,style).some(t=>t.forge&&forgeReached(p,t.tier,t.rarity,t.toPlus)))rankedAt=-Infinity;
     const work=goal?.mastery?.points>0&&Number.isFinite(goal.mastery.gold)?goal.mastery.gold/goal.mastery.points:Infinity;
-    return rank(p,style).find(t=>t.forge&&t.gold/t.points<=work)??null;
+    return rank(p,style).find(t=>t.forge&&!(t.make&&!held(p,t.itemId))&&t.gold/t.points<=work)??null;
   }
   function completed(p,goal) {
-    const done=!!p.collections&&count(p,goal.mastery)>=goal.mastery.target;
+    const done=goal.mastery.make?held(p,goal.mastery.itemId):!!p.collections&&count(p,goal.mastery)>=goal.mastery.target;
     if(done)rankedAt=-Infinity;
     return done;
   }
-  const skipped=goal=>skipMastery(data,goal.mastery.base,goal.mastery.rarity);
+  const skipped=goal=>!goal.mastery.forge&&skipMastery(data,goal.mastery.base,goal.mastery.rarity);
   function status(p,style='magic') {
     if(!p?.collections)return '等待服务器收藏计数；购买成品不计入精通。';
     const targets=rank(p,style).slice(0,6);
-    return targets.length?targets.map((t,index)=>`${index+1}. ${name(t)}${t.forge?` → +${t.toPlus}`:`：${count(p,t)} / ${t.target}`}，${t.points} 点，约 ${perPoint(t)} 金币/点`).join('\n'):
+    return targets.length?targets.map((t,index)=>`${index+1}. ${name(t)}${t.forge?` → +${t.toPlus}${t.acquire&&t.acquire!=='已持有'?`（${t.acquire === '市场'?'先买':'先做'}一件）`:''}`:`：${count(p,t)} / ${t.target}`}，${t.points} 点，约 ${perPoint(t)} 金币/点`).join('\n'):
       '暂无可补的奖励项（已跳过传说与种植）；等待收藏进度变化。';
   }
   return {chooseGoal,forgeNext,completed,skipped,status,name,reset:()=>{owner=null;ranked=[];rankedAt=-Infinity;},

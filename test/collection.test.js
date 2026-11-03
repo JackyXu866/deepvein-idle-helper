@@ -74,6 +74,41 @@ test('a held piece is forged beside the collection work when that costs less per
   assert.equal(planner.masteryForge({...p, enhance: {itemId: knife}}, 'melee', goal), null);
 });
 
+test('a worn piece is forged before an idle copy: its stronger stats save time, taken off its price', () => {
+  const {planner, d, p} = setup({[COPPER]: 50}, {coins: 50_000_000});
+  const blade = d.gear.find(g => g.slot === 'weapon' && d.items[g.itemId].name.startsWith('Cobalt blade')).itemId;
+  Object.assign(p, player(planner, {levels: {melee: 62, defence: 60, hitpoints: 62}, hp: 600, coins: 50_000_000, activity: 'idle', path: null,
+    equipment: {weapon: blade}, collections: {[COPPER]: 50}}));
+  p.bank = {...p.bank, [blade]: 1, [d.shardId]: 5000};
+  p.forgeLog = {};
+  planner.stockSold = () => false;
+  const pair = c => c.tier * 5 + c.rarity;
+  const key = (() => { const all = planner.masteryForgeCandidates(p, 'melee'); return all.find(c => c.base === blade); })();
+  assert.ok(key, 'the blade\'s tier and quality is a forge candidate');
+  assert.equal(key.slot, 'weapon', 'the worn blade, not the bank copy');
+  assert.ok(key.saving > 0, 'its speed gain is credited');
+  const bankOnly = planner.masteryForgeCandidates({...p, equipment: {}}, 'melee').find(c => pair(c) === pair(key));
+  assert.ok(bankOnly.gold / bankOnly.points > key.gold / key.points, 'the same levels cost more per point on an idle copy');
+});
+
+test('a tier and quality not held: the cheapest piece is bought (or made) first, its cost in the price', () => {
+  const {planner, d, p} = setup({[COPPER]: 50}, {coins: 1_000_000});
+  p.bank = {...p.bank, [d.shardId]: 500};
+  p.forgeLog = {};
+  planner.stockSold = () => false;
+  const knife = d.gear.find(g => g.slot === 'knife').itemId;
+  planner.marketAsk = (_p, id) => id === knife ? 1 : null; // a one-coin knife on the market
+  const bought = [];
+  planner.marketEquipment = (_p, _g, _s, {row}) => { bought.push(row.id); return {intent: {t: 'marketBuy', itemId: row.id, qty: 1, price: row.gold}, label: 'buy'}; };
+  const c = planner.masteryForgeCandidates(p, 'melee').find(x => x.base === knife);
+  assert.equal(c.acquire, '市场');
+  assert.ok(c.gold >= 1);
+  const goal = planner.masteryChooseGoal(p, 'melee');
+  const step = planner.masteryForge(p, 'melee', goal);
+  assert.equal(step?.intent?.t, 'marketBuy', JSON.stringify(step));
+  assert.deepEqual(bought, [knife]);
+});
+
 test('an uncommon bar waits on gathering for uncommon ore instead of using common ore', () => {
   const {planner, d, p, R} = setup({});
   Object.assign(p, player(planner, {levels: {mining: 20, smithing: 20}, hp: 100, activity: 'idle', path: null,

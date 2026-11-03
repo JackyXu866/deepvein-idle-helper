@@ -3,7 +3,7 @@ import {formulaWork} from './rates.js';
 import {canWear, professionSkill} from './professions.js';
 import {LEGENDARY, autoUsableMaterial, craftRecipe} from './quality.js';
 import {baseId, heldIds, itemLabel, plusOf, rarityOf} from './items.js';
-import {goldToSeconds, incomePayback, payback} from './gold.js';
+import {goldToSeconds, incomePayback, payback, secondsToGold} from './gold.js';
 import {harvestCrops} from './farming.js';
 import {COMBAT_SLOTS, USE_CAP_SECONDS, fitsSlot, shieldless, useSeconds as sharedUseSeconds} from './gear.js';
 export {USE_CAP_SECONDS} from './gear.js';
@@ -250,6 +250,25 @@ export function createInvestments(data,planner) {
       !rows.some(o=>o!==row&&o.slot===row.slot&&(o.kind==='owned'||o.worth&&o.net>row.net)));
     return rows.sort((a,b)=>b.net-a.net);
   }
+  // The time wearing `id` in place of the worn piece in `slot` saves over its
+  // use, as the table counts it (an enhance row's `saved`); 0 for a slot the
+  // profession does not use or no gain.
+  function savingOf(p,style,slot,id) {
+    const current=p.equipment?.[slot]??null;
+    if(current==null||slot==='mount'||!slotsFor(p,style).includes(slot))return 0;
+    const ctx=contexts(p,style),coinRate=planner.coinRate?.(p)??0,share=shareOf(p,style);
+    const hoe=slot==='hoe',settle=hoe?incomePayback:payback,used=hoe?1:share(data.toolSkills[slot]??'combat');
+    const useSkill=data.toolSkills[slot]??ctx.skill;
+    const before=rate(p,style,ctx,slot,current),after=rate(p,style,ctx,slot,id);
+    if(!(before>0)||!(after>before))return 0;
+    const use=Math.min(sharedUseSeconds(data,planner,p,id,slot,hoe?farmRates(p,id).xp:after,useSkill),USE_CAP_SECONDS*used);
+    return settle({gold:0,coinRate,before,after,useSeconds:use}).saved;
+  }
+  // The cheapest way to get `id` (held, made or bought), as gold at the gold rate.
+  function acquireGold(p,id) {
+    const coinRate=planner.coinRate?.(p)??0,cost=acquire(p,id,coinRate);
+    return cost?{gold:cost.gold+secondsToGold(cost.seconds,coinRate),source:cost.source,ask:cost.source==='市场'?cost.gold:null}:null;
+  }
   let computing=false;
   function options(p,style,goal=null) {
     // The goal adds only its gear project's row.
@@ -302,5 +321,5 @@ export function createInvestments(data,planner) {
     if(value){cache=value.cache??null;fundingDeferred=value.fundingDeferred??{};}
     return {cache,fundingDeferred};
   }
-  return {options,fundingGoal,fundingEnded,runtime,gearRate,ownedBest,earningGoal};
+  return {options,fundingGoal,fundingEnded,runtime,gearRate,ownedBest,earningGoal,savingOf,acquireGold};
 }
