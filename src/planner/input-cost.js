@@ -98,11 +98,11 @@ export function createInputCost(data,planner) {
       if(vendor<bought)return {seconds:vendor,xp:0,effective:vendor,source:'vendor',gold:vendorPrice*count,stock:ctx.stock};
       return Number.isFinite(bought)?{seconds:bought,xp:0,effective:bought,source:'buy',gold:price*count,stock:ctx.stock}:null;
     };
-    // Stock costs what using it gives up: its sale value, but never more than
-    // getting it again (raw materials are kept, not sold).
+    // Stock costs what using it gives up (planner.stockValue: its sale value,
+    // nothing when the helper never sells it), never more than getting it again.
     let held=0;
     if(used>0) {
-      const saved=ctx.stock,sale=goldToSeconds(used*planner.saleValue(p,id,Math.ceil(used)),ctx.coinRate);
+      const saved=ctx.stock,sale=goldToSeconds(used*(planner.stockValue?.(p,id,Math.ceil(used))??planner.saleValue(p,id,Math.ceil(used))),ctx.coinRate);
       held=sale>0?Math.min(sale,fresh(used)?.effective??Infinity):0;ctx.stock=saved;
     }
     const rest=qty-used;

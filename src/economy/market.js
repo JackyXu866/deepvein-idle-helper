@@ -610,8 +610,8 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
       const rooted=(p.brews?.rooted??0)>p.lastTick?0:Math.min(duration,effects.rootedTicks*tick);
       // Fed: the fight-time cut its +25% max hit gives (fedShare); rooted: the food it saves.
       const benefit=secondsToGold(fed*fedShare,rate)+rooted*enemyDps/Math.max(1,healing)*damageReduction*foodValue;
-      // What eating it costs: a held one its sale value, a bought one its ask.
-      const owned=quantity(p,top.itemId)>(reserve[top.itemId]??0),cost=owned?planner.saleValue(p,top.itemId,1):top.ask;
+      // What eating it costs: a held one what using stock gives up, a bought one its ask.
+      const owned=quantity(p,top.itemId)>(reserve[top.itemId]??0),cost=owned?planner.stockValue?.(p,top.itemId,1)??planner.saleValue(p,top.itemId,1):top.ask;
       return {...top,fed,rooted,benefit,cost,owned};
     }).filter(c=>pays(goldToSeconds(c.benefit,rate),goldToSeconds(c.cost,rate))&&(!goal?.itemTarget||c.itemId!==goal.targetItemId))
       .sort((a,b)=>(b.benefit-b.cost)-(a.benefit-a.cost)||a.ask-b.ask);
@@ -688,6 +688,13 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     return {qty:row.qty,ratio:buyback.ratio,merchant,cap:Math.floor(merchant*1.5),nextTick};
   }
   const buybackHolds=()=>Object.values(state?.owned??{}).filter(o=>o.buyback).length;
+  // Whether the helper ever sells this stock: everyday selling on, the market
+  // open to the character, and not a protected item. Stock it never sells
+  // costs nothing to use (planner.stockValue).
+  function sells(p,id) {
+    select(p);
+    return salesEnabled&&!closed(p)&&tradable(planner.base(id))&&!saleProtectionReason(data,id);
+  }
   function listedQuantity(p,itemId) {
     select(p);
     return ordersKnown?orders.filter(o=>o.itemId===itemId&&o.side==='sell')
@@ -1042,7 +1049,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   }
   // deepveinDebug(): the store's size and age, and each watched sale item at a glance.
   const historyReport=()=>({...history.summary(),watched:Object.fromEntries(watched.map(id=>[itemName(data,id),history.describe(id)]))});
-  return {runtime,receive,next,sale,purchase,restockPotion,restockIngredient,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setBuyback,setPriceFeed,unitValue,askPrice,closed,priceFeedAge:()=>feed?now()-feed.at:null,
+  return {runtime,receive,next,sale,purchase,restockPotion,restockIngredient,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setBuyback,setPriceFeed,unitValue,askPrice,closed,sells,priceFeedAge:()=>feed?now()-feed.at:null,
     averagePrice:history.averagePrice,dailyVolume:history.dailyVolume,priceTrend:history.priceTrend,historyReport,
     configureProcurement,equipmentPurchase,foodPurchase,buffFood,potionDose,marketBuyPrice,surplusValue,watchPurchases:scan,
     purchaseAllowance:(p,goal)=>{select(p);return purchaseAllowance(p,goal);}};

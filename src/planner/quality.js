@@ -123,7 +123,8 @@ export function qualityHold(data,planner,p,profession,{gearOnly=false}={}) {
 export function qualityWorth(data,planner,p,job,tier) {
   const recipe=craftRecipe(data,job,tier);
   if(!tier||!recipe)return {ok:!!recipe||!tier,extraIn:0,extraOut:0,xp:0};
-  const value=(id,qty)=>qty*(planner.saleValue?.(p,id,Math.max(1,qty))??0);
+  // What the quality stock and output would bring: nothing when never sold.
+  const value=(id,qty)=>qty*((planner.stockValue??planner.saleValue)?.(p,id,Math.max(1,qty))??0);
   const extraIn=recipe.inputs.reduce((n,i,k)=>n+value(i.itemId,i.qty)-value(job.inputs[k].itemId,job.inputs[k].qty),0);
   const extraOut=value(recipe.output.itemId,recipe.output.qty)-value(job.output.itemId,job.output.qty);
   const e=planner.estimateWork?.(p,job),rate=planner.coinRate?.(p)??0;

@@ -287,7 +287,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
     const itemId=item.id,effects=foodEffects(data,itemId);
     if(!effects.rootedTicks||active('rooted')||!accessible(itemId)||planner.count(p,itemId)<=Math.max(0,budget.items[itemId]??0))continue;
     const covered=Math.min(duration,effects.rootedTicks*tick);
-    const savedFood=covered*enemyDps/healing*damageReduction*foodValue,cropValue=planner.saleValue(p,itemId);
+    const savedFood=covered*enemyDps/healing*damageReduction*foodValue,cropValue=planner.stockValue?.(p,itemId)??planner.saleValue(p,itemId);
     if(pays(goldToSeconds(savedFood,coinRate),goldToSeconds(cropValue,coinRate)))options.push({intent:{t:'eat',itemId,qty:1,...(!carried(itemId)?{shelf:true}:{})},
       label:'用盈余作物补充减伤',reason:`承伤 -20%，覆盖本批约 ${Math.ceil(covered)} 秒；`+
         `预计节省食物估值 ${Math.floor(savedFood)}，消耗作物估值 ${Math.round(cropValue)} 金币，保留正常补给和计划原料`,gain:goldToSeconds(savedFood-cropValue,coinRate)});

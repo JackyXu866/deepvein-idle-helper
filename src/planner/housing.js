@@ -181,7 +181,7 @@ export function createHousing(data,planner) {
         `使用 ${needed} 点已有房屋点数；升级在后台计时，原任务继续`);
       if(!(coinRate>0)){review.push(`${roomName(room.id)}：缺 ${missing} 点，收益暂无法估算，暂缓投料`);continue;}
       const {donors,conversions,cost,remaining}=chooseHouseFuel(data,{p,families:feeds(room),missing,inventory,budget,
-        unitValue:(id,qty)=>planner.saleValue(p,id,qty),refused:refusedFuel});
+        unitValue:(id,qty)=>planner.stockValue?.(p,id,qty)??planner.saleValue(p,id,qty),refused:refusedFuel});
       if(remaining>0){review.push(`${roomName(room.id)}：缺 ${missing} 点，可用材料可补 ${missing-remaining} 点，不足整次升级`);continue;}
       const level=p.house[room.id]??0,delay=rules.upgradeTicks*rules.upgradeGrowth**level*data.tickMs/1000;
       const share=mode==='business'&&current(room)?1:1/Math.max(1,trained.length);

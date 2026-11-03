@@ -1602,7 +1602,7 @@ export function createPlanner(data) {
   // the stage more than it sells for (inventory.planUseValue): the one rule
   // for the stage's count, its reserve, the recipe choice and the sale review.
   const worthUsingQuality=(p,goal,recipe)=>!!recipe&&recipe.inputs.filter(i=>rarityOf(data,i.itemId)>0)
-    .every(i=>planUseValue(data,api,p,goal,i.itemId)>=(api.saleValue(p,i.itemId,1)??0));
+    .every(i=>planUseValue(data,api,p,goal,i.itemId)>=(api.stockValue(p,i.itemId,1)??0));
   // Everything a leveling stage counts as its supply, kept from sale: every
   // input along its chain for the crafts still to do (any quality's common
   // parts included), and the quality stock it counts (worth using).
@@ -1690,7 +1690,10 @@ export function createPlanner(data) {
     candidates:strategy.candidates,estimateWork:strategy.estimateWork,setMeasurements:strategy.setMeasurements,byFormula:strategy.byFormula,rateSource:strategy.rateSource,routeMeasurement:strategy.routeMeasurement,
     gearScore,combatRate,combatFood,combatChoice,dropSeconds,bonusSource,bonusSeconds,batchRating,stageRating,incomeRows,coinRate,stageSupply,stageCraftCount,questQualitySets,recipeRatings:()=>recipeRatings,
     // What one unit would sell for, net of tax: the market's sale layers, else the merchant.
-    saleValue:(p,id,qty=1)=>api.marketUnitValue?.(p,id,qty)??merchantPrice(data,id)});
+    saleValue:(p,id,qty=1)=>api.marketUnitValue?.(p,id,qty)??merchantPrice(data,id),
+    // What using held stock gives up: its sale value when the helper sells it,
+    // nothing when it never does (everyday selling off, a protected item).
+    stockValue:(p,id,qty=1)=>api.stockSold?.(p,id)===false?0:api.saleValue(p,id,qty)});
   const growth=createProgression(data,api);
   const specialization=createSpecialization(data,api);
   const quests=createQuests(data,api);

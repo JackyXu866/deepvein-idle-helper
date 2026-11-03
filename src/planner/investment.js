@@ -160,7 +160,7 @@ export function createInvestments(data,planner) {
   // Every worthwhile way to improve each worn piece, on the same terms.
   function compute(p,style,goal) {
     const ctx=contexts(p,style),coinRate=planner.coinRate?.(p)??0,rows=[],share=shareOf(p,style);
-    const shardValue=planner.saleValue(p,data.shardId,1);
+    const shardValue=(planner.stockValue??planner.saleValue)(p,data.shardId,1);
     for(const slot of slotsFor(p,style)) {
       const current=p.equipment[slot]??null,worn=planner.equipmentStats(current);
       // A hoe is used until outgrown at the fields' farming XP, and repays in
