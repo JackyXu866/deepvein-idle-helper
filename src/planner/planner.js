@@ -1,7 +1,7 @@
 import {PROFESSIONS, canWear as canWearWith, gearRequirementOf, matchesProfessionWeapon, professionSkill, starterWeapon} from './professions.js';
 import {LEGENDARY, PAIR_TIERS, autoUsableMaterial, rarityPower, craftRecipe, mergeHold, potionSaleWorth, qualityHold, qualityWorth} from './quality.js';
 import {createLevels} from './levels.js';
-import {levelingGoal, planUseValue} from './inventory.js';
+import {enhanceQuote, enhanceTier, levelingGoal, planUseValue} from './inventory.js';
 import {createInputCost} from './input-cost.js';
 import {combatKey, jobKey} from './keys.js';
 import {combatSafe, combatStats, weaponStyle} from './rates.js';
@@ -20,9 +20,10 @@ import {createHousing} from './housing.js';
 import {planGatheringSurplus} from './gathering-surplus.js';
 import {perkOverview} from './perks.js';
 import {chooseFallback} from './fallback.js';
-import {createInvestments} from './investment.js';
+import {createInvestments, expectedEnhancement} from './investment.js';
 import {slotsFor} from './gear.js';
-import {createCollectionMastery} from './collection.js';
+import {FORGE_LADDER, createCollectionMastery, forgePoints, forgeReached} from './collection.js';
+import {ENHANCE_PAGE, WORK_PAGE, hasEnhancePage, pageRanks} from './mastery-pages.js';
 import {HOT_FOLLOW_SKILLS, hotSkillAt, hotWindows} from '../runtime/hot-follow.js';
 import {createAutomationPolicy, normalizeAutomation} from '../runtime/automation-policy.js';
 
@@ -43,7 +44,7 @@ export function createPlanner(data) {
   const base = id => baseId(data,id);
   const plus = id => plusOf(data,id);
   const rarity = id => rarityOf(data,id);
-  const mastery = createCollectionMastery(data);
+  const mastery = createCollectionMastery(data,{price:(p,t,style)=>masteryPrice(p,t,style),forge:p=>forgeCandidates(p)});
   // Pure per item id, so computed once (the gear table asks tens of thousands
   // of times). Callers read the stats; none changes them.
   const statsCache=new Map();
@@ -392,6 +393,99 @@ export function createPlanner(data) {
     const lv=levels(p);
     return jobs.filter(j=>j.bonus?.itemId===id&&j.bonus.chance>0&&!j.grow&&lv[j.skill]>=j.levelReq&&sites.some(s=>s.jobIds.includes(j.id)))
       .sort((a,b)=>bonusSeconds(p,a)-bonusSeconds(p,b)||a.id-b.id)[0]??null;
+  }
+  // 补精通 prices in gold (collection.js ranks gold per point); time is money,
+  // at the gold rate. A collection tier: the time to produce what is missing,
+  // its inputs got the cheapest way (input-cost.js).
+  const unitCosts=new WeakMap();
+  function masteryPrice(p,t,style) {
+    const rate=coinRate(p);if(!(rate>0))return Infinity;
+    const remaining=Math.max(0,t.target-(p.collections?.[t.itemId]??0));if(!remaining)return 0;
+    const lv=levels(p),tier=t.rarity;
+    if(!unitCosts.has(p))unitCosts.set(p,new Map());
+    const open=j=>!j.grow&&lv[j.skill]>=j.levelReq&&sites.some(s=>s.jobIds.includes(j.id));
+    // A gathered quality comes from random rolls: its time is the gathering
+    // job's at that quality's yield (the input cost does not roll qualities).
+    const gathered=id=>{const r=rarity(id);if(!r)return null;
+      const times=jobs.filter(j=>j.output.itemId===base(id)&&!j.inputs.length&&open(j)).map(j=>{
+        const e=strategy.estimateWork(p,j,lv);return e.tierOutput?.[r]>0?e.seconds/e.tierOutput[r]:Infinity;});
+      return times.length?Math.min(...times):null;};
+    const units=unitCosts.get(p),unit=id=>{if(!units.has(id))units.set(id,gathered(id)??api.inputCost.unitSeconds(p,id,1,{style}));return units.get(id);};
+    const job=jobs.find(j=>j.output.itemId===t.base&&open(j));
+    if(job) {
+      const recipe=job.inputs.length?craftRecipe(data,job,tier):job;if(!recipe)return Infinity;
+      const e=strategy.estimateWork(p,recipe,lv);
+      const per=recipe.inputs.length?recipe.output.qty*(e.success??1):e.tierOutput?.[tier]??0;
+      if(!(per>0))return Infinity;
+      return remaining/per*(e.seconds+recipe.inputs.reduce((n,i)=>n+i.qty*unit(i.itemId),0))*rate;
+    }
+    if(monsters.some(m=>m.drop===t.base)) {
+      const chance=tier?data.rarityChance[['','uncommon','rare','epic'][tier]]??0:1;
+      return chance>0?dropSeconds(p,t.base,style)*remaining/chance*rate:Infinity;
+    }
+    const bonus=jobs.filter(j=>j.bonus?.itemId===t.base&&j.bonus.chance>0&&open(j)).map(j=>{
+      const odds=tier?strategy.estimateWork(p,j,lv).qualities?.[tier]??0:1;
+      return odds>0?bonusSeconds(p,j)/odds:Infinity;});
+    return bonus.length?Math.min(...bonus)*remaining*rate:Infinity;
+  }
+  // A forge level (collection.js): the held piece of each enhancement tier and
+  // quality furthest along, enhanced to the level with the least gold per
+  // point. Its price: the expected gold and shards (failures back to +0), and
+  // the work page's bonuses lost while the enhance page is active (enhancing
+  // itself runs beside the work), at the gold rate. Legendary and mounts stay out;
+  // only steps the coins and shards held can pay for.
+  const ENHANCE_TICKS=4; // client: ticks per attempt
+  function forgeCandidates(p) {
+    if(!p.forgeLog||typeof p.forgeLog!=='object')return [];
+    const rate=coinRate(p),shard=api.stockValue(p,data.shardId,1),shards=api.count(p,data.shardId);
+    const work=pageRanks(p,WORK_PAGE);
+    const lost=hasEnhancePage(p)?1-1/((1+.005*(work.xp??0))*(1+.005*Math.max(work.gather??0,work.craft??0))):0;
+    const held=[...Object.entries(p.equipment??{}).filter(([,id])=>id!=null).map(([slot,id])=>({id,slot})),
+      ...Object.entries(p.bank??{}).filter(([,n])=>n>0).map(([id])=>({id:Number(id),slot:null}))]
+      .filter(h=>gear.has(base(h.id))&&gear.get(base(h.id)).slot!=='mount'&&rarity(h.id)<LEGENDARY);
+    const best=new Map();
+    for(const h of held) {
+      const key=enhanceTier(data,h.id)*5+rarity(h.id),b=best.get(key);
+      if(!b||plus(h.id)>plus(b.id))best.set(key,h);
+    }
+    const out=[];
+    for(const [key,h] of best) {
+      const tier=Math.floor(key/5),r=key%5,from=plus(h.id);
+      // Expected attempts to reach +k from +0, each failure rebuilding from +0.
+      const attempts=[0];
+      for(let k=0;k<FORGE_LADDER.length;k++) {
+        const chance=enhanceQuote(data,api,p,h.id%data.plusScale+k*data.plusScale).chance;
+        attempts.push((attempts[k]+1)/chance);
+      }
+      let points=0,pick=null;
+      for(let to=from+1;to<=FORGE_LADDER.length;to++) {
+        if(!forgeReached(p,tier,r,to))points+=forgePoints(data,tier,r,to);
+        if(!points)continue;
+        const cost=expectedEnhancement(data,api,p,h.id,to);
+        const gold=cost.gold+cost.shards*shard+(attempts[to]-attempts[from])*ENHANCE_TICKS*data.tickMs/1000*rate*lost;
+        if(cost.gold>p.coins||cost.shards>shards)break;
+        if(!pick||gold/points<pick.gold/pick.points)pick={forge:true,tier,rarity:r,base:base(h.id),itemId:base(h.id)+r*data.rarityScale,
+          toPlus:to,points,gold,coins:cost.gold,shards:cost.shards};
+      }
+      if(pick)out.push(pick);
+    }
+    return out;
+  }
+  // The enhancing step beside the 补精通 work: one attempt on the forge level's
+  // piece, on the enhance page (maintenance switches pages first).
+  function masteryForge(p,style,goal) {
+    if(p.enhance)return null;
+    const t=mastery.forgeNext(p,style,goal);if(!t)return null;
+    if(hasEnhancePage(p)&&(p.masteryPage??WORK_PAGE)!==ENHANCE_PAGE)return null;
+    const copies=[...Object.entries(p.equipment??{}).filter(([,id])=>id!=null&&id%data.plusScale===t.itemId).map(([slot,id])=>({id,slot})),
+      ...Object.entries(p.bank??{}).filter(([id,n])=>n>0&&Number(id)%data.plusScale===t.itemId).map(([id])=>({id:Number(id),slot:null}))]
+      .sort((a,b)=>plus(b.id)-plus(a.id));
+    const copy=copies[0];if(!copy||plus(copy.id)>=t.toPlus)return null;
+    const q=enhanceQuote(data,api,p,copy.id);
+    if(p.coins<q.gold||api.count(p,data.shardId)<q.shards)return null;
+    return action({t:'enhance',itemId:copy.id,toPlus:plus(copy.id)+1,once:true,...(copy.slot?{worn:copy.slot}:{})},
+      `补精通 · 强化记录 ${itemLabel(data,copy.id)} → +${plus(copy.id)+1}`,
+      `目标 +${t.toPlus}，共 ${t.points} 点，约 ${Math.round(t.gold/t.points).toLocaleString()} 金币/点（含强化期间工作页加成损失）；比当前收藏更划算，强化在后台进行`);
   }
   // Where a crop's seed is gathered: its bonus source, or, while none is
   // unlocked, the lowest-level one (to level toward). Harvest goes there and
@@ -1712,6 +1806,7 @@ export function createPlanner(data) {
     resetSpecialization:specialization.reset,
     masteryChooseGoal:mastery.chooseGoal,masteryCompleted:mastery.completed,masterySkipped:mastery.skipped,
     masteryStatus:mastery.status,masteryRuntime:mastery.runtime,resetMastery:mastery.reset,
+    masteryForge,masteryForgeWanted:(p,style,goal)=>!!goal?.mastery&&!!mastery.forgeNext(p,style,goal),
     runtime(value) {
       if(value) {({farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote}=value);farmPolicy=value.farmPolicy??null;specialization.runtime(value.specialization);growth.runtime(value.development);housing.runtime(value.housing);investments.runtime(value.investments);mastery.runtime(value.mastery);if(value.efficiency)strategy.efficiencyRuntime(value.efficiency);if('incomeRates' in value)incomeRates=value.incomeRates;}
       return {farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote,farmPolicy,specialization:specialization.runtime(),development:growth.runtime(),housing:housing.runtime(),investments:investments.runtime(),mastery:mastery.runtime(),efficiency:strategy.efficiencyRuntime(),incomeRates};

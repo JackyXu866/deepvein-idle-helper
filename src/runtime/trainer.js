@@ -629,7 +629,7 @@ export class Trainer {
     this.startedAt=this.now(); this.awaitInitial=true;
     this.syncAfter=this.snapshotSequence;
     this.nextSync=0; this.nextAction=0; this.log(this.mode==='assist'?'已开始辅助收菜与世界 Boss；保留你的原任务和队列':
-      this.mode==='mastery'?'已开始按顺序补精通；每项只补下一档，跳过传说品质与种植任务':`已开始收益规划 + ${PROFESSIONS[this.style]}训练`);
+      this.mode==='mastery'?'已开始补精通：按每点金币从最划算的开始，强化记录在后台同时进行；跳过传说品质与种植任务':`已开始收益规划 + ${PROFESSIONS[this.style]}训练`);
   }
   checkCommand(reason,code=null) {
     if(this.resolution)return;
@@ -828,13 +828,20 @@ export class Trainer {
     }
     if(!this.goal?.mastery)this.goal=this.planner.masteryChooseGoal(p,this.style);
     const goal=this.goal;
-    if(!goal){this.plan=null;this.message=this.planner.masteryStatus(p);return;}
+    if(!goal) {
+      const forge=this.planner.masteryForge?.(p,this.style,null);
+      if(forge?.intent)return this.issue(forge);
+      this.plan=null;this.message=this.planner.masteryStatus(p,this.style);return;
+    }
     let plan=this.planner.plan(p,goal,this.style,this.bankedLoad);
     const market=this.market?.next(p,goal,this.style);
     if(market?.intent)return this.issue(market);
     const maintenance=this.planner.maintenance?.(p,goal,this.style,this.mode,this.mainTrade,this.mainJobId,this.mainMonsterId);
     if(maintenance?.intent)return this.issue(maintenance);
     if(maintenance?.marketWaiting||maintenance?.capacityLimited){this.plan=maintenance;this.message=maintenance.reason??maintenance.label;return;}
+    // Forge levels cheaper per point than this collection: enhanced beside the work.
+    const forge=this.planner.masteryForge?.(p,this.style,goal);
+    if(forge?.intent)return this.issue(forge);
     if(Object.values(p.overflow??{}).some(n=>n>0))return this.pause('补精通等待仓库空间；本轮顺序已保留，请整理后继续');
     const housing=this.planner.housingPlan?.(p,goal,this.style,this.mode,this.bankedLoad);
     if(housing){this.plan=housing;if(housing.intent)return this.issue(housing);this.message=housing.reason;return;}

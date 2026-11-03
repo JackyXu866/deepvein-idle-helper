@@ -200,10 +200,14 @@ export function inventoryBudget(data, planner, p, goal=null,consuming=false) {
 }
 // One snapshot's enhance odds from masteries (the table asks for hundreds of quotes).
 const masteryOdds=new WeakMap();
+// An item's enhancement tier, 0-5 (client L0): its recipe level against the
+// thresholds; tier 4 (index 3) without a recipe.
+export function enhanceTier(data,itemId) {
+  const recipe=data.jobs.find(j=>j.output.itemId===baseId(data,itemId));
+  return recipe?data.enhanceThresholds.filter(v=>recipe.levelReq>=v).length:3;
+}
 export function enhanceQuote(data, planner, p, itemId) {
-  const base=baseId(data,itemId),n=plusOf(data,itemId),rarity=rarityOf(data,itemId);
-  const recipe=data.jobs.find(j=>j.output.itemId===base);
-  const tier=recipe?data.enhanceThresholds.filter(v=>recipe.levelReq>=v).length:3;
+  const n=plusOf(data,itemId),rarity=rarityOf(data,itemId),tier=enhanceTier(data,itemId);
   const house=p.houseFurniture?.lectern?1+.01*(p.house?.lectern??0):1;
   // Client 1.0.1189: each Enhancing level above 1 multiplies the odds by +0.2%.
   const skill=1+.002*((planner.levels(p).enhancing??1)-1);

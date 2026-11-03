@@ -133,7 +133,7 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
     // Enhancing runs on the enhance mastery page it is priced with; everything
     // else on the work page (mastery-pages.js). The cooldown holds enhancing,
     // never the running task.
-    const page=pageStep(p,!!enhancement?.intent||!!p.enhance,data.tickMs);
+    const page=pageStep(p,!!enhancement?.intent||!!p.enhance||!!planner.masteryForgeWanted?.(p,style,goal),data.tickMs);
     if(page?.intent)return page;
     if(enhancement?.intent&&!page)return enhancement;
     if(p.route?.errand&&!overflow)return null;

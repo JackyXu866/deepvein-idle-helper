@@ -105,7 +105,7 @@ import {itemLabel, packQty} from '../planner/items.js';
     balanced:'均衡发展：所有技能保持在最低技能以上 10 级以内（低等级经验便宜，每 10 级所需经验约为前 10 级的 3 倍）；范围内按速度、解锁与收入选择，原料技能落后时先练原料技能。',
     experience:'比较供料与往返后的总经验效率，允许技能等级拉开差距。',
     business:'主业、具体工作与战斗目标均可自动或手选；指定目标不会因其他工作收益更高而被替换，仍可安排必要供料与换装。',
-    mastery:'按收藏页“即将获得奖励”从左到右补下一档，跳过传说品质与种植任务；本轮顺序固定，完成后按游戏新排序继续。只认亲自产出的收藏计数，购买成品不算；材料仍可按采购开关补齐。',
+    mastery:'精通点数按“每点花多少金币”从最划算的开始：收藏下一档按补齐所需时间折成金币（时间按金币效率），强化记录（每档每品质首次到 +1～+15）按强化期望花费，含失败归零重来和强化期间工作页加成的损失。人去补最划算的收藏，强化在后台同时进行，只做比当前收藏更划算的强化记录。跳过传说与种植；只认亲自产出的收藏计数，购买成品不算。',
     assist:'仅合批收菜、用现有种子补种与蹭世界 Boss；保留玩家队列，完成临时外出后继续原任务。'
   };
   const runKey='deepvein-balanced-trainer-session';
@@ -3039,7 +3039,7 @@ import {itemLabel, packQty} from '../planner/items.js';
       `\n待确认操作：${r.pending?`${translateGameText(r.pending.label??r.pending.intent?.t??'未知')} (${r.pending.intent?.t??'未知'})`:'无'}`+
       (r.pendingConfirmed?'；同帧已观察到成功回报':'')).join('\n\n');
     panel.querySelector('[data-goal]').textContent=trainer.mode==='mastery'&&!trainer.itemTarget?
-      translateGameText(p?planner.masteryStatus(p):'开始后按收藏页“即将获得奖励”顺序补精通'):trainer.goal ?
+      translateGameText(p?planner.masteryStatus(p,trainer.style):'开始后按每点金币从最划算的开始补精通'):trainer.goal ?
       `目标：${NAMES[trainer.goal.skill]} · ${trainer.goal.reason??`目标 ${trainer.goal.target} 级`}` :
       trainer.mode==='balanced'?'比较库存、供料、解锁与收入，选择下一项发展计划':
       trainer.mode==='experience'?'比较当前可执行路线的总经验效率，选择下一批工作':
