@@ -109,6 +109,29 @@ test('a tier and quality not held: the cheapest piece is bought (or made) first,
   assert.deepEqual(bought, [knife]);
 });
 
+test('a held quality input is used for the target, pass after pass (no bar-by-bar loop)', () => {
+  const {planner, d, p, R} = setup({});
+  const hoeJob = d.jobs.find(j => d.items[j.output.itemId]?.name === 'Cobalt hoe' && j.inputs.length);
+  const hoe = hoeJob.output.itemId;
+  const bank = Object.fromEntries(hoeJob.inputs.map(i => [i.itemId + (d.items[i.itemId] && i.itemId !== d.coinId ? R : 0), 318]));
+  Object.assign(p, player(planner, {levels: {smithing: 85, mining: 85, woodcutting: 85, fletching: 85, crafting: 85}, hp: 100, activity: 'idle', path: null,
+    bank: {...bank, ...Object.fromEntries(hoeJob.inputs.map(i => [i.itemId, 318]))}, collections: {[hoe + R]: 9}}));
+  const goal = planner.masteryChooseGoal(p, 'melee');
+  assert.equal(goal.mastery.itemId, hoe + R);
+  // Short of the quality inputs first: the supply step records what it gets.
+  const short = {...p, bank: {...p.bank, ...Object.fromEntries(hoeJob.inputs.map(i => [i.itemId + R, 0]))}};
+  const supply = planner.plan(short, goal, 'melee');
+  assert.notEqual(supply.intent?.jobId, hoeJob.id, 'nothing to craft with yet');
+  // Once they are held, the target is crafted, pass after pass, instead of
+  // asking for its inputs again on top of themselves.
+  const enough = {...p, bank: {...p.bank, ...Object.fromEntries(hoeJob.inputs.map(i => [i.itemId + R, i.qty]))}};
+  for (let pass = 0; pass < 3; pass++) {
+    const plan = planner.plan(enough, goal, 'melee');
+    assert.equal(plan.intent?.jobId, hoeJob.id, `pass ${pass}: ${JSON.stringify(plan.intent)} ${plan.reason}`);
+    assert.equal(plan.intent.rarity, 1);
+  }
+});
+
 test('an uncommon bar waits on gathering for uncommon ore instead of using common ore', () => {
   const {planner, d, p, R} = setup({});
   Object.assign(p, player(planner, {levels: {mining: 20, smithing: 20}, hp: 100, activity: 'idle', path: null,

@@ -418,7 +418,11 @@ export function createPlanner(data) {
       const e=strategy.estimateWork(p,recipe,lv);
       const per=recipe.inputs.length?recipe.output.qty*(e.success??1):e.tierOutput?.[tier]??0;
       if(!(per>0))return Infinity;
-      return remaining/per*(e.seconds+recipe.inputs.reduce((n,i)=>n+i.qty*unit(i.itemId),0))*rate;
+      // Inputs held cost what using stock gives up (api.stockValue); the rest their time.
+      const actions=remaining/per,inputs=recipe.inputs.reduce((n,i)=>{
+        const qty=i.qty*actions,held=Math.min(qty,api.count(p,i.itemId)),rest=qty-held;
+        return n+held*api.stockValue(p,i.itemId,1)+(rest>0?rest*unit(i.itemId)*rate:0);},0);
+      return actions*e.seconds*rate+inputs;
     }
     if(monsters.some(m=>m.drop===t.base)) {
       const chance=tier?data.rarityChance[['','uncommon','rare','epic'][tier]]??0:1;
@@ -795,8 +799,12 @@ export function createPlanner(data) {
     // gear (plannedGearReserve), so leveling does not spend them.
     let gearReserve=null;
     // Planned gear's quality materials are kept from every crafting goal
-    // (quality.js reserve rules); item targets and upgrades bring their own.
-    const qualityReserve=()=>goal.itemTarget||goal.upgrade||goal.mastery?goal.budget?.items:
+    // (quality.js reserve rules); an upgrade brings its own. An item target's
+    // or 补精通's budget is its own supply (need() records it there): it is
+    // what the craft uses, not a reserve on top of it. Counted as one, every
+    // input it held raised what the craft asked for, so the craft never ran
+    // and one more bar was made each pass.
+    const qualityReserve=()=>goal.upgrade?goal.budget?.items:
       gearReserve??=mergeHold(goal.quest?goal.budget?.items:{},plannedGearReserve(p,profession,null,goal));
     const unlocked = j => lv[j.skill]>=j.levelReq;
     const made = id => jobs.filter(j=>j.output.itemId===id);
