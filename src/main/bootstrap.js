@@ -1839,7 +1839,7 @@ import {itemLabel, packQty} from '../planner/items.js';
                   <p class="fine-print">关闭后不再扩建、摆放、投料或开始新的升级；已开始的施工照常进行，正在回家维护时会退出并恢复原任务。</p>
                   <pre data-housing></pre></details>
                 <details data-economy-details><summary>物资保留与强化预算</summary><pre data-inventory></pre><pre data-enhancement></pre>
-                  <details><summary>预算规则</summary><p class="fine-print">保留计划用料、关键种子和装备；在用装备以 +5 为基线，每次尝试一级并确认。后续强化单次只用现有金币与最多 25% 自由碎片；同装备每阶段最多五次，失败停止本阶段重试。临近换代先换装，中间一级属性取整不变但 +5 有提升时可继续。</p><p class="fine-print">强化报价按基础属性估算，是否执行由策略决定；高阶失败可能回到 +0。售价有最低报价保护，未知物品和稀有装备保留。</p></details>
+                  <details><summary>预算规则</summary><p class="fine-print">保留计划用料、关键种子和装备；在用装备按投资表的停点强化（最高 +20，含失败回到 +0 重来的期望花费，回本才做），每次尝试一级并确认；失败后由投资表重新判断是否再试。临近换代先换装。</p><p class="fine-print">强化报价按基础属性估算，是否执行由策略决定；高阶失败可能回到 +0。售价有最低报价保护，未知物品和稀有装备保留。</p></details>
                 </details>
                 <details data-market-details><summary>市场采购与出售</summary>
                   <label>按收益采购<input type="checkbox" data-purchase-enabled aria-label="按收益采购"></label>

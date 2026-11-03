@@ -8,6 +8,9 @@ import {COAL_ID, baseId, foodCarry, itemLabel, merchantPrice, plusOf, rarityOf, 
 // Vendor, storage and worn-enhancement rules checked in index-DeoJ7Jh9.js.
 
 export const ENHANCEMENT_BASELINE=5;
+// The game's highest +N (client 1.0.1210): the investment table weighs every
+// stopping point up to it.
+export const ENHANCEMENT_MAX=20;
 // Materials kept between batches when nothing plans a larger amount.
 export const WORKING_STOCK=50;
 // Food kept for fights: the working stock, or three trips' carry if more.

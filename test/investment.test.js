@@ -99,6 +99,32 @@ test('enhancing starts mid-task: it runs beside the route, so no batch end is aw
   assert.equal(plan.intent.itemId, row.current, 'the table\'s pick');
 });
 
+test('stopping points reach past +5 when cheap gold makes them pay (up to the game\'s +20)', () => {
+  const {planner, d, p} = fighter(5_000_000_000);
+  planner.coinRate = () => 1e7; // gold is nearly free: the furthest step that still adds stats wins
+  const rows = planner.investmentOptions(p, 'melee', null).filter(r => r.kind === 'enhance');
+  assert.ok(rows.some(r => r.toPlus > 5), JSON.stringify(rows.map(r => [r.label, r.toPlus])));
+  assert.ok(rows.every(r => r.toPlus <= 20));
+});
+
+test('a failed attempt does not block the piece: the table decides whether to try again', async () => {
+  const {createEnhancementTraining} = await import('../src/planner/enhancement.js');
+  const {planner, d, p} = fighter(5_000_000);
+  let saved = null;
+  const training = createEnhancementTraining(d, planner, {read: () => saved, write: v => { saved = JSON.parse(JSON.stringify(v)); }});
+  const blade = p.equipment.weapon;
+  training.issued(p, {t: 'enhance', itemId: blade, toPlus: 1, worn: 'weapon'});
+  assert.match(training.blocked(p, blade, 'weapon'), /尚未确认/, 'an unconfirmed attempt is not sent twice');
+  // The attempt failed: XP rose, the blade stayed +0.
+  training.observe({...p, skills: {...p.skills, enhancing: (p.skills.enhancing ?? 0) + 100}});
+  assert.equal(training.blocked(p, blade, 'weapon'), null);
+  for (let i = 0; i < 6; i++) {
+    training.issued(p, {t: 'enhance', itemId: blade, toPlus: 1, worn: 'weapon'});
+    training.observe({...p, skills: {...p.skills, enhancing: (p.skills.enhancing ?? 0) + 200 + i}});
+  }
+  assert.equal(training.blocked(p, blade, 'weapon'), null, 'no five-attempt cap either');
+});
+
 test('worn legendary gear is enhanced by the same table (it stays worn; other legendary use stays blocked)', async () => {
   const {validateIntent} = await import('../src/runtime/intents.js');
   const {planner, d, p} = fighter(5_000_000);

@@ -1,4 +1,4 @@
-import {ENHANCEMENT_BASELINE, enhanceQuote} from './inventory.js';
+import {ENHANCEMENT_BASELINE, ENHANCEMENT_MAX, enhanceQuote} from './inventory.js';
 import {formulaWork} from './rates.js';
 import {canWear, professionSkill} from './professions.js';
 import {LEGENDARY, autoUsableMaterial, craftRecipe} from './quality.js';
@@ -206,10 +206,11 @@ export function createInvestments(data,planner) {
         .map(([id,cost])=>priced(kind,id,`换 ${itemLabel(data,id)}`,cost)).filter(Boolean)
         .sort((a,b)=>b.net-a.net)[0]??null;
       // Enhance the worn piece, any quality (a legendary one stays worn): the
-      // best stopping point up to +5. A failure never destroys the piece.
-      if(current!=null&&plusOf(data,current)<ENHANCEMENT_BASELINE) {
+      // best stopping point up to the game's +20. A failure never destroys the
+      // piece; it goes back to +0, which the expected cost counts.
+      if(current!=null&&plusOf(data,current)<ENHANCEMENT_MAX) {
         let best=null;
-        for(let to=plusOf(data,current)+1;to<=ENHANCEMENT_BASELINE;to++) {
+        for(let to=plusOf(data,current)+1;to<=ENHANCEMENT_MAX;to++) {
           const cost=expectedEnhancement(data,planner,p,current,to),target=current%data.plusScale+to*data.plusScale;
           const after=rate(p,style,ctx,slot,target);
           if(!(after>floor)||!Number.isFinite(cost.gold))continue;

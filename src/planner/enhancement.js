@@ -1,10 +1,11 @@
 import {gearRequirementOf, professionSkill, statsDominate} from './professions.js';
 import {fitsSlot, shieldless} from './gear.js';
-import {ENHANCEMENT_BASELINE, enhanceQuote} from './inventory.js';
+import {ENHANCEMENT_BASELINE, ENHANCEMENT_MAX, enhanceQuote} from './inventory.js';
 import {heldIds, itemLabel, plusOf} from './items.js';
 
-// Count before sending so a refresh or an unconfirmed command cannot reset the
-// attempt allowance. Failed/ambiguous work waits for the next equipment-use stage.
+// Marks an attempt before sending, so a refresh or an unconfirmed command is
+// never sent twice. Whether to try again after a failure (back to +0) is the
+// investment table's call: its expected cost already counts the retries.
 export function createEnhancementTraining(data,planner,{read=()=>null,write=()=>{}}={}) {
   const state=read()??{records:{}};
   state.records??={};
@@ -28,9 +29,7 @@ export function createEnhancementTraining(data,planner,{read=()=>null,write=()=>
     sync();
     const row=state.records[key(p,itemId,slot)];
     if(!row||row.stage!==stage(p,itemId,slot))return null;
-    return row.pending?'上一强化结果尚未确认，本阶段不重复发送':
-      row.failed?'本装备本阶段已有失败，先练其它技能':
-      row.attempts>=ENHANCEMENT_BASELINE?'本装备本阶段已尝试五次，先练其它技能':null;
+    return row.pending?'上一强化结果尚未确认，不重复发送':null;
   }
   function issued(p,intent) {
     if(intent.t!=='enhance'||!intent.worn)return;
@@ -72,10 +71,11 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
   const better=statsDominate;
   const owned=heldIds(p);
   const options=[];
+  let tableRows;const rowsFor=()=>tableRows===undefined?(tableRows=planner.investmentOptions?.(p,style,goal)??null):tableRows;
   let deferredReason='暂无值得强化的在用装备：先换阶段装备，或等待有实际属性收益的升级；不制造备用装备刷强化等级';
   for(const [slot,itemId]of Object.entries(p.equipment)) {
     const gear=planner.equipmentStats(itemId);
-    if(!relevant(gear)||plusOf(data,itemId)>=ENHANCEMENT_BASELINE||goal?.upgrade?.slot===slot)continue;
+    if(!relevant(gear)||plusOf(data,itemId)>=(rowsFor()?ENHANCEMENT_MAX:ENHANCEMENT_BASELINE)||goal?.upgrade?.slot===slot)continue;
     if(goal?.enhancement&&goal.enhancement.itemId!==itemId)continue;
     const quote=enhanceQuote(data,planner,p,itemId),after=planner.equipmentStats(itemId+data.plusScale);
     const target=planner.equipmentStats(itemId%data.plusScale+ENHANCEMENT_BASELINE*data.plusScale);
@@ -83,7 +83,7 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
     // stopping point, every other way to improve the slot): what it shows is
     // what runs. Without it, stats: rounded attributes can stay unchanged for
     // one step on the way to +5; cross it only when +5 improves this piece.
-    const rows=planner.investmentOptions?.(p,style,goal)??null;
+    const rows=rowsFor();
     if(!rows&&!better(after,gear)&&!(planner.enhancementTraining&&better(target,gear)))continue;
     const stopped=planner.enhancementTraining?.blocked(p,itemId,slot);
     if(stopped){deferredReason=stopped;continue;}
@@ -136,7 +136,7 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
   const label=`强化在用装备 · ${itemLabel(data,itemId%data.plusScale)} +${quote.toPlus}`;
   const reason=`本次成功率 ${(quote.chance*100).toFixed(0)}%；消耗 ${quote.gold} 金币、${quote.shards} 碎片，获得 ${quote.xp} 强化经验；`+
     (quote.chance<1?'失败会回到 +0；':'')+
-    `保留其它计划预算，按投资表强化到 +${chosen.toPlus}；逐级确认，同装备每阶段最多五次，失败后该阶段停止`;
+    `保留其它计划预算，按投资表强化到 +${chosen.toPlus}；逐级确认，失败回到 +0 后按投资表重新判断是否再试`;
   const result={intent:null,label,reason,enhancement,budget};
   if(p.coins<budget.coins)return {...result,needs:{itemId:data.coinId,quantity:budget.coins},reason:`准备强化金币：需要 ${budget.coins}，当前 ${p.coins}；${reason}`};
   if(planner.count(p,data.shardId)<budget.items[data.shardId])return {...result,
