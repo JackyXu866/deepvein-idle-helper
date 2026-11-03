@@ -4,6 +4,7 @@ import {secondsToGold} from '../planner/gold.js';
 import {action} from '../planner/result.js';
 import {enhanceQuote, inventoryBudget, planCoins, reviewInventory, setEnhancementBudget} from '../planner/inventory.js';
 import {planEnhancement} from '../planner/enhancement.js';
+import {pageStep} from '../planner/mastery-pages.js';
 import {bankTripSeconds, nearestBank, packCapacity, packQty, packUsed} from '../planner/items.js';
 
 // Items made by crafting skills (cooking, smithing, fletching, crafting).
@@ -122,13 +123,19 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
     // Enhancing runs beside any task (the game neither stops the route nor
     // needs the bank), so the table's worthwhile, affordable step starts now,
     // not at a batch end that a sale or the next batch then takes over.
+    let enhancement=null;
     if(!overflow&&!goal?.temporary&&!goal?.developmentFiller&&!goal?.itemTarget&&!upgrading&&!goal?.upgrade&&
       (mode==='balanced'||goal&&(goal.specialization||mode==='experience'))) {
       // Every slot, as the investment table values it for this goal (its use share);
       // never the slot a gear project is replacing.
-      const enhancement=planEnhancement(data,planner,p,style,{...goal,budget:capacity,upgrade:investmentGoal?.upgrade});
-      if(enhancement?.intent)return enhancement;
+      enhancement=planEnhancement(data,planner,p,style,{...goal,budget:capacity,upgrade:investmentGoal?.upgrade});
     }
+    // Enhancing runs on the enhance mastery page it is priced with; everything
+    // else on the work page (mastery-pages.js). The cooldown holds enhancing,
+    // never the running task.
+    const page=pageStep(p,!!enhancement?.intent||!!p.enhance,data.tickMs);
+    if(page?.intent)return page;
+    if(enhancement?.intent&&!page)return enhancement;
     if(p.route?.errand&&!overflow)return null;
     if(!overflow&&p.coins>=capacity.coins&&finishTaskReason(data,p))return null;
     if(!overflow&&!upgrading&&!goal?.temporary&&!goal?.developmentFiller&&!goal?.itemTarget&&!goal?.mastery&&planner.professionUpgrade&&p.lastTick>=gearDeferredUntil&&

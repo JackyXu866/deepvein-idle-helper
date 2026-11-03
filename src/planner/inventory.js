@@ -3,6 +3,7 @@ import {fitsSlot} from './gear.js';
 import {POTION_SALE_RATIO, autoUsableMaterial, craftRecipe, marketPotion, marketQuality} from './quality.js';
 import {cropReserve, herbloreNeeds} from './farming.js';
 import {COAL_ID, baseId, foodCarry, itemLabel, merchantPrice, plusOf, rarityOf, tradableBase} from './items.js';
+import {enhanceOdds, enhanceRanks} from './mastery-pages.js';
 
 // Read-only budgets and quotes; economy.js turns verified surplus into actions.
 // Vendor, storage and worn-enhancement rules checked in index-DeoJ7Jh9.js.
@@ -197,6 +198,8 @@ export function inventoryBudget(data, planner, p, goal=null,consuming=false) {
   }
   return {items,coins:coinReserve(planner,p,goal),capacity,used,freeSlots:capacity-used,pressure,recoverableOverflow};
 }
+// One snapshot's enhance odds from masteries (the table asks for hundreds of quotes).
+const masteryOdds=new WeakMap();
 export function enhanceQuote(data, planner, p, itemId) {
   const base=baseId(data,itemId),n=plusOf(data,itemId),rarity=rarityOf(data,itemId);
   const recipe=data.jobs.find(j=>j.output.itemId===base);
@@ -204,7 +207,9 @@ export function enhanceQuote(data, planner, p, itemId) {
   const house=p.houseFurniture?.lectern?1+.01*(p.house?.lectern??0):1;
   // Client 1.0.1189: each Enhancing level above 1 multiplies the odds by +0.2%.
   const skill=1+.002*((planner.levels(p).enhancing??1)-1);
-  const chance=Math.min(1,Math.max(.2,1-.06*n)*house*skill*(1+.0025*(p.masteries?.enhance??0)));
+  // Enhancing runs on the enhance page (mastery-pages.js), so it is priced with its odds.
+  if(!masteryOdds.has(p))masteryOdds.set(p,enhanceOdds(enhanceRanks(p)));
+  const chance=Math.min(1,Math.max(.2,1-.06*n)*house*skill*masteryOdds.get(p));
   return {fromPlus:n,toPlus:n+1,chance,gold:data.enhanceGold[tier]*[1,3,8,20,50][rarity]*(n+1),
     shards:data.enhanceShards*(n+1),xp:Math.round(20*(n+1)*data.rarityXp[rarity]),
     failurePlus:0};

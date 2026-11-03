@@ -6,6 +6,7 @@ import {FALLBACK_SKILLS} from '../planner/fallback.js';
 import {onPriceStep} from '../economy/market.js';
 import {baseId, dayTicks, merchantPrice, nearBank, packCapacity, packQty, packUsed} from '../planner/items.js';
 import {MASTERY_RANK_LIMIT, MASTERY_TRACKS} from '../engine/mastery-rules.js';
+import {ENHANCE_PAGE, WORK_PAGE, hasEnhancePage, pageCooldown} from '../planner/mastery-pages.js';
 
 export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mode='balanced',waitingGoals={}}={}) {
   goal=reserveWaitingGoals(goal,waitingGoals);
@@ -61,6 +62,8 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
     const cost=nextPerkCost(p,intent.id);
     return typeof intent.id==='string'&&cost!=null&&Number.isInteger(p.questPoints)&&p.questPoints>=cost;
   }
+  if(intent.t==='masteryPage')return Object.keys(intent).length===2&&hasEnhancePage(p)&&
+    [WORK_PAGE,ENHANCE_PAGE].includes(intent.page)&&intent.page!==(p.masteryPage??WORK_PAGE)&&pageCooldown(p)===0;
   if(intent.t==='masteryConfirm') {
     // Server rule: every track listed, none below its locked rank. Points are
     // checked by the server (the page cannot count them without the engine).

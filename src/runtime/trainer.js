@@ -1,5 +1,6 @@
 import {PROFESSIONS, professionSkill} from '../planner/professions.js';
 import {LEGENDARY, autoUsableMaterial} from '../planner/quality.js';
+import {PAGE_COOLDOWN_TICKS} from '../planner/mastery-pages.js';
 import {bankedGatheringLoad, finishTaskReason} from '../planner/crafting.js';
 import {POTIONS, POTION_TICKS, foodEffects, foodEligible} from '../planner/supplies.js';
 import {inventoryBudget, reserveWaitingGoals} from '../planner/inventory.js';
@@ -32,7 +33,11 @@ export const TRADE_GATE_REFUSALS=new Set(['email-needed','email-changed']);
 // refusal disables the action for a while instead of pausing the helper.
 // Growth modes and their labels (the UI uses the same names).
 export const MODE_LABELS={balanced:'自主发展',experience:'经验优先',business:'主业经营',mastery:'补精通',assist:'只收菜＋蹭世界 Boss'};
-export const SOFT_ACTIONS=new Set(['rerollQuest','buyPerk','masteryConfirm','setFallback','plantPref','plotChoice']);
+export const SOFT_ACTIONS=new Set(['rerollQuest','buyPerk','masteryConfirm','masteryPage','setFallback','plantPref','plotChoice']);
+// How long a refused or unconfirmed optional action rests: six hours, or one
+// switch cooldown for the mastery page.
+const softRest=(data,t)=>t==='masteryPage'?PAGE_COOLDOWN_TICKS*data.tickMs:6*3600000;
+const restText=ms=>ms>=3600000?`${Math.round(ms/3600000)} 小时`:`${Math.round(ms/60000)} 分钟`;
 export const ROUTE_STOPS=new Set(['noMaterials','storageFull','unreachable','levelTooLow','noSuchSite']);
 // Bank, overflow and pack (shared definition in planner/items.js).
 export const quantity=stockQty;
@@ -125,6 +130,7 @@ export function acknowledged(before, p, intent, data=null) {
     case 'masteryConfirm': return Object.entries(intent.ranks??{}).every(([id,n])=>(p.masteries?.[id]??0)===n)&&
       Object.entries(intent.ranks??{}).some(([id,n])=>n>(before.masteries?.[id]??0));
     case 'enhance': return p.enhance?.itemId===intent.itemId || p.skills.enhancing>before.skills.enhancing;
+    case 'masteryPage': return p.masteryPage===intent.page;
     default: return false;
   }
 }
@@ -558,8 +564,9 @@ export class Trainer {
           this.nextAction=this.now()+1000;
           this.log('房屋操作需要在家园内，已暂缓五分钟；同步位置后继续原任务');
         } else if(this.active&&this.pending&&SOFT_ACTIONS.has(this.pending.intent.t)) {
-          this.softRefused[this.pending.intent.t]=this.now()+6*3600000;
-          this.log(`${this.pending.label} 被服务器拒绝（${String(message.code).slice(0,60)}）；6 小时内不再尝试，继续当前任务`);
+          const rest=softRest(this.data,this.pending.intent.t);
+          this.softRefused[this.pending.intent.t]=this.now()+rest;
+          this.log(`${this.pending.label} 被服务器拒绝（${String(message.code).slice(0,60)}）；${restText(rest)}内不再尝试，继续当前任务`);
           this.pending=null;this.resolution=null;this.syncAfter=this.snapshotSequence;this.nextSync=0;
           this.nextAction=this.now()+1000;
         } else if(this.active&&this.pending&&MARKET_ACTIONS.has(this.pending.intent.t)&&MARKET_REFUSALS.has(message.code)) {
@@ -650,6 +657,8 @@ export class Trainer {
   prepareIssue(plan) {
     // A refused optional setting (e.g. the sowing order) gives way to the work it preceded.
     while(plan.then&&SOFT_ACTIONS.has(plan.intent?.t)&&(this.softRefused[plan.intent.t]??0)>this.now())plan=plan.then;
+    // A resting optional action with nothing after it is not sent.
+    if(SOFT_ACTIONS.has(plan.intent?.t)&&(this.softRefused[plan.intent.t]??0)>this.now())return null;
     if(plan.intent.t==='fight') {
       const food=this.combatFoodPlan(this.player);if(food)return food;
     }
@@ -688,6 +697,7 @@ export class Trainer {
   }
   issue(plan,prepared=false) {
     if(!prepared)plan=this.prepareIssue(plan);
+    if(!plan)return;
     this.plan=plan;const {intent,label}=plan;
     if((MARKET_ACTIONS.has(intent.t)||intent.t==='marketDump')&&this.market?.issued(this.player,intent,plan)===false) {
       this.message=(this.market?.closed?.(this.player)??this.player.ironman)?'玩家市场对此角色关闭；保留物品':'采购报价或预算未通过复核，跳过本次购买';return;
@@ -894,9 +904,10 @@ export class Trainer {
       const pending=this.pending,reason=this.resolution.reason,code=this.resolution.code;
       if(pending&&SOFT_ACTIONS.has(pending.intent.t)) {
         // Optional upkeep: an unconfirmed result disables it for a while, never pauses.
-        this.softRefused[pending.intent.t]=now+6*3600000;
+        const rest=softRest(this.data,pending.intent.t);
+        this.softRefused[pending.intent.t]=now+rest;
         this.pending=null;this.resolution=null;this.plan=null;this.nextAction=now+1000;
-        this.log(`${pending.label} 未得到确认；6 小时内不再尝试，继续当前任务`);
+        this.log(`${pending.label} 未得到确认；${restText(rest)}内不再尝试，继续当前任务`);
       } else if(pending&&MARKET_ACTIONS.has(pending.intent.t)) {
         // The market ledger retains an ambiguous attempt across disconnects and
         // reloads. Resume self-supply without replaying that transaction.

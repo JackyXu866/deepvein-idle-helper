@@ -1,5 +1,6 @@
 import {simulate} from './runtime.js';
 import {MASTERY_NAMES_ZH, MASTERY_RANK_LIMIT, MASTERY_TRACKS, rankCost, spentPoints} from './mastery-rules.js';
+import {ENHANCE_PAGE, ENHANCE_RANK_CAP, WORK_PAGE, hasEnhancePage} from '../planner/mastery-pages.js';
 
 // Each rank adds 0.5% to its track's effect (client ni table).
 const PER_RANK = .005;
@@ -53,6 +54,16 @@ export function chooseMastery(api, p, goal, {metric = 'xp', data = null, usage =
   const current = Object.fromEntries(MASTERY_TRACKS.map(id => [id, Number.isInteger(p.masteries?.[id]) ? p.masteries[id] : 0]));
   const earned = api.masteryEarnedPoints(p);
   let available = earned - spentPoints(current);
+  // The enhance page (mastery-pages.js) holds enhance ranks only: every point
+  // goes there, up to the cap. The work page never buys enhance (it saves no time).
+  if (hasEnhancePage(p) && (p.masteryPage ?? WORK_PAGE) === ENHANCE_PAGE) {
+    let ranks = current.enhance;
+    while (ranks < ENHANCE_RANK_CAP && Number.isFinite(available) && rankCost(ranks + 1) <= available) { available -= rankCost(ranks + 1); ranks++; }
+    if (ranks === current.enhance) return null;
+    return {intent: {t: 'masteryConfirm', ranks: Object.fromEntries(Object.entries({...current, enhance: ranks}).filter(([, n]) => n > 0))},
+      label: `分配精通点数（第二页）· ${MASTERY_NAMES_ZH.enhance} +${ranks - current.enhance}`,
+      reason: '第二页只点强化成功率；强化只在第二页进行，投资表按这一页的成功率估算强化花费'};
+  }
   if (!Number.isFinite(available) || available < Math.min(...tracks.map(id => rankCost(current[id] + 1)))) return null;
   const shares = timeShares(data, usage, goal);
   // Combat tracks: the engine's gain per rank on the goal's monster.
