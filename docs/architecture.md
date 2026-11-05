@@ -56,7 +56,7 @@ Every file under `src/` and what it owns. Before writing logic, find the module 
 - `investment.js`: the investment table (every way to improve each slot); enhancement expected cost; funding.
 - `enhancement.js`: the enhancing step (`planEnhancement`) and the guard against resending an attempt.
 - `gear.js`: slots, what fits, how long a piece is used. `professions.js`: combat professions, weapons, wear requirements.
-- `rates.js`: game-formula inputs for a job or a fight. `estimates.js`: base work and combat estimates from the formulas.
+- `rates.js`: game-formula inputs for a job or a fight, and `qualityGain` (gold the rarer drops add). `estimates.js`: base work and combat estimates from the formulas. `rarity.js`: the quality roll factor.
 - `input-cost.js`: make or buy: the cheapest way to get an input, as time.
 - `crafting.js`: what can be made from held stock; batch boundaries (`finishTaskReason`).
 - `inventory.js`: budgets and reserves (`inventoryBudget`, `coinReserve`), the sale review, enhancement quotes and tiers, what a quality item is worth to a levelling plan.
@@ -121,6 +121,7 @@ The registry: each rule exists here once; anything that needs it calls it.
 - **Enhancement odds and cost**: `enhanceQuote` and `enhanceTier` in `planner/inventory.js`. Mastery pages are in `planner/mastery-pages.js`: page 1 is for work, page 2 for enhancing only.
 - **Selling**: `economy/market.js`. Prices follow the day's average (`dayPrice`, `listable`, `listingQuote`); each item sells at most once per 30 minutes; one sale fills every bid at the best price.
 - **Quality**: `planner/quality.js` (recipes at a quality, holds, what is worth using).
+- **Rare-find odds**: `planner/rarity.js` `rarityFactor` is the game's quality roll factor: (1 + amulet and tool luck) × (1 + hunter brew, Vein Blessing, rare-find mastery, lucky shrine). Work and combat estimates, drop timing, and the worth of a hunter brew or a rare-find rank (`qualityGain` in `planner/rates.js`) all use it.
 - **Items, time and places**: `planner/items.js`. **Levels**: `planner/levels.js`.
 - **补精通**: `planner/collection.js` ranks collection tiers and forge-log levels by gold per point. The prices come from `masteryPrice` and `forgeCandidates` in `planner.js`.
 - **World Boss**: `runtime/world-boss.js` runs a round (set the task aside, walk, attack, resume). The page hands a round to the game's own join, either by clicking 加入 or on the Vein Blessing's `bossAutoJoin`.

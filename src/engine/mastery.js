@@ -35,20 +35,25 @@ export function timeShares(data, usage, goal = null) {
 
 // Share of all time one more rank saves. XP shortens every goal; speeds only
 // their own part of the time. Combat tracks use the engine's measured gain.
-function rankValue(id, rank, shares, combatGain) {
+// Rare finds: the gold the rarer drops add on the goal's work, as a share of
+// the gold rate (gold is time), over the part of the time that rolls quality.
+function rankValue(id, rank, shares, combatGain, rareGain) {
   const step = PER_RANK / (1 + PER_RANK * rank);
   if (id === 'xp') return step;
   if (id === 'gather') return step * shares.gather;
   if (id === 'craft') return step * shares.craft;
   if (id === 'move') return step * shares.walk;
   if (COMBAT_TRACKS.includes(id)) return (combatGain[id] ?? 0) * shares.combat;
-  return 0; // Offline time, rare finds and enhancing are not time an online helper saves.
+  if (id === 'rare') return rareGain * (shares.gather + shares.combat);
+  return 0; // Offline time and enhancing (the enhance page's) are not time an online helper saves.
 }
 
 // Spend mastery points only on the track with the best time saved per point,
 // over all tracks: when that rank is not affordable yet, save for it rather
 // than buy a cheaper, weaker one.
-export function chooseMastery(api, p, goal, {metric = 'xp', data = null, usage = null, budgetMs = 300, clock = () => performance.now()} = {}) {
+// `rareGain`: one rare-find rank's added gold on the goal's work over the gold
+// rate (planner rates.qualityGain at rarity.js's +0.5%); 0 when unknown.
+export function chooseMastery(api, p, goal, {metric = 'xp', data = null, usage = null, rareGain = 0, budgetMs = 300, clock = () => performance.now()} = {}) {
   if (typeof api?.masteryEarnedPoints !== 'function' || !Array.isArray(api.masteryTracks) || !p?.skills) return null;
   const tracks = api.masteryTracks.map(t => t.id).filter(id => MASTERY_TRACKS.includes(id) && id !== 'offline');
   const current = Object.fromEntries(MASTERY_TRACKS.map(id => [id, Number.isInteger(p.masteries?.[id]) ? p.masteries[id] : 0]));
@@ -85,7 +90,7 @@ export function chooseMastery(api, p, goal, {metric = 'xp', data = null, usage =
   let saving = null;
   for (let step = 0; step < 2000; step++) {
     const best = tracks.filter(id => ranks[id] < MASTERY_RANK_LIMIT)
-      .map(id => ({id, cost: rankCost(ranks[id] + 1), value: rankValue(id, ranks[id], shares, combatGain)}))
+      .map(id => ({id, cost: rankCost(ranks[id] + 1), value: rankValue(id, ranks[id], shares, combatGain, Math.max(0, rareGain || 0))}))
       .filter(t => t.value > 0).sort((a, b) => b.value / b.cost - a.value / a.cost)[0];
     if (!best) break;
     if (best.cost > available) { saving = best; break; }

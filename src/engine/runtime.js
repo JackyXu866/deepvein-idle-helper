@@ -158,15 +158,10 @@ export function engineRates(data, planner, p, {budgetMs = 500, now = () => perfo
       if (!r || r.failed || !(r.seconds >= 60)) record = {skip: true};
       else {
         const xp = task.skills.reduce((n, s) => n + (r.xpBySkill[s] ?? 0), 0);
-        // Gathering quality: one roll against thresholds scaled by a single
-        // factor, so the share above common gives it (uncommon has enough samples).
-        const rolled = r.tiers.reduce((a, b) => a + b, 0), above = rolled - r.tiers[0];
-        const rarityFactor = !task.activity.inputs?.length && above >= 50 && above < rolled ?
-          above / rolled / data.rarityChance.uncommon : null;
+        // Quality odds are not sampled: planner/rarity.js has the game's exact factor.
         // Dying in the simulation marks the route as worthless, not merely slow.
         record = {routeKey: task.key, equipmentKey, levelsKey, buffKey: buffs, seconds: r.seconds, travelSeconds: r.travelSeconds,
-          xp: r.deaths ? 0 : xp, coins: r.deaths ? 0 : r.coins, samples: 3, kills: r.kills, foodUsed: r.food, deaths: r.deaths, simulated: true,
-          ...(rarityFactor ? {rarityFactor} : {})};
+          xp: r.deaths ? 0 : xp, coins: r.deaths ? 0 : r.coins, samples: 3, kills: r.kills, foodUsed: r.food, deaths: r.deaths, simulated: true};
       }
       if (cache.size >= CACHE_LIMIT) cache.delete(cache.keys().next().value);
       cache.set(cacheKey, record);
@@ -179,12 +174,6 @@ export function engineRates(data, planner, p, {budgetMs = 500, now = () => perfo
 // Real measurements win when the planner would use them; simulations fill the rest.
 export function mergeRates(simulated, measured = {}) {
   const out = {...simulated};
-  for (const [key, m] of Object.entries(measured ?? {})) {
-    if (!usableSample(m)) continue;
-    // Telemetry does not count qualities: keep the simulated factor for the same gear.
-    const sim = simulated?.[key];
-    out[key] = m.rarityFactor == null && sim?.rarityFactor && sim.equipmentKey === m.equipmentKey && sim.buffKey === m.buffKey ?
-      {...m, rarityFactor: sim.rarityFactor} : m;
-  }
+  for (const [key, m] of Object.entries(measured ?? {})) if (usableSample(m)) out[key] = m;
   return out;
 }

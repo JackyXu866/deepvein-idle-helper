@@ -91,13 +91,9 @@ export function createStrategy(data, planner) {
     return {...e,xp:row.xp!=null?e.xp*row.xp:e.xp,coins:row.coins!=null?e.coins*row.coins:e.coins,measured:true};
   }
   function estimateWork(p,j,lv=planner.levels(p)) {
-    const key=jobKey(j.id,j.rarity),inputs=workInputs(data,planner,p,j);
-    // The engine's measured quality factor also covers brews, house and
-    // masteries; it is a sample, so it replaces the exact tool+amulet factor
-    // only when clearly higher.
-    const measured=formulaOnly?null:usableMeasurement(p,key,lv)?.rarityFactor;
-    return calibrated(p,key,workEstimate(data,j,lv[j.skill],{...inputs,
-      rarityFactor:measured>(1+inputs.luck)*1.15?measured:undefined}),lv);
+    const key=jobKey(j.id,j.rarity);
+    // The quality factor is the game's exact one (rarity.js), not a sample.
+    return calibrated(p,key,workEstimate(data,j,lv[j.skill],workInputs(data,planner,p,j)),lv);
   }
   // A fight's estimate calibrated by this account's measured efficiency (the
   // formula alone inside byFormula, as gear comparisons need).
@@ -246,12 +242,11 @@ export function createStrategy(data, planner) {
       const monster=combatOptions(p,style).filter(c=>c.monster.drop===id&&(c.monster.dropChance??1)>0||id===data.shardId)
         .sort((a,b)=>dropScore(b)-dropScore(a)||a.monster.id-b.monster.id)[0];
       if (!monster) return false;
-      // A primary drop is one item of a rolled quality, not one ordinary item.
-      // Use the same baseline rarity model as workEstimate; temporary bonuses
-      // are not assumed to last for the entire material-supply expedition.
-      const common=1-Math.min(1,data.rarityChance.uncommon*
-        (1+(planner.equipmentStats(p.equipment.amulet)?.luck??0)));
-      return fight(monster,missing/(id===data.shardId?monster.shards:common*(monster.monster.dropChance??1)),next);
+      // A primary drop is one item of a rolled quality, not one ordinary item:
+      // the fight's expected commons per kill (combatDrops, the one quality factor).
+      const perKill=id===data.shardId?monster.shards:monster.drops?.[id]??0;
+      if (!(perKill>0)) return false;
+      return fight(monster,missing/perKill,next);
     }
     function fight(c,n,trail=[]) {
       const supplies=combatSupplies(data,planner,p,c,{zone:c.zone,monster:c.monster,

@@ -7,6 +7,8 @@ import {normalizeHotFollow} from '../runtime/hot-follow.js';
 import {Trainer} from '../runtime/trainer.js';
 import {engineApi, engineRates, engineReady, engineStatus, loadEngine, mergeRates} from '../engine/runtime.js';
 import {chooseMastery} from '../engine/mastery.js';
+import {qualityGain} from '../planner/rates.js';
+import {RARE_PER_RANK} from '../planner/rarity.js';
 import {same} from '../runtime/util.js';
 import {planView} from '../planner/plan-view.js';
 import {PLANNING_STORAGE_KEYS, enhancementStorage, wirePlanner} from '../economy/wiring.js';
@@ -79,9 +81,15 @@ export function runPlanning(data,input,inspectOnly=false) {
   planner.setMeasurements(mergeRates(simulated,input.rates));
   planner.perkUsage=input.rates; // measured time per route: what this account actually does
   // Mastery points can only be counted and valued by the engine.
+  // A rare-find rank: the gold its rarer drops add on the goal's work, over the gold rate.
+  const rareGain=(p,goal)=>{
+    const rate=planner.coinRate?.(p)??0,monster=goal?.monsterId!=null?data.monsters.find(m=>m.id===goal.monsterId):null;
+    const job=!monster&&goal?data.jobs.find(j=>j.id===goal.recipeId):null;
+    return rate>0&&(job||monster)?qualityGain(data,planner,p,{job,monster,profession:input.style??'magic'},RARE_PER_RANK)/rate:0;
+  };
   if(engineApi())planner.masteryPurchase=(p,goal)=>chooseMastery(engineApi(),p,
     goal&&{...goal,inputs:data.jobs.find(j=>j.id===goal.recipeId)?.inputs??[]},
-    {metric:goal?.specialization&&goal.rate?.coins>0?'coins':'xp',data,usage:input.rates});
+    {metric:goal?.specialization&&goal.rate?.coins>0?'coins':'xp',data,usage:input.rates,rareGain:rareGain(p,goal)});
   planner.enhancementTraining=createEnhancementTraining(data,planner,enhancementStorage(storage));
   const economy=createEconomy(data,planner,input.settings),market=createMarket(data,planner,{...input.settings,storage,now:()=>input.now});
   economy.runtime(input.economy);market.runtime(input.market);

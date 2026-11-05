@@ -1,6 +1,7 @@
 import {PAIR_TIERS, RARITY_NAMES, cheapestEffect, rarityPower, tierPower, craftRecipe, setsAt, usableQualities} from './quality.js';
 import {combatEstimate} from './estimates.js';
-import {combatStats, formulaWork, perAction} from './rates.js';
+import {combatStats, formulaWork, perAction, qualityGain} from './rates.js';
+import {HUNTER_PER_POWER} from './rarity.js';
 import {POTIONS, brewPower, foodEffects, healAt, potionRefillQty} from './supplies.js';
 import {inventoryBudget} from './inventory.js';
 import {goldToSeconds, pays, secondsToGold} from './gold.js';
@@ -266,10 +267,11 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
     } else if(kind==='nourish'&&monster&&healFor(1)>healFor(0)) {
       // The food it saves over its hour: the same damage needs fewer bites.
       effect='食物治疗 +25%';worth=enemyDps*3600*(1/healFor(0)-1/healFor(1))*foodValue;
-    } else if(kind==='hunter'&&job&&!job.inputs.length&&job.output.itemId!==data.coinId) {
-      effect='产物的品质稀有倍率 +25%';
-    } else if(kind==='hunter'&&monster?.drop!=null) {
-      effect='掉落物的品质稀有倍率 +25%';
+    } else if(kind==='hunter'&&(job&&!job.inputs.length&&job.output.itemId!==data.coinId||monster?.drop!=null)) {
+      // The rarer drops it adds over its hour, at the income ranking's sale value (rarity.js factor).
+      const gain=qualityGain(data,planner,p,job?{job}:{monster,profession},HUNTER_PER_POWER)*3600;
+      effect=`${job?'产物':'掉落物'}的稀有发现 +25%（每小时多得约 ${Math.round(gain).toLocaleString()} 金币的稀有品质）`;
+      worth=gain>0?gain:null;
     }
     if(effect)add(potion,effect,worth);
   }

@@ -11,9 +11,8 @@ export function workEstimate(data, job, skillLevel, options={}) {
   // A stun ending at tick t+s suppresses s-1 subsequent trials.
   const ticks=Math.max(1,job.baseTicks/speed)+caught*Math.max(0,(job.caught?.stunTicks??0)-1);
   const randomRarity=!job.inputs.length&&job.output.itemId!==data.coinId;
-  // One roll against every threshold, scaled by (1+luck)×bonuses (client Lu).
-  // rarityFactor, measured by the engine, is that whole product: tool and
-  // amulet luck plus brews, house, masteries. Without it: tool and amulet only.
+  // One roll against every threshold, scaled by (1+luck)×bonuses: rarityFactor
+  // (rarity.js) is that whole product. Without it: luck alone.
   const rolled=rarityOdds(data,options.rarityFactor??1+(options.luck??0));
   const probabilities=randomRarity?rolled:[1,0,0,0,0];
   const xp=success*probabilities.reduce((sum,p,i)=>sum+p*Math.round(job.xp*data.rarityXp[i]),0);
@@ -61,18 +60,20 @@ export function combatEstimate(data, monster, stats) {
   const shards=Math.min(.2,.08+monster.level*.0013)*(1+Math.floor(monster.level/30));
   return {seconds,attacks,maxHit,hitChance,effectiveDefence,enemyHit,damage,mainXp:monster.xp,
     xp:monster.xp+2*Math.max(1,Math.floor(monster.xp/3)),shards,
-    coins:(monster.gold[0]+monster.gold[1])/2,drops:combatDrops(data,monster,stats.luck??0,shards)};
+    coins:(monster.gold[0]+monster.gold[1])/2,drops:combatDrops(data,monster,stats.rarity??stats.luck??0,shards)};
 }
 
 // Expected item drops per kill, keyed by exact item id (quality included).
 // Valuing them is the caller's job: protected and unsellable items earn nothing.
-export function combatDrops(data,monster,luck=0,shards=0) {
+// `rarity`: rarity.js's {factor, dropFactor} (a plain number is luck alone).
+export function combatDrops(data,monster,rarity=0,shards=0) {
   const drops={},add=(id,qty)=>{if(id!=null&&qty>0)drops[id]=(drops[id]??0)+qty;};
-  const odds=rarityOdds(data,1+luck);
+  const {factor,dropFactor}=typeof rarity==='number'?{factor:1+rarity,dropFactor:1+rarity}:rarity;
+  const odds=rarityOdds(data,factor);
   const dropChance=Math.max(0,Math.min(1,monster.dropChance??1));
   if(monster.drop!=null)for(let tier=0;tier<5;tier++)
     add(monster.drop+tier*data.rarityScale,dropChance*odds[tier]);
-  if(monster.bonus)add(monster.bonus.itemId,Math.min(1,monster.bonus.chance*(1+luck)));
+  if(monster.bonus)add(monster.bonus.itemId,Math.min(1,monster.bonus.chance*dropFactor));
   add(data.shardId,shards);
   return drops;
 }

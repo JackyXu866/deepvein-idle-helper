@@ -93,13 +93,14 @@ export function createPlanner(data) {
     return {estimate,zone,supplies,foodSeconds,seconds:estimate.seconds+foodSeconds+supplies.restockSeconds};
   }
   // Seconds per ordinary drop of `id` from the best safe monster dropping it:
-  // one kill with its food (combatTiming) over the chance of an ordinary drop.
-  // The input cost prices a drop by it, as the fight that gets it runs.
+  // one kill with its food (combatTiming) over the ordinary drops per kill
+  // (combatDrops, at the one quality factor). The input cost prices a drop by
+  // it, as the fight that gets it runs.
   function dropSeconds(p,id,style=api.styleHint??'magic') {
     const lv=levels(p),stats=combatStats(data,api,p,style,p.equipment,lv);
-    const common=1-Math.min(1,data.rarityChance.uncommon*(1+(equipmentStats(p.equipment.amulet)?.luck??0)));
     return Math.min(Infinity,...monsters.filter(m=>m.drop===id&&(m.dropChance??1)>0&&zones.some(z=>z.monsterId===m.id)&&combatSafe(lv,stats,m))
-      .map(m=>{const t=combatTiming(p,m,stats);return t.supplies.sustainable?t.seconds/((m.dropChance??1)*common):Infinity;}));
+      .map(m=>{const t=combatTiming(p,m,stats),perKill=t.estimate.drops?.[id]??0;
+        return t.supplies.sustainable&&perKill>0?t.seconds/perKill:Infinity;}));
   }
   // One fight as every combat choice weighs it (fight(), the goal choosers,
   // the gear table's monster): a kill with its food, restocking and the

@@ -41,9 +41,8 @@ test('legendary ore is valued but kept', () => {
   assert.equal(reviewInventory(d, planner, p).items.find(i => i.itemId === ore + 4 * R).sell, 0);
 });
 
-test('a real measurement keeps the simulated quality factor for the same gear', () => {
-  const sim = {'job:1': {samples: 3, seconds: 3600, travelSeconds: 0, equipmentKey: 'g', buffKey: 'b', rarityFactor: 9.8, simulated: true}};
+test('a real measurement replaces the simulation of the same route', () => {
+  const sim = {'job:1': {samples: 3, seconds: 3600, travelSeconds: 0, equipmentKey: 'g', buffKey: 'b', simulated: true}};
   const real = {'job:1': {samples: 5, seconds: 3600, travelSeconds: 0, equipmentKey: 'g', buffKey: 'b', xp: 100}};
-  assert.equal(mergeRates(sim, real)['job:1'].rarityFactor, 9.8);
-  assert.equal(mergeRates(sim, {'job:1': {...real['job:1'], equipmentKey: 'other'}})['job:1'].rarityFactor, undefined);
+  assert.equal(mergeRates(sim, real)['job:1'], real['job:1']);
 });
