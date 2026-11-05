@@ -52,7 +52,8 @@ Every file under `src/` and what it owns. Before writing logic, find the module 
 - `specialization.js`: 主业经营 and income choices.
 - `quests.js`: dailies and weeklies, rerolls. `perks.js`: quest-point perks.
 - `collection.js`: 补精通: collection tiers and forge-log levels, ranked by gold per point.
-- `mastery-pages.js`: the two mastery pages, enhance odds, the page switch.
+- `mastery-pages.js`: the two mastery pages, enhance odds, the page switch. `mastery-plan.js`: where mastery points go (`allocate`, and the objective for the goal).
+- `house-bonus.js`: what placed house rooms add (speed, damage, rare-find).
 - `investment.js`: the investment table (every way to improve each slot); enhancement expected cost; funding.
 - `enhancement.js`: the enhancing step (`planEnhancement`) and the guard against resending an attempt.
 - `gear.js`: slots, what fits, how long a piece is used. `professions.js`: combat professions, weapons, wear requirements.
@@ -79,7 +80,7 @@ Every file under `src/` and what it owns. Before writing logic, find the module 
 **`engine/`**
 - `extract.js`, `analyze.js`, `fingerprints.js`, `prepare.js`: find and extract the game's tick engine from the live client.
 - `runtime.js`: load, smoke-test and run the engine; simulated rates.
-- `mastery-rules.js`: mastery costs and limits. `mastery.js`: which mastery to buy (page 1 by time saved, page 2 enhance only).
+- `mastery-rules.js`: mastery costs, limits, effect per rank, which skills gather speed serves.
 
 **`ui/`**
 - `boss-join.js`: the game's own Boss join and leave controls. `boss-loot.js`: the Boss loot log in chat.
@@ -124,6 +125,8 @@ The registry: each rule exists here once; anything that needs it calls it.
 - **Rare-find odds**: `planner/rarity.js` `rarityFactor` is the game's quality roll factor: (1 + amulet and tool luck) × (1 + hunter brew, Vein Blessing, rare-find mastery, lucky shrine). Work and combat estimates, drop timing, and the worth of a hunter brew or a rare-find rank (`qualityGain` in `planner/rates.js`) all use it.
 - **Items, time and places**: `planner/items.js`. **Levels**: `planner/levels.js`.
 - **补精通**: `planner/collection.js` ranks collection tiers and forge-log levels by gold per point. The prices come from `masteryPrice` and `forgeCandidates` in `planner.js`.
+- **Mastery points**: `planner/mastery-plan.js`. Ranks are permanent, so each purchase is the best allocation of the available points for the goal's objective, priced by the same rules that pick the work: 补精通 by `masteryPrice` on its next targets, an income goal by `goldRate`, leveling by the measured routes' time. Page 2 takes enhance ranks only.
+- **Work and combat speed**: `workEstimate`/`combatEstimate` in `planner/estimates.js` with inputs from `planner/rates.js`: level, tool, quick perk plus house room, gather or craft mastery; max hit with house damage and max-hit mastery, accuracy with accuracy mastery. House bonuses: `planner/house-bonus.js`. Changing what the formula covers bumps `FORMULA_VERSION` (strategy.js) so learnt efficiencies are relearnt.
 - **World Boss**: `runtime/world-boss.js` runs a round (set the task aside, walk, attack, resume). The page hands a round to the game's own join, either by clicking 加入 or on the Vein Blessing's `bossAutoJoin`.
 
 ## Conventions

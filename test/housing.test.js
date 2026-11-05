@@ -178,6 +178,24 @@ test('a house plot is bought only for a facility whose first level repays it (th
   assert.notEqual(make(1e-6)?.intent?.t, 'buildRoom', 'gold is dear: the plot does not repay');
 });
 
+test('the lucky shrine is placed for work that rolls quality, by the gold of its rarer drops', async () => {
+  const {makePlanner, player} = await import('./helpers.js');
+  const plan = goal => {
+    const planner = makePlanner(), d = planner.data, region = d.houseTravel.region, entrance = d.houseRules.entrance;
+    planner.coinRate = () => 100;
+    planner.saleValue = (_p, id) => id >= d.rarityScale ? 5e4 : 10;
+    planner.setHousingEnabled(true);
+    const p = player(planner, {x: region.x + 1, y: region.y + 1, path: null, route: null, activity: 'idle', coins: 0,
+      levels: {mining: 50, smithing: 50}, houseCells: [entrance, entrance + 1, entrance + 2],
+      houseFurniture: {mine: {cell: entrance + 1, slot: 0}, forge: {cell: entrance + 1, slot: 0}}, house: {}, housePoints: {},
+      houseUpgrades: {mine: 1e12, forge: 1e12}});
+    const job = skill => d.jobs.find(j => j.skill === skill && j.levelReq <= 1 && !j.grow && (skill === 'mining') === !j.inputs.length);
+    return planner.housingPlan(p, {skill: goal, recipeId: job(goal).id, target: 51, budget: {coins: 0, items: {}}}, 'melee', 'balanced');
+  };
+  assert.deepEqual(plan('mining')?.intent, {t: 'placeFurniture', room: 'shrine', cell: 12 + 2, slot: 0});
+  assert.notEqual(plan('smithing')?.intent?.room, 'shrine', 'crafting rolls no quality');
+});
+
 test('a trip home with nothing left to do is dropped before entering, and the work resumed', async () => {
   const {makePlanner, player} = await import('./helpers.js');
   const planner = makePlanner(), d = planner.data;

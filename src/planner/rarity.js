@@ -12,17 +12,14 @@
 import {brewPower} from './supplies.js';
 import {rarityOf} from './items.js';
 import {WORK_PAGE, pageRanks} from './mastery-pages.js';
+import {houseBonus} from './house-bonus.js';
 
 export const HUNTER_PER_POWER=.25,BLESSING_RARE=.1,RARE_PER_RANK=.005;
 
 // The equipment slot whose tool serves a skill (pickaxe for mining, ...).
 export const toolSlotFor=(data,skill)=>Object.keys(data.toolSkills).find(s=>data.toolSkills[s]===skill)??null;
 
-export function shrineBonus(data,p) {
-  const room=data.houseRooms?.find(r=>r.bonus?.kind==='rareChance');
-  if(!room||!p?.houseFurniture?.[room.id])return 0;
-  return (p.house?.[room.id]??0)*(data.houseRules?.bonusPerLevel??.01)*(room.rate??1);
-}
+export const shrineBonus=(data,p)=>houseBonus(data,p,'rareChance');
 
 // The factor for work in `skill` (a combat style for fights) with this
 // equipment. `extra` adds to the bonus sum (what a brew or a rank would add).

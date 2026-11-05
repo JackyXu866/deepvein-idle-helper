@@ -5,6 +5,7 @@ import {combinedBudget, reviewInventory, saleProtectionReason} from './inventory
 import {COAL_ID, baseId, itemLabel, playerQueued, plusOf, rarityOf} from './items.js';
 import {goldToSeconds, payback} from './gold.js';
 import {USE_CAP_SECONDS} from './gear.js';
+import {qualityGain} from './rates.js';
 
 export const HOUSE_NAMES={mine:'矿井',sawmill:'锯木厂',pond:'鱼塘',garden:'花园',forge:'锻造炉',yard:'训练场',
   lockbox:'锁箱工作台',range:'炉灶',fletchrack:'制箭架',herbrack:'药草架',loom:'织布机',lectern:'符文讲台',
@@ -144,15 +145,32 @@ export function createHousing(data,planner) {
     if(!goal||goal.developmentFiller||goal.temporary||goal.quest)return null;
     const skill=goal.mainSkill??goal.skill,combat=professionSkill(style),pressure=budget.freeSlots<=3;
     const trained=planner.trainedSkills(style).filter(s=>!['defence','hitpoints','farming'].includes(s));
+    const coinRate=planner.coinRate(p);
+    // The lucky shrine adds rare-find to every quality roll but farming
+    // (rarity.js): its gain is the gold the rarer drops add on the goal's work
+    // (rates.qualityGain), as a share of the gold rate. Gathering and fighting
+    // roll quality; crafting does not.
+    const work={job:goal.recipeId!=null?data.jobs.find(j=>j.id===goal.recipeId)??null:null,
+      monster:goal.monsterId!=null?data.monsters.find(m=>m.id===goal.monsterId)??null:null,profession:style};
+    const rareGains=new Map(),rareGain=room=>{
+      if(!rareGains.has(room.id))rareGains.set(room.id,coinRate>0?qualityGain(data,planner,p,work,rules.bonusPerLevel*room.rate)/coinRate:0);
+      return rareGains.get(room.id);};
+    const rolling=trained.filter(s=>['mining','fishing','woodcutting','thieving',combat].includes(s)).length;
     const current=room=>room.bonus.skill===skill||skill===combat&&room.bonus.kind==='combatXp'||
-      room.id==='lectern'&&!!goal.enhancement;
+      room.id==='lectern'&&!!goal.enhancement||room.bonus.kind==='rareChance'&&rareGain(room)>0;
+    // Share of the time a room serves, and what one more level gains: speed
+    // rooms the time they save (diminishing), the shrine its drops' gold.
+    const shareOf=room=>mode==='business'&&current(room)?1:room.bonus.kind==='rareChance'?
+      rolling/Math.max(1,trained.length):1/Math.max(1,trained.length);
+    const gainOf=(room,level)=>room.bonus.kind==='rareChance'?rareGain(room):
+      rules.bonusPerLevel*room.rate/(1+rules.bonusPerLevel*room.rate*level);
     // A timer belongs to one facility, not the whole home. Maintain other
     // already placed, useful facilities during the same visit as well.
     const relevant=rooms.filter(room=>room.id==='storeroom'?pressure:room.id!=='garden'&&
       (current(room)||p.houseFurniture[room.id]&&(trained.includes(room.bonus.skill)||room.bonus.kind==='combatXp')));
     relevant.sort((a,b)=>Number(b.id==='storeroom')-Number(a.id==='storeroom')||
       Number(b.bonus.skill===skill)-Number(a.bonus.skill===skill)||(p.house[a.id]??0)-(p.house[b.id]??0));
-    const inventory=reviewInventory(data,planner,p,goal,style,budget),coinRate=planner.coinRate(p);
+    const inventory=reviewInventory(data,planner,p,goal,style,budget);
     for(const room of relevant) {
       if(p.houseUpgrades[room.id]!=null)continue;
       if(!p.houseFurniture[room.id]) {
@@ -166,9 +184,8 @@ export function createHousing(data,planner) {
         // shared payback over 30 days; storage against a bank shelf's price).
         const price=cellPrice(p);
         if(!p.houseBuild&&cells.length&&Number.isSafeInteger(price)&&coinRate>0) {
-          const share=mode==='business'&&current(room)?1:1/Math.max(1,trained.length);
           const result=room.id==='storeroom'?{worth:price<=1000*1.5**(p.bankSlotsBought??0)/2,paid:goldToSeconds(price,coinRate),saved:0}:
-            payback({gold:price,coinRate,before:1,after:1+share*rules.bonusPerLevel*room.rate,useSeconds:USE_CAP_SECONDS});
+            payback({gold:price,coinRate,before:1,after:1+shareOf(room)*gainOf(room,0),useSeconds:USE_CAP_SECONDS});
           if(result.worth&&p.coins>=price+budget.coins)return action({t:'buildRoom',cell:cells[0]},`扩建房屋地块 · ${price.toLocaleString()} 金币`,
             `为摆放${roomName(room.id)}：地块价格回本（约 ${(result.paid/3600).toFixed(1)} 小时金币）；保留当前计划必要开销；施工期间继续原任务，不花宝石加速`);
           review.push(`${roomName(room.id)}：没有空房间；新地块 ${price.toLocaleString()} 金币${result.worth?'，金币不足':'，按收益不回本'}，暂缓`);continue;
@@ -184,8 +201,7 @@ export function createHousing(data,planner) {
         unitValue:(id,qty)=>planner.stockValue?.(p,id,qty)??planner.saleValue(p,id,qty),refused:refusedFuel});
       if(remaining>0){review.push(`${roomName(room.id)}：缺 ${missing} 点，可用材料可补 ${missing-remaining} 点，不足整次升级`);continue;}
       const level=p.house[room.id]??0,delay=rules.upgradeTicks*rules.upgradeGrowth**level*data.tickMs/1000;
-      const share=mode==='business'&&current(room)?1:1/Math.max(1,trained.length);
-      const gain=rules.bonusPerLevel*room.rate/(1+rules.bonusPerLevel*room.rate*level);
+      const share=shareOf(room),gain=gainOf(room,level);
       // Facilities are permanent. A one-day window divided across all skills
       // rejected even cheap first levels. Use a bounded week of active play.
       // Storage is valued against the reviewed cost of the next bank shelf;

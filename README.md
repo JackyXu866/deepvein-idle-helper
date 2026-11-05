@@ -2,12 +2,12 @@
 
 [Deep Vein Idle](https://deepveinidle.com/)（含 [中国入口](https://cn.deepveinidle.com/)）的 Tampermonkey 用户脚本。它替你安排练级、供料、装备、强化、买卖、收菜和世界 Boss，默认暂停，点“开始调度”才会动手。
 
-当前版本 **v0.11.0**，由本 fork 维护 · [更新日志](CHANGELOG.md)
+当前版本 **v0.12.0**，由本 fork 维护 · [更新日志](CHANGELOG.md)
 
 ## 安装
 
 1. 安装 Tampermonkey。
-2. 打开 [安装链接](https://raw.githubusercontent.com/JackyXu866/deepvein-idle-helper/modular-rewrite/deepvein-balanced.user.js) 并确认安装（GitHub 打不开时用 [Gcore CDN 备用链接](https://gcore.jsdelivr.net/gh/JackyXu866/deepvein-idle-helper@v0.11.0/deepvein-balanced-cdn.user.js)）。
+2. 打开 [安装链接](https://raw.githubusercontent.com/JackyXu866/deepvein-idle-helper/modular-rewrite/deepvein-balanced.user.js) 并确认安装（GitHub 打不开时用 [Gcore CDN 备用链接](https://gcore.jsdelivr.net/gh/JackyXu866/deepvein-idle-helper@v0.12.0/deepvein-balanced-cdn.user.js)）。
 3. 刷新游戏，从右侧工具栏打开“脚本助手”，选好策略和战斗职业，点“开始调度”。
 
 只启用一份助手，只开一个游戏标签页。以后有新版时，油猴会按它自己的设置更新；助手标题旁也会提示，点“安装／更新”后刷新游戏才生效。从上游或旧链接装过的，请用上面的链接重装一次，以后才会从本 fork 更新。
@@ -34,6 +34,7 @@
 - **精通两页**（在游戏里买了第二页时）：第二页精通只点强化成功率，强化时自动切过去，没有要强化的就切回第一页。投资表按第二页的成功率算强化花费。
 - **出售**：按当日成交均价定价，买单接近均价就直接卖，明显低于均价就按均价挂单；同一物品 30 分钟内只卖一批。
 - **稀有发现**：掉落和采集品质按游戏的公式算：护身符和工具的幸运，乘上猎人药剂、矿脉祝福、寻宝精通、幸运神龛的加成。猎人药剂和寻宝精通的价值，就是它们每小时多带来的稀有品质能卖多少金币。
+- **精通加点**：精通加了不能退，所以每次都按当前目标求整体最优的分配，不是每点各加一级：补精通时只看哪项让接下来的收藏目标最省金币（经验、移动、战斗项对收藏没用，不会点），主业经营看每小时金币，练级看实际在做的工作省多少时间。面板写出按什么算、加点前后差多少。
 - **库存的价值**：助手会卖的东西，用掉按卖价算成本；助手不会卖的（比如关掉“平时也出售多余物品”时），用掉不算花费。
 
 ## 设置（策略 / 物资页）

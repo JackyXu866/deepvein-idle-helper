@@ -107,7 +107,7 @@ export function createCollectionMastery(data,{price=null,forge=null}={}) {
     return targets.length?targets.map((t,index)=>`${index+1}. ${name(t)}${t.forge?` → +${t.toPlus}${t.acquire&&t.acquire!=='已持有'?`（${t.acquire === '市场'?'先买':'先做'}一件）`:''}`:`：${count(p,t)} / ${t.target}`}，${t.points} 点，${costText(t)}`).join('\n'):
       '暂无可补的奖励项（已跳过传说与种植）；等待收藏进度变化。';
   }
-  return {chooseGoal,forgeNext,completed,skipped,status,name,reset:()=>{owner=null;ranked=[];rankedAt=-Infinity;},
+  return {chooseGoal,forgeNext,completed,skipped,status,name,targets:rank,reset:()=>{owner=null;ranked=[];rankedAt=-Infinity;},
     runtime(value){if(value){owner=value.owner??null;ranked=value.ranked??[];rankedAt=value.rankedAt??-Infinity;}
       return {owner,ranked,rankedAt};}};
 }

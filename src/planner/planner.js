@@ -24,6 +24,7 @@ import {createInvestments, expectedEnhancement} from './investment.js';
 import {slotsFor} from './gear.js';
 import {FORGE_LADDER, createCollectionMastery, forgePoints, forgeReached} from './collection.js';
 import {ENHANCE_PAGE, WORK_PAGE, hasEnhancePage, pageRanks} from './mastery-pages.js';
+import {createMasteryPlan} from './mastery-plan.js';
 import {goldToSeconds, secondsToGold} from './gold.js';
 import {HOT_FOLLOW_SKILLS, hotSkillAt, hotWindows} from '../runtime/hot-follow.js';
 import {createAutomationPolicy, normalizeAutomation} from '../runtime/automation-policy.js';
@@ -92,13 +93,13 @@ export function createPlanner(data) {
     const foodSeconds=estimate.damage/supplies.heal*(Number.isFinite(unitCost)?unitCost:0);
     return {estimate,zone,supplies,foodSeconds,seconds:estimate.seconds+foodSeconds+supplies.restockSeconds};
   }
-  // Seconds per ordinary drop of `id` from the best safe monster dropping it:
-  // one kill with its food (combatTiming) over the ordinary drops per kill
-  // (combatDrops, at the one quality factor). The input cost prices a drop by
-  // it, as the fight that gets it runs.
+  // Seconds per drop of `id` (its quality included) from the best safe monster
+  // dropping it: one kill with its food (combatTiming) over the drops of that
+  // quality per kill (combatDrops, at the one quality factor). The input cost
+  // prices a drop by it, as the fight that gets it runs.
   function dropSeconds(p,id,style=api.styleHint??'magic') {
     const lv=levels(p),stats=combatStats(data,api,p,style,p.equipment,lv);
-    return Math.min(Infinity,...monsters.filter(m=>m.drop===id&&(m.dropChance??1)>0&&zones.some(z=>z.monsterId===m.id)&&combatSafe(lv,stats,m))
+    return Math.min(Infinity,...monsters.filter(m=>m.drop===base(id)&&(m.dropChance??1)>0&&zones.some(z=>z.monsterId===m.id)&&combatSafe(lv,stats,m))
       .map(m=>{const t=combatTiming(p,m,stats),perKill=t.estimate.drops?.[id]??0;
         return t.supplies.sustainable&&perKill>0?t.seconds/perKill:Infinity;}));
   }
@@ -399,11 +400,14 @@ export function createPlanner(data) {
   // 补精通 prices in gold (collection.js ranks gold per point); time is money,
   // at the gold rate. A collection tier: the time to produce what is missing,
   // its inputs got the cheapest way (input-cost.js).
+  // The mastery plan (mastery-plan.js) prices the same targets under trial
+  // ranks: it passes the gold rate and the input costs, held fixed.
   const unitCosts=new WeakMap();
-  function masteryPrice(p,t,style) {
-    const rate=coinRate(p);if(!(rate>0))return Infinity;
+  function masteryPrice(p,t,style,{rate=coinRate(p),units:shared=null}={}) {
+    if(!(rate>0))return Infinity;
     const remaining=Math.max(0,t.target-(p.collections?.[t.itemId]??0));if(!remaining)return 0;
     const lv=levels(p),tier=t.rarity;
+    if(shared)unitCosts.set(p,shared);
     if(!unitCosts.has(p))unitCosts.set(p,new Map());
     const open=j=>!j.grow&&lv[j.skill]>=j.levelReq&&sites.some(s=>s.jobIds.includes(j.id));
     // A gathered quality comes from random rolls: its time is the gathering
@@ -425,10 +429,8 @@ export function createPlanner(data) {
         return n+held*api.stockValue(p,i.itemId,1)+(rest>0?rest*unit(i.itemId)*rate:0);},0);
       return actions*e.seconds*rate+inputs;
     }
-    if(monsters.some(m=>m.drop===t.base)) {
-      const chance=tier?data.rarityChance[['','uncommon','rare','epic'][tier]]??0:1;
-      return chance>0?dropSeconds(p,t.base,style)*remaining/chance*rate:Infinity;
-    }
+    // A monster's drop of this quality, at the one quality factor.
+    if(monsters.some(m=>m.drop===t.base))return dropSeconds(p,t.itemId,style)*remaining*rate;
     const bonus=jobs.filter(j=>j.bonus?.itemId===t.base&&j.bonus.chance>0&&open(j)).map(j=>{
       const odds=tier?strategy.estimateWork(p,j,lv).qualities?.[tier]??0:1;
       return odds>0?bonusSeconds(p,j)/odds:Infinity;});
@@ -1829,6 +1831,7 @@ export function createPlanner(data) {
   const quests=createQuests(data,api);
   const housing=createHousing(data,api);
   const investments=createInvestments(data,api);
+  const masteryPlan=createMasteryPlan(data,api);
   return Object.assign(api,{growthChooseGoal:growth.chooseGoal,growthStatus:growth.status,
     housingPlan:housing.plan,housingStatus:housing.status,validateHousing:housing.validate,
     herbloreNeeds:p=>herbloreNeeds(data,p,levels(p),thresholds),
@@ -1842,7 +1845,9 @@ export function createPlanner(data) {
     resetSpecialization:specialization.reset,
     masteryChooseGoal:mastery.chooseGoal,masteryCompleted:mastery.completed,masterySkipped:mastery.skipped,
     masteryStatus:mastery.status,masteryRuntime:mastery.runtime,resetMastery:mastery.reset,
-    masteryForge,masteryForgeCandidates:(p,style)=>forgeCandidates(p,style),masteryForgeWanted:(p,style,goal)=>!!goal?.mastery&&!!mastery.forgeNext(p,style,goal),
+    masteryForge,masteryForgeCandidates:(p,style)=>forgeCandidates(p,style),
+    masteryTargets:(p,style)=>mastery.targets(p,style),masteryPrice,
+    masteryPlan:(p,goal,options)=>masteryPlan.choose(p,goal,options),masteryForgeWanted:(p,style,goal)=>!!goal?.mastery&&!!mastery.forgeNext(p,style,goal),
     runtime(value) {
       if(value) {({farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote}=value);farmPolicy=value.farmPolicy??null;specialization.runtime(value.specialization);growth.runtime(value.development);housing.runtime(value.housing);investments.runtime(value.investments);mastery.runtime(value.mastery);if(value.efficiency)strategy.efficiencyRuntime(value.efficiency);if('incomeRates' in value)incomeRates=value.incomeRates;}
       return {farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote,farmPolicy,specialization:specialization.runtime(),development:growth.runtime(),housing:housing.runtime(),investments:investments.runtime(),mastery:mastery.runtime(),efficiency:strategy.efficiencyRuntime(),incomeRates};

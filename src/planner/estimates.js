@@ -2,9 +2,11 @@
 // and guild modifiers are omitted; these estimates are not measured XP/hour.
 import {rarityOdds} from './quality.js';
 
+// Speed (client $X): level above the requirement × tool × (quick perk + house
+// room, which add) × gather or craft mastery.
 export function workEstimate(data, job, skillLevel, options={}) {
   const speed=(1+Math.max(0,skillLevel-job.levelReq)*data.xp.speedPerLevelAboveRequirement)*
-    (1+(options.toolBonus??0))*(1+.005*(options.quick??0));
+    (1+(options.toolBonus??0))*(1+.005*(options.quick??0)+(options.home??0))*(options.mastery??1);
   const failure=rule=>rule?Math.max(0,rule.chanceAtReq*(1-(skillLevel-job.levelReq)/
     (rule.safeAtLevel-job.levelReq)))*(1-.03*(options.hands??0)):0;
   const burn=failure(job.burn), caught=failure(job.caught), success=1-burn-caught;
@@ -43,12 +45,15 @@ export function expectedAttacks(hp, maxHit, hitChance) {
 
 // Optional buffs at their strength (0 when off): warrior (+10 accuracy and
 // +10% max hit per power), haste (+20% attack speed) and fed (+25% max hit).
+// damageLift (house damage room × max-hit mastery) multiplies max hit, and
+// accuracyLift (accuracy mastery) the accuracy rating (client el/RP, di).
 export function combatEstimate(data, monster, stats) {
   const {warrior=0,haste=0,fed=0}=stats;
   const divisor=stats.style==='magic'?4.5:stats.twoHanded?6:
     stats.style==='ranged'&&stats.speed===5?5:8;
-  const maxHit=Math.ceil(Math.max(1,1+Math.floor((stats.level+stats.strength)/divisor))*(1+.1*warrior+fed));
-  const accuracy=Math.max(1,10+stats.level+stats.accuracy+Math.round(10*warrior));
+  const base=Math.max(1,1+Math.floor((stats.level+stats.strength)/divisor)),lift=(1+.1*warrior+fed)*(stats.damageLift??1);
+  const maxHit=lift>1?Math.ceil(base*lift):base;
+  const accuracy=Math.max(1,Math.round((10+stats.level+stats.accuracy+Math.round(10*warrior))*(stats.accuracyLift??1)));
   const effectiveDefence=monster.defence*(stats.style==='magic'?.5:1);
   const hitChance=accuracy/(accuracy+10+effectiveDefence);
   const attacks=expectedAttacks(monster.hp,maxHit,hitChance);

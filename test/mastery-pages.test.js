@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {enhanceOdds, enhanceRanks, pageStep} from '../src/planner/mastery-pages.js';
 import {enhanceQuote} from '../src/planner/inventory.js';
-import {chooseMastery} from '../src/engine/mastery.js';
 import {validateIntent} from '../src/runtime/intents.js';
 import {spentPoints} from '../src/engine/mastery-rules.js';
 import {makePlanner, player} from './helpers.js';
@@ -37,14 +36,17 @@ test('the helper switches to page 2 to enhance and back to page 1 after; the coo
 });
 
 test('page 2 buys enhance ranks only; page 1 never buys enhance', () => {
-  const api = {masteryEarnedPoints: () => 9624, masteryTracks: ['xp', 'gather', 'craft', 'move', 'hp', 'maxhit', 'accuracy', 'rare', 'enhance'].map(id => ({id}))};
-  const p = {skills: {mining: 1}, masteries: {}, masteryPage: 2, masteryOther: work};
-  const choice = chooseMastery(api, p, null);
+  const planner = makePlanner(), tracks = ['xp', 'gather', 'craft', 'move', 'hp', 'maxhit', 'accuracy', 'rare', 'enhance'];
+  const p = player(planner, {masteries: {}, masteryPage: 2, masteryOther: work});
+  const choice = planner.masteryPlan(p, null, {earned: 9624, tracks});
   assert.deepEqual(choice.intent, {t: 'masteryConfirm', ranks: {enhance: 80}});
-  const full = chooseMastery(api, {...p, masteries: {enhance: 80}}, null);
+  const full = planner.masteryPlan({...p, masteries: {enhance: 80}}, null, {earned: 9624, tracks});
   assert.equal(full, null, 'nothing left to buy');
-  const page1 = chooseMastery({...api, masteryEarnedPoints: () => 20000}, {skills: {mining: 1}, masteries: work, masteryPage: 1, masteryOther: {enhance: 80}}, {skill: 'mining'});
-  assert.equal(page1?.intent?.ranks?.enhance, undefined);
+  const mining = planner.data.jobs.find(j => j.skill === 'mining' && j.levelReq <= 1);
+  const page1 = planner.masteryPlan(player(planner, {masteries: work, masteryPage: 1, masteryOther: {enhance: 80}}),
+    {skill: 'mining', recipeId: mining.id}, {earned: 20000, tracks});
+  assert.equal(page1.intent.t, 'masteryConfirm');
+  assert.equal(page1.intent.ranks.enhance, undefined);
 });
 
 test('a page switch is valid only to the other owned page, outside the cooldown', () => {

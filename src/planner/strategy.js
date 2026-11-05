@@ -14,6 +14,9 @@ import {COMBAT_SKILLS, combatKey, equipmentKey, jobKey, levelsKey, usableSample}
 // to plan; a smaller gain is not worth the swap.
 export const SWITCH_MARGIN=1.1;
 export const outscores=(candidate,current)=>candidate>current*SWITCH_MARGIN;
+// Bumped whenever the work or combat formula gains a bonus it used to leave
+// to the learnt efficiency.
+export const FORMULA_VERSION=2;
 
 // A rolling comparison of attainable routes, including their self-supply work.
 // Gold is a constraint from an actual planned expense, never an XP conversion.
@@ -47,7 +50,7 @@ export function createStrategy(data, planner) {
   // potion no longer swaps a sample for the bare formula, and one noisy
   // minute barely moves it. A simulation counts as ten minutes, once per state.
   const EFFICIENCY_HALF_LIFE=86400,SIMULATED_WEIGHT=600,EFFICIENCY_RANGE=[.25,4];
-  let efficiency={};
+  let efficiency={_formula:FORMULA_VERSION};
   function learn(p,key,m,e) {
     const working=m.seconds-(m.travelSeconds??0);
     if(m.deaths||!(working>0)||!(e.seconds>0))return;
@@ -64,8 +67,10 @@ export function createStrategy(data, planner) {
       coins:mix(row?.coins,ratio(m.coins??m.coinsPerSecond*m.seconds,e.coins)),
       weight:kept+weight,at:now,state,seen:m.seconds};
   }
+  // Ratios learnt against an older formula would count again what the formula
+  // now includes (house and mastery speed since v0.12.0): dropped, relearnt.
   const efficiencyRuntime=value=>{
-    if(value!==undefined)efficiency=value&&typeof value==='object'?value:{};
+    if(value!==undefined)efficiency=value&&typeof value==='object'&&value._formula===FORMULA_VERSION?value:{_formula:FORMULA_VERSION};
     return efficiency;
   };
   // While set, every estimate is the game formula alone (see byFormula).

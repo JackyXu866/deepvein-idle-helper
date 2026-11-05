@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {rarityFactor, shrineBonus} from '../src/planner/rarity.js';
 import {combatDrops, workEstimate} from '../src/planner/estimates.js';
 import {qualityGain, workInputs} from '../src/planner/rates.js';
-import {chooseMastery} from '../src/engine/mastery.js';
 import {makePlanner, player} from './helpers.js';
 
 const close = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} vs ${b}`);
@@ -61,10 +60,19 @@ test('a brew or rank is worth the rarer drops it adds, at sale value', () => {
   assert.equal(qualityGain(d, planner, p, {job: d.jobs.find(j => j.inputs.length && !j.grow)}, .25), 0);
 });
 
-test('rare-find mastery is bought when its gold beats the XP rank', () => {
-  const planner = makePlanner(), p = player(planner, {levels: {mining: 50}});
-  const api = {masteryEarnedPoints: () => 40, masteryTracks: [{id: 'xp'}, {id: 'rare'}]};
-  const goal = {skill: 'mining'};
-  assert.match(chooseMastery(api, p, goal, {data: planner.data, rareGain: .05}).label, /寻宝 \+1/);
-  assert.match(chooseMastery(api, p, goal, {data: planner.data, rareGain: 0}).label, /经验获取 \+1/);
+test('补精通 spends points only on what finishes its next collections sooner', () => {
+  const planner = makePlanner(), d = planner.data, R = d.rarityScale;
+  const job = d.jobs.find(j => j.skill === 'mining' && !j.inputs.length && j.levelReq <= 1 && j.output.itemId !== d.coinId);
+  const ore = job.output.itemId;
+  // Rare and epic ore collections started: their next tiers are the cheapest points.
+  const p = player(planner, {levels: {mining: 30}, collections: {[ore]: 50, [ore + 2 * R]: 3, [ore + 3 * R]: 1}});
+  planner.coinRate = () => 50;
+  const targets = planner.masteryTargets(p, 'melee');
+  assert.ok(targets.some(t => t.itemId === ore + 2 * R), 'the rare ore collection is a target');
+  const plan = planner.masteryPlan(p, {mastery: targets[0], skill: 'mining'}, {earned: 3000, style: 'melee'});
+  assert.equal(plan.intent.t, 'masteryConfirm');
+  const ranks = plan.intent.ranks;
+  assert.ok((ranks.gather ?? 0) + (ranks.rare ?? 0) > 0, JSON.stringify(ranks));
+  for (const id of ['xp', 'craft', 'move', 'maxhit', 'accuracy']) assert.equal(ranks[id], undefined, `${id} does not finish a collection`);
+  assert.match(plan.reason, /按补精通/);
 });
