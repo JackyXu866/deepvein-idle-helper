@@ -110,7 +110,9 @@ test('a bid spike above the multi-day average is valued at the ceiling, never be
   assert.equal(low.market.opportunity(low.p, low.item, 10).net, merchant);
 });
 
-test('without recent trades a listing is at most a day of observed turnover', () => {
+// One listing offers a tenth of a day's turnover at most, so a thin market is
+// not flooded (live: gear listed in bulk pushed its own price down).
+test('one listing is at most a tenth of a day\'s observed turnover', () => {
   const planner = makePlanner(), d = planner.data;
   const item = d.jobs.map(j => j.output.itemId).find(id => id !== d.coinId && d.items[id]?.value >= 20 && !saleProtectionReason(d, id));
   const tick = 1_000_000, perDay = DAY / d.tickMs;
@@ -127,8 +129,8 @@ test('without recent trades a listing is at most a day of observed turnover', ()
   // 30 sold over the last three days: 10 a day.
   const intent = list([{price: 900, qty: 10, tick: tick - 3 * perDay}, {price: 900, qty: 20, tick: tick - 2 * perDay}]);
   assert.equal(intent.t, 'marketSell');
-  assert.equal(intent.qty, 10);
-  assert.equal(list([]).qty, 60, 'trades watched for less than a day: the old rule');
+  assert.equal(intent.qty, 1, 'a tenth of 10 a day');
+  assert.equal(list([]).qty, 1, 'turnover unknown: one at a time');
 });
 
 test('history never enters the planning guard, and the page keeps its own copy', () => {

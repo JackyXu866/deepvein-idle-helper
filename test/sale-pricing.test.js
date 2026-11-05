@@ -44,13 +44,15 @@ test('a bid near the day\'s price is the valuation and the sale', () => {
   assert.equal(plan.intent.price, 100, 'filled at the bid: the day traded within 5% of it');
 });
 
-test('the listing is priced at the day\'s price, under the ask', () => {
+// Under the cheapest seller, but never more than 15% over what trades: such a
+// listing would sit unsold, and listings are no longer cut on a timer.
+test('the listing is one step under the ask, at most 15% over the market price', () => {
   const {market, p, item, d} = setup('list', {bids: [{price: 100, qty: 1000}], asks: [{price: 200, qty: 5}], trades: [recent(130, 300)]});
   const atBank = {...p, x: d.banks[0].x, y: d.banks[0].y, bank: {[item]: 60}, route: null, path: null};
   const floor = Math.max(1, Math.floor(d.items[item].value * .4));
   const plan = market.sale(atBank, {intent: {t: 'marketDump', itemId: item, qty: 60, floor}, label: 'x', reason: 'y'});
   assert.equal(plan.intent.t, 'marketSell');
-  assert.equal(plan.intent.price, 130, 'the day\'s price, not one step under the 200 ask');
+  assert.equal(plan.intent.price, 148, '130 traded: 149.5 at most, on the price grid; not 198 under the 200 ask');
 });
 
 test('thin trading or a tiny spread falls back to the bid', () => {
@@ -60,7 +62,7 @@ test('thin trading or a tiny spread falls back to the bid', () => {
   assert.equal(tight.market.opportunity(tight.p, tight.item, 50).net, net(100, 50), 'ask under 5% above bid');
 });
 
-test('without trades seen today, the price feed\'s 7-day average is the day\'s price', () => {
+test('without trades seen, the price feed\'s 7-day average is the market price', () => {
   const {market, p, item, d} = setup('list', {bids: [{price: 100, qty: 1000}], asks: [{price: 200, qty: 5}], trades: []});
   market.setPriceFeed({generatedAt: new Date(1_000_000).toISOString(),
     items: {[item]: {lowestSell: 200, sellQty: 5, highestBuy: 100, buyQty: 1000, avg7d: 160}}}, 1_000_000);
@@ -68,7 +70,7 @@ test('without trades seen today, the price feed\'s 7-day average is the day\'s p
   const floor = Math.max(1, Math.floor(d.items[item].value * .4));
   const plan = market.sale(atBank, {intent: {t: 'marketDump', itemId: item, qty: 60, floor}, label: 'x', reason: 'y'});
   assert.equal(plan.intent.t, 'marketSell');
-  assert.equal(plan.intent.price, 160);
+  assert.equal(plan.intent.price, 184, '160 a day on average: up to 15% over it, under the 200 ask');
 });
 
 test('the sell decision lists when the day trades clearly above the bid', () => {
