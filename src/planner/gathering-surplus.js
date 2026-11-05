@@ -7,7 +7,7 @@ import {baseStride, distance, packCapacity, packQty, packUsed, playerQueued} fro
 // dropItem matches an exact pack item ID and leaves the active route intact.
 export function planGatheringSurplus(data,planner,p,goal,style,mode,waitingGoals={}) {
   const route=p.route,job=data.jobs.find(j=>j.id===route?.jobId);
-  if(!['balanced','experience'].includes(mode)||!goal||goal.itemTarget||goal.quest||goal.upgrade||
+  if(!['balanced','experience'].includes(mode)||!goal||goal.quest||goal.upgrade||
     goal.craftPreparation||goal.temporary||goal.developmentFiller||
     !job||!['mining','woodcutting'].includes(job.skill)||job.inputs.length||job.grow||
     goal.skill!==job.skill||!(planner.level(p.skills[job.skill])<goal.target)||

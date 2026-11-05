@@ -81,7 +81,7 @@ export function saleProtectionReason(data,id,marketEquipment=false) {
 
 // A goal that levels a skill (growth or development stage), not a quest, item
 // target, business focus or 补精通: its XP comes before gold.
-export const levelingGoal=goal=>!!(goal?.development||goal?.growth)&&!goal.quest&&!goal.itemTarget&&
+export const levelingGoal=goal=>!!(goal?.development||goal?.growth)&&!goal.quest&&
   !goal.specialization&&!goal.mastery&&!goal.funding;
 // What one unit of a quality item is worth to the current leveling plan, in
 // gold: the stage time it saves, at the gold rate. Going into the stage's
@@ -183,13 +183,12 @@ export function inventoryBudget(data, planner, p, goal=null,consuming=false) {
     if(trail.includes(id))return;
     const sources=data.jobs.filter(j=>j.output.itemId===planner.base(id))
       .map(j=>craftRecipe(data,j,rarityOf(data,id))).filter(Boolean).sort((a,b)=>a.levelReq-b.levelReq);
-    const job=sources.find(j=>levels[j.skill]>=j.levelReq)??(goal?.itemTarget?sources[0]:null);
+    const job=sources.find(j=>levels[j.skill]>=j.levelReq)??null;
     if(job)for(const input of job.inputs)material(input.itemId,
       Math.ceil(qty/job.output.qty)*input.qty,[...trail,id]);
   }
   for(const upgrade of plans.map(plan=>plan.upgrade))
     if(upgrade?.id!=null)material(upgrade.id%data.plusScale,1);
-  if(goal?.itemTarget)material(goal.targetItemId,goal.qty);
   // Food is a renewable supply, but a reserve must survive a sale and a new trip.
   for(const item of Object.values(data.items))if(item.heals)reserve(item.id,foodReserve(p));
   // A replenishable pantry protects against disposal, not useful consumption.

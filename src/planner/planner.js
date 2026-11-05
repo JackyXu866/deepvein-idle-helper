@@ -6,7 +6,7 @@ import {createInputCost} from './input-cost.js';
 import {combatKey, jobKey} from './keys.js';
 import {combatSafe, combatStats, weaponStyle} from './rates.js';
 import {action, waiting} from './result.js';
-import {RARITY_NAMES, qualityName, baseId, bankTripSeconds,merchantPrice, mountScale, seedVendorPrice, distance, itemLabel, itemName, nearBank as nearBankAt, nearestBank as nearestBankTo, heldIds, ownedQty, packCapacity, packFree, packQty, plusOf, qualityPrefix, rarityOf, withoutItem} from './items.js';
+import {RARITY_NAMES, qualityName, baseId, bankTripSeconds,merchantPrice, mountScale, seedVendorPrice, distance, itemLabel, itemName, nearBank as nearBankAt, nearestBank as nearestBankTo, heldIds, packCapacity, packFree, packQty, plusOf, qualityPrefix, rarityOf, withoutItem} from './items.js';
 import {createCrafting, finishTaskReason} from './crafting.js';
 import {combatSupplies, foodEligible} from './supplies.js';
 import {createStrategy, outscores} from './strategy.js';
@@ -143,42 +143,6 @@ export function createPlanner(data) {
   }
     const wait = reason => waiting('等待当前任务',reason);
   const blocked = reason => ({intent:null,label:'需要处理',reason,blocked:true});
-  function itemTargetChoices() {
-    const choices=new Map();
-    const add=(itemId,skill,levelReq,source)=>{
-      if(itemId===data.coinId||!data.items[itemId]||choices.has(itemId))return;
-      choices.set(itemId,{itemId,name:name(itemId),skill,levelReq,source});
-    };
-    for(const job of [...jobs].sort((a,b)=>a.levelReq-b.levelReq))
-      if(sites.some(s=>s.jobIds.includes(job.id)))add(job.output.itemId,job.skill,job.levelReq,job.grow?'种植':'制作／采集');
-    for(const job of jobs)if(job.bonus?.chance>0&&sites.some(s=>s.jobIds.includes(job.id)))
-      add(job.bonus.itemId,job.skill,job.levelReq,'采集副产');
-    for(const monster of monsters)if(zones.some(z=>z.monsterId===monster.id)) {
-      if((monster.dropChance??1)>0)add(monster.drop,null,1,'怪物掉落');
-      if(monster.bonus?.chance>0)add(monster.bonus.itemId,null,1,'怪物副产');
-    }
-    add(data.shardId,null,1,'战斗掉落');add(190,'farming',1,'商人种子');
-    return [...choices.values()];
-  }
-  function planItemTarget(p,goal,profession='magic',completedLoad=false) {
-    const id=goal?.targetItemId??goal?.itemId,qty=goal?.qty??goal?.required;
-    const choice=itemTargetChoices().find(item=>item.itemId===id);
-    if(!choice||!Number.isSafeInteger(qty)||qty<1)return blocked('目标物品或数量无效，请重新设置物品目标');
-    Object.assign(goal,{itemTarget:true,targetItemId:id,qty,skill:choice.skill??professionSkill(profession),target:Infinity});
-    goal.budget??={coins:0,items:{}};goal.budget.items??={};
-    goal.budget.items[id]=Math.max(goal.budget.items[id]??0,qty);
-    const owned=ownedQty(p,id,goal.listedQty??0);
-    if(owned>=qty)return {...wait(`已备齐 ${name(id)}：${owned}/${qty}`),completed:true,goal};
-    const current=jobs.find(job=>job.id===p.route?.jobId);
-    const consuming=current?.inputs.some(input=>input.itemId===id);
-    const eating=data.items[id]?.heals&&p.route?.zoneId!=null&&(p.foodItemId===id||
-      p.pack.some(item=>item.itemId===id&&item.qty>0)||!(p.foodItemId>0)&&count(p,id)>0);
-    if(consuming||eating)return {...action({t:'clearRoute'},'停止消耗目标物品的旧任务',
-      `先保护 ${name(id)} 库存，再继续本次物品目标`),goal};
-    const reason=!completedLoad&&finishTaskReason(data,p);
-    if(reason)return {...wait(reason),goal};
-    return planTask(p,goal,profession);
-  }
   const bankAction = (p,intent,label) => nearBank(p) ? action(intent,label) :
     action({t:'walk',...nearestBank(p).approach},'前往仓库',label);
   function gatheringDeparture(p,job) {
@@ -850,8 +814,8 @@ export function createPlanner(data) {
       }).filter(c=>Number.isFinite(c.seconds)).sort((a,b)=>a.seconds-b.seconds||a.job.id-b.job.id)[0];
     }
     // The shared input cost (input-cost.js) for this plan: the profession's
-    // trained skills credit their XP, except for quests and item targets.
-    const inputOptions=trail=>inputOptionsOf(p,profession,{credit:!goal.quest&&!goal.itemTarget,trail});
+    // trained skills credit their XP, except for quests.
+    const inputOptions=trail=>inputOptionsOf(p,profession,{credit:!goal.quest,trail});
     // Seconds per unit of an input when `quantity` are needed, stock aside.
     function cost(id,trail=[],quantity=1){return api.inputCost.unitSeconds(p,id,quantity,inputOptions(trail));}
     const jobTime=job=>jobTimeOf(p,job);
@@ -875,7 +839,7 @@ export function createPlanner(data) {
         }
       } else if (p.route?.jobId===job.id && p.route.zoneId==null) {
         if((p.workRarity??p.route.rarity??0)!==(job.rarity??0))return action({t:'clearRoute'},'当前批次已结束，切换制作品质');
-        if((goal.itemTarget&&job.output.itemId===goal.targetItemId||goal.mastery&&job.output.itemId===goal.mastery.itemId)&&p.route.limit==null)
+        if(goal.mastery&&job.output.itemId===goal.mastery.itemId&&p.route.limit==null)
           return action({t:'clearRoute'},'切换为目标所需数量','停止原无限路线后，按尚缺成品数量继续');
         // Planning reaches here at task boundaries only (a load banked), so the
         // worn tools are reviewed there even when the same work goes on: a
@@ -901,7 +865,7 @@ export function createPlanner(data) {
       if (['mining','fishing','woodcutting'].includes(job.skill)&&!job.inputs.length&&!data.items[job.output.itemId]?.stackable) {
         const departure=gatheringDeparture(p,job);
         if(departure)return departure;
-        if((!goal.itemTarget||job.output.itemId!==goal.targetItemId)&&(!goal.mastery||job.output.itemId!==goal.mastery.itemId))
+        if(!goal.mastery||job.output.itemId!==goal.mastery.itemId)
           quantity=Math.max(quantity,Math.ceil(packFree(data,p)/job.output.qty));
       }
       const materialBatch = job.grow ? 1 : quantity;
@@ -914,8 +878,7 @@ export function createPlanner(data) {
         }
       }
       if (job.grow) return farmErrand(p,job,site);
-      const exact=job.rarity>0||goal.mastery&&job.output.itemId===goal.mastery.itemId||goal.quest?.jobId===job.id||goal.upgrade&&job.output.itemId===goal.upgrade.id||
-        goal.itemTarget&&job.output.itemId===goal.targetItemId;
+      const exact=job.rarity>0||goal.mastery&&job.output.itemId===goal.mastery.itemId||goal.quest?.jobId===job.id||goal.upgrade&&job.output.itemId===goal.upgrade.id;
       const limit=exact?quantity:0,departure=productionDeparture(p,job,limit);
       if(departure)return departure;
       return action({t:'setRoute',siteId:site.id,jobId:job.id,onFull:'bank',limit,rarity:job.rarity??0},
@@ -1015,7 +978,7 @@ export function createPlanner(data) {
       const leveling=levelingGoal(goal)&&skill===goal.skill;
       const worthUsing=j=>leveling?worthUsingQuality(p,goal,j):qualityWorth(data,api,p,jobs.find(o=>o.id===j.id),j.rarity).ok;
       const choices = jobs.filter(j=>j.skill===skill && (fixed==null||j.id===fixed) && (!j.grow||allowedCrop(j)) && unlocked(j) && siteFor(j))
-        .flatMap(job=>!goal.itemTarget&&!goal.quest&&!goal.upgrade&&job.inputs.length&&!job.grow?
+        .flatMap(job=>!goal.quest&&!goal.upgrade&&job.inputs.length&&!job.grow?
           [job,...[1,2,3,4].map(tier=>craftRecipe(data,job,tier)).filter(j=>j&&trainingLimit(j)>0&&worthUsing(j))]:[job])
         .filter(j=>fixed!=null||trainingLimit(j)>0);
       const neededXp = Math.max(1,xpTo(p,skill,target));
@@ -1023,7 +986,7 @@ export function createPlanner(data) {
       const score = j => {
         if(scores.has(j))return scores.get(j);
         const e=jobEstimate(j),n = Math.min(20,j.rarity?trainingLimit(j):50,Math.ceil(neededXp/(j.grow?j.xp:e.xp)));
-        const value=batchRating(p,j,{profession,credit:!goal.quest&&!goal.itemTarget,trail,n,reserve:j.rarity?qualityReserve():null});
+        const value=batchRating(p,j,{profession,credit:!goal.quest,trail,n,reserve:j.rarity?qualityReserve():null});
         scores.set(j,value);return value;
       };
       choices.sort((a,b)=>score(b)-score(a)||a.id-b.id);
@@ -1130,7 +1093,7 @@ export function createPlanner(data) {
     function need(id, quantity, trail=[]) {
       if(!autoUsableMaterial(data,id))return blocked(`传说物品 ${name(id)} 留给玩家支配`);
       if (trail.includes(id)) return blocked(`${name(id)} 的供料依赖形成循环`);
-      if(goal.itemTarget||goal.mastery) {
+      if(goal.mastery) {
         goal.budget??={coins:0,items:{}};goal.budget.items??={};
         if(id!==data.coinId)goal.budget.items[id]=Math.max(goal.budget.items[id]??0,quantity);
       }
@@ -1150,13 +1113,12 @@ export function createPlanner(data) {
       // The reviewed vendor sells this starter seed at four times base value.
       // A single seed is returned by harvesting and starts the herb supply chain.
       if(id===190) {
-        const qty=goal.itemTarget&&id===goal.targetItemId?Math.min(100,Math.max(1,quantity-count(p,id))):1;
+        const qty=1;
         const price=seedVendorPrice(data)*qty;
         const reserve=Math.max(0,(goal.budget?.coins??0)-((goal.budget?.items?.[190]??0)>0?price:0));
         if(p.coins<price+reserve)return need(data.coinId,price+reserve,next);
         if(nearBank(p)&&(p.route||p.path?.length))return action({t:'clearRoute'},'购买启动种子前停止旧路线');
-        return bankAction(p,{t:'vendorBuy',itemId:190,qty},goal.itemTarget?`购买 ${qty} 粒鼠尾草种子 · ${price} 金币`:
-          `购买一粒鼠尾草启动种子 · ${price} 金币`);
+        return bankAction(p,{t:'vendorBuy',itemId:190,qty},`购买一粒鼠尾草启动种子 · ${price} 金币`);
       }
       const acquisitionGoal=goal.upgrade?.xpRate>0?{...goal,rate:{xp:goal.upgrade.xpRate}}:goal;
       const purchase=api.marketPurchase?.(p,id,Math.max(0,quantity-count(p,id)),acquisitionGoal,profession);
@@ -1181,7 +1143,7 @@ export function createPlanner(data) {
           goal.budget.items[id]=Math.max(goal.budget.items[id]??0,quantity);
         }
         const result=batch(job,Math.ceil((quantity-count(p,id))/job.output.qty),next);
-        result.reason=`为${goal.mastery?`补精通 ${fullName(goal.mastery.itemId)}`:goal.itemTarget?`物品目标 ${name(goal.targetItemId)}`:goal.upgrade?`装备 ${name(goal.upgrade.id)}`:`${NAMES[goal.skill]} ${goal.target} 级目标`}补 ${fullName(id)}：`+
+        result.reason=`为${goal.mastery?`补精通 ${fullName(goal.mastery.itemId)}`:goal.upgrade?`装备 ${name(goal.upgrade.id)}`:`${NAMES[goal.skill]} ${goal.target} 级目标`}补 ${fullName(id)}：`+
           `现有 ${count(p,id)}，计划需要 ${quantity}；${gatherQuality&&!job.inputs.length?'继续采集，等待同品质产出；攒齐后在本批结束时继续制作；':''}${result.reason||result.label}`;
         return result;
       }
@@ -1192,10 +1154,10 @@ export function createPlanner(data) {
       }
       if(rarity(id)>0&&!gatherQuality)return blocked(`缺少同品质材料 ${name(id)}；等待库存或合算报价，不为它无限刷随机掉落`);
       const sourceId=gatherQuality?base(id):id;
-      if (monsters.some(m=>m.drop===sourceId||(goal.itemTarget||goal.mastery)&&m.bonus?.itemId===sourceId&&m.bonus.chance>0)) return fight(style,sourceId,false);
+      if (monsters.some(m=>m.drop===sourceId||goal.mastery&&m.bonus?.itemId===sourceId&&m.bonus.chance>0)) return fight(style,sourceId,false);
       const source = goal.mastery?masteryBonusSource(id,Math.max(1,quantity-count(p,id)))?.job:bonusSource(p,sourceId);
       if (source) return batch(source,50,next);
-      if(goal.itemTarget||gatherQuality) {
+      if(gatherQuality) {
         const locked=jobs.filter(j=>j.bonus?.itemId===sourceId&&j.bonus.chance>0).sort((a,b)=>a.levelReq-b.levelReq)[0];
         if(locked)return train(locked.skill,locked.levelReq,next);
       }
@@ -1228,7 +1190,6 @@ export function createPlanner(data) {
         result.reason=`已持有更好的 ${fullName(best)}，换下 ${current!=null?fullName(current):'空位'}：只需一趟仓库，${rarity(best)===LEGENDARY?'传说装备穿上仍归你':'不另外制作或购买'}`;
         return result;
       }
-      if(goal.itemTarget)return null;
       for(const row of (api.investmentOptions?.(p,profession,goal)??[]).filter(r=>r.cheapest&&r.source==='市场')) {
         const market=api.marketEquipment?.(p,goal,profession,{ids:[base(row.id)],row});
         if(market?.intent||market?.marketWaiting)return market;
@@ -1242,7 +1203,7 @@ export function createPlanner(data) {
     function upgrade() {
       const step=gearStep();
       if(step)return step;
-      if(goal.mastery||goal.itemTarget||completedUpgrade)return null;
+      if(goal.mastery||completedUpgrade)return null;
       // Filler and temporary work (thieving while crops grow) and quests never
       // start a gear project (crafting a piece): the gear step above still puts
       // on and buys what the table picks. A stage-gear project waiting on
@@ -1328,9 +1289,8 @@ export function createPlanner(data) {
       if (!safeMonsters.length) return blocked('当前生命／防御不足以稳定战斗，请先检查装备与生命值');
       const choices=safeMonsters.filter(m=>(!fixedMonster||m.id===fixedMonster.id)&&zones.some(z=>z.monsterId===m.id)&&
         (requiredItem===null||requiredItem===data.shardId||m.drop===requiredItem&&(m.dropChance??1)>0||
-          (goal.itemTarget||goal.mastery)&&m.bonus?.itemId===requiredItem&&m.bonus.chance>0))
-        .map(m=>combatChoice(p,profession,m,{requiredItem,horizon:goal.horizon??strategy.horizon,
-          excludeFoodIds:goal.itemTarget?[goal.targetItemId]:[]})).filter(Boolean);
+          goal.mastery&&m.bonus?.itemId===requiredItem&&m.bonus.chance>0))
+        .map(m=>combatChoice(p,profession,m,{requiredItem,horizon:goal.horizon??strategy.horizon})).filter(Boolean);
       choices.sort((a,b)=>b.score-a.score||b.coinsPerMinute-a.coinsPerMinute);
       // Small estimate changes should not cause repeated travel between similar spots.
       const current=choices.find(c=>c.zone.id===p.route?.zoneId);
@@ -1353,7 +1313,7 @@ export function createPlanner(data) {
       if ((entering&&p.hp<targetHp)||p.hp<=selected.monsterMaxHit) {
         if (p.route||p.path?.length) return action({t:'clearRoute'},'先停止当前路线并治疗',
           `当前生命 ${p.hp}，开战前至少恢复到 ${targetHp}`);
-        const eligible=id=>foodEligible(data,p,id)&&(!goal.itemTarget||id!==goal.targetItemId);
+        const eligible=id=>foodEligible(data,p,id);
         const compare=(a,b)=>Number(b===supplies.foodItemId)-Number(a===supplies.foodItemId)||
           (data.items[base(b)]?.heals??0)-(data.items[base(a)]?.heals??0);
         const carried=p.pack.filter(i=>i.qty>0&&eligible(i.itemId)).map(i=>i.itemId).sort(compare)[0];
@@ -1387,9 +1347,7 @@ export function createPlanner(data) {
       if (p.eatAt!==.5) return action({t:'eatAt',at:.5},'设置半血进食');
       if (p.foodItemId!==supplies.foodItemId) return action({t:'chooseFood',itemId:supplies.foodItemId},`选择 ${name(supplies.foodItemId)} 作为补给`);
       if (p.foodPerTrip!==supplies.carryCommand) return action({t:'carryFood',count:supplies.carryCommand},`每趟携带 ${supplies.carry} 份食物`,supplies.reason);
-      const carriedTargetFood=goal.itemTarget&&data.items[goal.targetItemId]?.heals&&
-        p.pack.some(i=>i.itemId===goal.targetItemId&&i.qty>0);
-      if ((supplies.bankFirst||carriedTargetFood)&&p.pack.length) {
+      if (supplies.bankFirst&&p.pack.length) {
         // An adjacent cooking site can keep replacing deposited food before
         // the next snapshot. Stop and confirm the old route before emptying it.
         if (p.route||p.path?.length) return action({t:'clearRoute'},'战斗补给前停止旧路线',
@@ -1494,9 +1452,6 @@ export function createPlanner(data) {
       const sets=job&&questQualitySets(p,job,quest.remaining,profession);
       result=quest.kind==='kill'?fight(style):sets?batch(sets.recipe,Math.min(quest.remaining,sets.n)):batch(job,quest.remaining);
       if(sets)result.reason=`任务计入任何品质：普通配方暂缺原料，先用已有的 ${RARITY_NAMES[sets.recipe.rarity]}配对做 ${Math.min(quest.remaining,sets.n)} 次；${result.reason||result.label}`;
-    } else if(goal.itemTarget) {
-      const id=goal.targetItemId,owned=ownedQty(p,id,goal.listedQty??0);
-      result=need(id,count(p,id)+Math.max(0,goal.qty-owned));
     } else result=train(goal.skill,goal.target);
     result.goal=goal;
     return result;
@@ -1829,7 +1784,7 @@ export function createPlanner(data) {
     } finally {computingIncome=false;api.incomeMs=(api.incomeMs??0)+Date.now()-started;}
   }
   const coinRate=p=>computingIncome?provisionalRate:goldRow(incomeRows(p))?.coins??0;
-  const api={level,levels,thresholds,maxLevel,xpTo,trainedSkills,balancedChooseGoal,plan:planAtBoundary,planItemTarget,itemTargetChoices,count,base,nearBank,carriedBatch,equipmentStats,farmPlots,farmFields,farmFieldCount,farmCrops,harvest,harvestOnly,professionUpgrade,equipmentStatus,gearTargets,plannedQualityGear,plannedGearReserve,farmStatus,
+  const api={level,levels,thresholds,maxLevel,xpTo,trainedSkills,balancedChooseGoal,plan:planAtBoundary,count,base,nearBank,carriedBatch,equipmentStats,farmPlots,farmFields,farmFieldCount,farmCrops,harvest,harvestOnly,professionUpgrade,equipmentStatus,gearTargets,plannedQualityGear,plannedGearReserve,farmStatus,
     hotFollowSkills:HOT_FOLLOW_SKILLS.slice(),hotSkillAt:tick=>hotSkillAt(data,tick),hotWindows:(tick,count=4)=>hotWindows(data,tick,count),
     setFarmingPreference,farmingPreference,
     taskBoundary:p=>!finishTaskReason(data,p)};

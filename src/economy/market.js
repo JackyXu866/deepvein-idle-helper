@@ -473,7 +473,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     if(amount<1)return null;
     // The one make-or-buy verdict (input-cost.js decide), at the live ask: the
     // same rule the recipe ratings assumed, so what they count as bought is bought.
-    const verdict=planner.inputCost?.decide(p,id,amount,{style:profession,credit:!goal?.quest&&!goal?.itemTarget,price:ask.price});
+    const verdict=planner.inputCost?.decide(p,id,amount,{style:profession,credit:!goal?.quest,price:ask.price});
     if(!verdict?.buy) {
       status=`${labelOf(id)}：自制或自采更省（含所练技能的经验），不买`;return null;
     }
@@ -553,7 +553,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     rarityPower(data,itemId);
   function balancedPotion(p,id,goal,desired,uncovered=[],worth=null) {
     if(!POTIONS.some(potion=>potion.itemId===id)||!valid(desired)||!planner.nearBank(p)||p.route||p.path?.length||
-      p.enhance||playerQueued(p)||goal?.itemTarget&&goal.targetItemId===id)return null;
+      p.enhance||playerQueued(p))return null;
     const reserve=inventoryBudget(data,planner,p,goal).items;
     const stocked=variants(id).reduce((n,itemId)=>n+Math.max(0,quantity(p,itemId)-(reserve[itemId]??0)),0);
     const missing=Math.max(0,Math.min(20,desired)-stocked);if(!missing)return null;
@@ -583,7 +583,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     const scanKey=JSON.stringify([goal?.skill,supplies.foodItemId,p.foodMaxTier]);
     if(foodScan?.key!==scanKey)foodScan={key:scanKey,startedAt:now()};
     const ids=data.jobs.filter(j=>j.skill==='cooking').flatMap(j=>variants(j.output.itemId))
-      .filter(id=>tier(id)<=(p.foodMaxTier??1)&&(!goal?.itemTarget||id!==goal.targetItemId));
+      .filter(id=>tier(id)<=(p.foodMaxTier??1));
     const choices=scan(p,ids).map(top=>({...top,heal:foodHealing(data,planner,p,top.itemId,.5).heal}))
       .filter(c=>c.heal>=supplies.heal&&c.ask*supplies.needFood<=purchaseAllowance(p,goal))
       .sort((a,b)=>a.ask/a.heal-b.ask/b.heal||a.ask-b.ask);
@@ -594,7 +594,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     // The one make-or-buy verdict, at the live ask (cooking it, with the
     // cooking XP credited, may be the cheaper way).
     if(!planner.inputCost?.decide(p,best.itemId,supplies.needFood,{style:goal?.style??planner.styleHint??'magic',
-      credit:!goal?.quest&&!goal?.itemTarget,price:best.ask})?.buy)return null;
+      credit:!goal?.quest,price:best.ask})?.buy)return null;
     const result=buy(p,best.itemId,supplies.needFood,goal,'市场补充熟食',
       `每份有效治疗 ${best.heal}；按实际缺口采购，遵守游戏自动进食品质上限`,best.ask);
     if(result?.intent?.t==='marketBuy')result.foodItemId=best.itemId;
@@ -613,7 +613,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
       // What eating it costs: a held one what using stock gives up, a bought one its ask.
       const owned=quantity(p,top.itemId)>(reserve[top.itemId]??0),cost=owned?planner.stockValue?.(p,top.itemId,1)??planner.saleValue(p,top.itemId,1):top.ask;
       return {...top,fed,rooted,benefit,cost,owned};
-    }).filter(c=>pays(goldToSeconds(c.benefit,rate),goldToSeconds(c.cost,rate))&&(!goal?.itemTarget||c.itemId!==goal.targetItemId))
+    }).filter(c=>pays(goldToSeconds(c.benefit,rate),goldToSeconds(c.cost,rate)))
       .sort((a,b)=>(b.benefit-b.cost)-(a.benefit-a.cost)||a.ask-b.ask);
     for(const c of choices) {
       const available=reachableQty(data,p,c.itemId);
@@ -734,10 +734,9 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     if(book.waiting)return defer('查询买单与挂售价，等待期间继续练级');
     if(book.fallback)return defer('报价暂不可用，保留盈余并稍后重试');
     const previous=state.sales[id];
-    const protectedQty=goal?.itemTarget?inventoryBudget(data,planner,p,goal).items[id]??0:0;
     const worn=Object.values(p.equipment??{}).filter(itemId=>itemId===id).length;
     const safeQty=Math.min(intent.qty,p.bank[id]??0,previous?.qty??1000000,retired?.sellFromBank??1000000,
-      Math.max(0,quantity(p,id)+worn-protectedQty));
+      Math.max(0,quantity(p,id)+worn));
     if(safeQty<=0)return defer('暂无可出售的已确认盈余');
     if(marketOnly) {
       const what=data.gear.some(g=>g.itemId===planner.base(id))?'淘汰装备':'稀有加工品';

@@ -120,7 +120,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
       const short=input.qty*qty-Math.min(input.qty*qty,held(input.itemId));
       if(short>0)missing.push({itemId:input.itemId,qty:short,ask:planner.marketAsk?.(p,input.itemId)});
     }
-    const credit=!goal?.quest&&!goal?.itemTarget;
+    const credit=!goal?.quest;
     const stock=Object.fromEntries(recipe.inputs.map(i=>[i.itemId,held(i.itemId)]));
     const made=planner.inputCost.make(p,recipe,qty*recipe.output.qty,{style:profession,credit,stock,buyOnly:true});
     const tick=data.tickMs/1000,trip=(distance(p,site)+distance(site,nearestBank(data,site).approach))*tick;

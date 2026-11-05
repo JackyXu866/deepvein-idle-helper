@@ -127,7 +127,7 @@ export function createHousing(data,planner) {
       .filter(c=>c>=0&&c<rules.grid**2&&c!==rules.lake&&!p.houseCells.includes(c)).sort((a,b)=>a-b);
   }
   const action=(intent,label,reason)=>step(intent,label,reason,{housing:true});
-  const idle=(p,goal,mode)=>enabled&&known(p)&&mode!=='assist'&&!goal?.itemTarget&&!p.held&&!p.raidHeld&&!p.queue?.length&&!p.enhance;
+  const idle=(p,goal,mode)=>enabled&&known(p)&&mode!=='assist'&&!p.held&&!p.raidHeld&&!p.queue?.length&&!p.enhance;
   // What home spending must leave alone: the plans' coins and materials.
   function reserves(p,goal,style) {
     // The quality hold in the budget is by profession: the planner and the
@@ -225,7 +225,7 @@ export function createHousing(data,planner) {
   }
   function plan(p,goal,style='magic',mode='balanced',bankedLoad=false) {
     if(owner!==p.id){owner=p.id;visit=null;retryAt=0;review=[];}
-    if(!known(p)||!data.houseTravel||mode==='assist'||goal?.itemTarget||playerQueued(p)||p.enhance||p.route?.errand)return null;
+    if(!known(p)||!data.houseTravel||mode==='assist'||playerQueued(p)||p.enhance||p.route?.errand)return null;
     const home=atHome(data,p),wait=reason=>action(null,'房屋维护',reason);
     if(!enabled) {
       if(!visit)return null;

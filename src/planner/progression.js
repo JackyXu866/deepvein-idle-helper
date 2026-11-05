@@ -86,7 +86,7 @@ export function createProgression(data,planner) {
       if(focus.progressXp!==xp||focus.progressTick==null) {
         focus.progressXp=xp;focus.progressTick=p.lastTick;
       }
-    } else if(focus&&(goal?.quest||goal?.itemTarget))focus.progressTick=p.lastTick;
+    } else if(focus&&goal?.quest)focus.progressTick=p.lastTick;
   }
   function status(p,style='magic',deferred={}) {
     select(p,style);

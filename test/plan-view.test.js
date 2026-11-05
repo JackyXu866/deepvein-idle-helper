@@ -35,7 +35,7 @@ test('plan view explains the layer, candidates and points', () => {
     activity: 'idle', path: null, held: false, questPoints: 7});
   const mining = d.jobs.find(j => j.skill === 'mining' && j.levelReq <= 20 && !j.inputs.length);
   const trainer = {goal: {skill: 'mining', recipeId: mining.id, target: 21, reason: 'test reason'}, style: 'melee', mode: 'experience',
-    plan: {label: 'Mining', reason: 'why'}, deferred: {}, itemTarget: null};
+    plan: {label: 'Mining', reason: 'why'}, deferred: {}};
   const view = planView(d, planner, trainer, p);
   assert.equal(view.layer, '经验优先');
   assert.equal(view.goal.reason, 'test reason');
@@ -63,7 +63,7 @@ test('a level goal is labelled by its skill, with the recipe as the means', () =
   const amulet = d.jobs.find(j => j.skill === 'crafting' && d.items[j.output.itemId]?.name === 'Gold amulet');
   const p = player(planner, {levels: {crafting: 71}, hp: 100, activity: 'idle', path: null, held: false});
   const trainer = {goal: {skill: 'crafting', recipeId: amulet.id, target: 75, development: true, reason: '发展计划'},
-    style: 'melee', mode: 'balanced', plan: null, deferred: {}, itemTarget: null};
+    style: 'melee', mode: 'balanced', plan: null, deferred: {}};
   const view = planView(d, planner, trainer, p);
   assert.equal(view.goal.label, '制作');
   assert.equal(view.goal.target, 75);

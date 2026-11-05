@@ -2,7 +2,7 @@ import {PROFESSIONS, professionSkill} from '../planner/professions.js';
 import {LEGENDARY, autoUsableMaterial} from '../planner/quality.js';
 import {PAGE_COOLDOWN_TICKS} from '../planner/mastery-pages.js';
 import {bankedGatheringLoad, finishTaskReason} from '../planner/crafting.js';
-import {POTIONS, POTION_TICKS, foodEffects, foodEligible} from '../planner/supplies.js';
+import {POTIONS, POTION_TICKS, foodEffects} from '../planner/supplies.js';
 import {inventoryBudget, reserveWaitingGoals} from '../planner/inventory.js';
 import {MAIN_TRADES} from '../planner/specialization.js';
 import {HOUSE_ACTIONS, atHome, resumeIntent} from '../planner/housing.js';
@@ -11,7 +11,7 @@ import {Telemetry} from './telemetry.js';
 import {hotSkillAt, hotWindows, normalizeHotFollow} from './hot-follow.js';
 import {createWorldBoss} from './world-boss.js';
 import {fallbackKey, fallbackOwnership} from '../planner/fallback.js';
-import {baseId, distance, itemName, nearestBank, ownedQty, packQty, playerQueued, shelfQty, stockQty} from '../planner/items.js';
+import {baseId, distance, packQty, playerQueued, shelfQty, stockQty} from '../planner/items.js';
 
 // State-dependent refusals in the reviewed client sr() message table. Unknown
 // codes remain a stop, not an invitation to replay a command.
@@ -162,7 +162,6 @@ export class Trainer {
     this.mainTrade='auto';
     this.mainJobId=null;
     this.mainMonsterId=null;
-    this.itemTarget=null;
     this.buffRefill=null;
     this.potionBrew=null;
     this.consumableLogAt={};
@@ -218,7 +217,6 @@ export class Trainer {
   }
   setStyle(style) {
     if (!Object.hasOwn(PROFESSIONS,style)||style===this.style) return;
-    this.cancelItemTarget();
     this.style=style;
     this.resetPlans();
     this.pause(`已选择${PROFESSIONS[style]}，点击开始重新规划；游戏当前任务仍继续`);
@@ -230,7 +228,6 @@ export class Trainer {
   }
   setMode(mode) {
     if(!Object.hasOwn(MODE_LABELS,mode)||mode===this.mode)return;
-    this.cancelItemTarget();
     this.mode=mode;this.resetPlans();
     this.planner.resetSpecialization?.();
     this.planner.resetDevelopment?.();
@@ -253,7 +250,6 @@ export class Trainer {
   }
   setMainTrade(mainTrade) {
     if(!Object.hasOwn(MAIN_TRADES,mainTrade)||mainTrade===this.mainTrade)return;
-    if(this.itemTarget){this.cancelItemTarget();this.pause('主业已更改，物品目标已取消');}
     this.mainTrade=mainTrade;this.mainJobId=null;this.mainMonsterId=null;this.planner.resetSpecialization?.();
     if(this.mode!=='business')return;
     this.resetPlans();
@@ -263,7 +259,6 @@ export class Trainer {
   setMainJob(jobId) {
     const job=this.data.jobs.find(j=>j.id===jobId&&j.skill===this.mainTrade&&!j.grow);
     if(jobId!==null&&!job||jobId===this.mainJobId)return;
-    this.cancelItemTarget();
     this.mainJobId=jobId;this.planner.resetSpecialization?.();
     if(this.mode!=='business')return;
     this.resetPlans();
@@ -273,7 +268,6 @@ export class Trainer {
   setMainMonster(monsterId) {
     const monster=this.data.monsters.find(m=>m.id===monsterId);
     if(this.mainTrade!=='combat'||monsterId!==null&&!monster||monsterId===this.mainMonsterId)return;
-    this.cancelItemTarget();
     this.mainMonsterId=monsterId;this.planner.resetSpecialization?.();
     if(this.mode!=='business')return;
     this.resetPlans();
@@ -352,7 +346,6 @@ export class Trainer {
     if(['saving','ready','moving','attacking','fighting','dead','manual'].includes(boss?.phase)) {
       result.reason='世界 Boss 优先';return result;
     }
-    if(this.itemTarget&&this.itemTarget.status!=='completed') {result.reason='物品目标优先';return result;}
     if(playerQueued(p)) {result.reason='玩家队列优先';return result;}
     const mainSkill=this.hotMainSkill(),selected=new Set([mainSkill,...this.hotFollow.sides]);
     const target=hotSkillAt(this.data,now+this.hotFollow.leadMinutes*60000/this.data.tickMs)??current;
@@ -397,52 +390,10 @@ export class Trainer {
     this.goalSince=this.now();this.plan=null;
     return true;
   }
-  restoreItemTarget(saved) {
-    if(saved==null){this.itemTarget=null;return true;}
-    const choice=this.planner.itemTargetChoices?.().find(c=>c.itemId===saved.itemId);
-    if(!choice||!Number.isSafeInteger(saved.playerId)||saved.playerId<0||
-      !Number.isSafeInteger(saved.quantity)||saved.quantity<1||saved.quantity>1000000||
-      !['pending','running','completed'].includes(saved.status)||
-      (saved.status==='pending'?(saved.baseline!=null||saved.required!=null):
-        !Number.isSafeInteger(saved.baseline)||saved.baseline<0||!Number.isSafeInteger(saved.required)||
-        saved.required!==saved.baseline+saved.quantity))return false;
-    this.itemTarget={itemTarget:true,playerId:saved.playerId,itemId:choice.itemId,targetItemId:choice.itemId,
-      quantity:saved.quantity,baseline:saved.baseline??null,required:saved.required??null,
-      qty:saved.required??null,status:saved.status,listedQty:0,skill:choice.skill};
-    return true;
-  }
-  startItemTarget(itemId,amount) {
-    const p=this.player;
-    if(!p||!this.compatible){this.log('尚未同步兼容角色，不能开始物品目标');return false;}
-    if(this.pending||this.resolution||p.enhance||p.route?.errand||playerQueued(p)||
-      this.boss.ownsRun()||['manual','native'].includes(this.boss.status().phase)) {
-      this.log('请等待当前操作、农事或 Boss 结束；物品目标不接管玩家队列或搁置任务');return false;
-    }
-    if(!this.restoreItemTarget({playerId:p.id,itemId,quantity:amount,baseline:null,required:null,status:'pending'})) {
-      this.log('请选择可获取的普通物品，并输入 1 至 1000000 的整数数量');return false;
-    }
-    this.planner.cancelHousing?.();this.buffRefill=null;
-    this.start(true);this.log('正在同步物品目标起始库存；本次额外获取，已有数量不计入进度');return this.active;
-  }
-  cancelItemTarget() {
-    if(!this.itemTarget)return;
-    this.itemTarget=null;
-    if(this.goal?.itemTarget)this.goal=null;
-    this.plan=null;this.log('物品目标已取消，继续当前批次后按原策略挂机');
-  }
-  itemTargetStatus() {
-    const g=this.itemTarget;if(!g)return null;
-    const listed=this.player?.id===g.playerId?this.market?.listedQuantity?.(this.player,g.itemId)??0:0;
-    const owned=this.player?.id===g.playerId?ownedQty(this.player,g.itemId,listed):0;
-    const completed=g.status==='completed';
-    const gained=completed?g.quantity:g.baseline==null?0:Math.max(0,owned-g.baseline);
-    return {...g,name:itemName(this.data,g.itemId),mode:this.mode,
-      gained,remaining:Math.max(0,g.quantity-gained),completed};
-  }
-  // The helper drives the character: every mode but assist, and assist while it
-  // runs an item target (its quests run beside the player's queue: acting()).
+  // The helper drives the character: every mode but assist (whose quests run
+  // beside the player's queue: acting()).
   drives() {
-    return this.mode!=='assist'||!!(this.itemTarget&&this.itemTarget.status!=='completed');
+    return this.mode!=='assist';
   }
   // The helper is giving work commands: when it drives, or runs an assist-mode quest.
   acting() {
@@ -496,7 +447,6 @@ export class Trainer {
           this.pause('断线期间角色死亡，请检查战斗配置后再继续');
         }
         const first=!this.player;
-        if(this.itemTarget&&this.itemTarget.playerId!==message.you.id)this.itemTarget=null;
         const oldRoute=this.player?.route,newRoute=message.you.route;
         if(message.t==='welcome'||this.player?.id!==message.you.id||!newRoute||
           oldRoute?.jobId!==newRoute.jobId||oldRoute?.siteId!==newRoute.siteId||oldRoute?.zoneId!==newRoute.zoneId)
@@ -805,55 +755,6 @@ export class Trainer {
     }
     this.issue({intent:{t:'clearRoute'},label:'停止停滞路线并重新规划'});return true;
   }
-  runItemTarget(p) {
-    const g=this.itemTarget;
-    if(!g||g.status==='completed')return false;
-    const listed=(this.market?.closed?.(p)??p.ironman)?0:this.market?.listedQuantity?.(p,g.itemId)??(this.market?.listedQuantity?null:0);
-    if(listed===null){this.message='正在同步目标物品的已有挂单，避免撤单被计作新增';return true;}
-    g.listedQty=listed;
-    const owned=ownedQty(p,g.itemId,listed);
-    if(g.baseline===null) {
-      if(!Number.isSafeInteger(owned)||!Number.isSafeInteger(owned+g.quantity)){this.pause('目标库存数量异常，请检查后重新设置');return true;}
-      g.baseline=owned;g.required=owned+g.quantity;g.qty=g.required;g.status='running';
-    }
-    this.goal=g;
-    if(p.route?.errand){this.message='完成本次收获补种后继续物品目标';return true;}
-    const enough=owned>=g.required;
-    if(enough&&(p.route||p.path?.length)){this.issue({intent:{t:'clearRoute'},label:'目标数量已够，结束本次工作'});return true;}
-    // Keep the same project while blocked or waiting for crops. Ordinary daily
-    // selection and timed growth rotation must never replace this explicit goal.
-    let plan=this.planner.planItemTarget(p,g,this.style,this.bankedLoad);
-    const market=this.market?.next(p,g,this.style);
-    if(market?.intent){this.issue(market);return true;}
-    const maintenance=this.planner.maintenance?.(p,g,this.style,this.mode,this.mainTrade,this.mainJobId,this.mainMonsterId);
-    if(maintenance?.intent){this.issue(maintenance);return true;}
-    if(maintenance?.marketWaiting||maintenance?.capacityLimited){this.plan=maintenance;this.message=maintenance.reason??maintenance.label;return true;}
-    if(Object.values(p.overflow??{}).some(n=>n>0)){this.pause('物品目标等待仓库空间；目标已保留，请整理后继续');return true;}
-    if(enough) {
-      if(p.pack.length) {
-        const bank=nearestBank(this.data,p);
-        this.issue(this.planner.nearBank(p)?{intent:{t:'deposit'},label:'目标完成前将随身物资存仓'}:
-          {intent:{t:'walk',...bank.approach},label:'目标数量已够，返回仓库'});return true;
-      }
-      g.status='completed';this.goal=null;this.plan=null;this.bankedLoad=false;
-      this.log(`物品目标完成：额外获得 ${itemName(this.data,g.itemId)} ×${g.quantity}，恢复原挂机策略`);return true;
-    }
-    if(this.watchProgress(p))return true;
-    const seedTarget=this.data.jobs.some(j=>j.grow&&j.inputs.some(i=>i.itemId===g.itemId));
-    // Target seeds must stay in stock. Other crops may be harvested at a task
-    // boundary, but optional farm investment must not displace the item project.
-    const harvest=!seedTarget&&!plan.blocked&&plan.intent?.t!=='clearRoute'&&(this.bankedLoad||this.planner.taskBoundary?.(p))?
-      this.planner.harvestOnly?.(p):null;
-    plan=harvest??plan;
-    if(plan.farmJobId)this.farmJobId=plan.farmJobId;
-    this.plan=plan;
-    if(plan.intent?.t!=='clearRoute') {
-      const consumable=this.consume(p,g,this.style,plan);
-      if(consumable?.intent){this.issue(consumable);return true;}
-    }
-    if(!plan.intent){this.message=plan.reason??plan.label;return true;}
-    this.bankedLoad=false;this.issue(plan);return true;
-  }
   // 补精通 (upstream v0.8.2): fill the current round's next tier in order; the
   // goal stays until the server's collection count reaches it.
   runMastery(p) {
@@ -955,23 +856,6 @@ export class Trainer {
     if(!plan.intent){this.message=plan.reason??plan.label;return;}
     this.bankedLoad=false;issue(plan);
   }
-  bossFoodPlan(p) {
-    const target=this.itemTarget;
-    const bossStatus=this.boss.status();
-    if(!target||target.status==='completed'||bossStatus.active===false||!bossStatus.name||this.boss.ownsRun()||['manual','native'].includes(bossStatus.phase))return null;
-    const targetId=target.targetItemId??target.itemId,targetBase=this.planner.base(targetId);
-    if(!this.data.items[targetBase]?.heals)return null;
-    const current=p.foodItemId;
-    if(current>0&&autoUsableMaterial(this.data,current)&&this.planner.base(current)!==targetBase)return null;
-    const candidates=p.pack.filter(item=>item.qty>0&&foodEligible(this.data,p,item.itemId)&&this.planner.base(item.itemId)!==targetBase)
-      .sort((a,b)=>(this.data.items[this.planner.base(b.itemId)]?.heals??0)-
-        (this.data.items[this.planner.base(a.itemId)]?.heals??0)||a.itemId-b.itemId);
-    const replacement=candidates[0]?.itemId;
-    if(replacement===undefined)return {blocked:true,reason:'本场 Boss 跳过：唯一可用食物是目标物品'};
-    if(current===replacement)return null;
-    return {intent:{t:'chooseFood',itemId:replacement},label:'保护物品目标，切换 Boss 战斗食物',
-      reason:`目标物品是食物，先选择背包中的非目标食物 ${itemName(this.data,this.planner.base(replacement))}`};
-  }
   combatFoodPlan(p) {
     // Native explicit food selection bypasses the rarity ceiling. Confirm both
     // preferences before starting assistant combat, including a held Boss trip.
@@ -1059,7 +943,6 @@ export class Trainer {
     const bossReady=!this.awaitInitial&&!this.player?.enhance&&(!this.pending||this.pending.intent.t==='walk');
     const boss=bossReady?this.bossTick(this.player,now):null;
     if(boss?.handled)return;
-    const bossFoodBlocked=boss?.foodBlocked===true;
     if ((!ready&&this.snapshotSequence<=this.syncAfter)||this.awaitInitial||this.pending||now<this.nextAction) return;
     const p=this.player;
     if(p.enhance) {
@@ -1070,42 +953,27 @@ export class Trainer {
       this.consume(p,reserveWaitingGoals(this.goal,this.waitingGoals),this.style,{intent:null});
       return this.pause('检测到玩家队列或搁置任务，保留原队列并暂停成长调度');
     }
-    const result=this.scheduleAdvance?this.scheduleAdvance(false):this.advance(false);
-    if(bossFoodBlocked) {
-      const reason='本场 Boss 跳过：唯一可用食物是目标物品';
-      // Once: the message is not replaced while a background result is pending.
-      if(!this.message?.includes(reason))this.message=this.message?`${this.message}；${reason}`:reason;
-    }
-    return result;
+    return this.scheduleAdvance?this.scheduleAdvance(false):this.advance(false);
   }
   // World Boss step: protective food settings, then joining, fighting or
   // leaving. `handled` means this tick is spent on the Boss.
   bossTick(p,now=this.now()) {
-    const bossFood=this.bossFoodPlan(p),foodBlocked=bossFood?.blocked===true;
-    if(foodBlocked) {
-      this.plan={intent:null,label:'世界 Boss',reason:bossFood.reason};
-      this.noteConsumable('boss-food',bossFood.reason);
-    }
-    if(bossFood?.intent) {
-      if(this.pending)return {handled:true,foodBlocked}; // a walk first settles
-      this.plan=bossFood;this.issue(bossFood);return {handled:true,foodBlocked};
-    }
     // The helper's own errand walks yield to a Boss; in assist mode the walk is the player's.
-    let bossPlan=foodBlocked?null:this.boss.next(p,{interruptWalk:this.mode!=='assist'});
+    let bossPlan=this.boss.next(p,{interruptWalk:this.mode!=='assist'});
     const bossStatus=this.boss.status();
     if(bossStatus.owned&&['attacking','fighting'].includes(bossStatus.phase)&&this.combatFoodPlan(p))
       bossPlan={intent:{t:'leaveWorldBoss'},label:'保护传说食物，结束本轮 Boss',
         reason:'已恢复的参战仍允许消耗传说食物，先离开本轮并恢复原任务'};
-    if(!bossPlan)return {handled:false,foodBlocked};
+    if(!bossPlan)return {handled:false};
     const blockedConsumable=this.consume(p,reserveWaitingGoals(this.goal,this.waitingGoals),this.style,{intent:null});
     if(blockedConsumable?.intent)this.noteConsumable('boss',`药水未喝：世界 Boss 临时动作优先，${bossPlan.reason??'本轮先完成参战流程'}`);
     this.plan=bossPlan;this.message=bossPlan.reason??bossPlan.label;
-    if(bossPlan.blocked){this.pause(bossPlan.reason,true);return {handled:true,foodBlocked};}
+    if(bossPlan.blocked){this.pause(bossPlan.reason,true);return {handled:true};}
     if(bossPlan.intent) {
-      if(now-(this.bossSentAt??-Infinity)<1000)return {handled:true,foodBlocked};
+      if(now-(this.bossSentAt??-Infinity)<1000)return {handled:true};
       if(bossPlan.intent.t==='attackWorldBoss') {
         const food=this.combatFoodPlan(p);
-        if(food){if(!this.pending)this.issue(food);return {handled:true,foodBlocked};}
+        if(food){if(!this.pending)this.issue(food);return {handled:true};}
       }
       this.bossSentAt=now;
       // A Boss command replaces a walk still awaiting confirmation.
@@ -1114,7 +982,7 @@ export class Trainer {
       this.send(bossPlan.intent);this.nextAction=now+1000;
       this.syncAfter=this.snapshotSequence;this.nextSync=0;
     }
-    return {handled:true,foodBlocked};
+    return {handled:true};
   }
   // Pure decision phase may run on a cloned state in the planning Worker.
   // Connection freshness, acknowledgements and Boss protocol stay on the page.
@@ -1130,9 +998,6 @@ export class Trainer {
       return this.issue({intent:{t:'clearRoute'},label:'先停止战斗并保护传说食物',
         reason:'原生自动进食设置允许消耗传说食物，确认安全设置后继续当前成长目标'});
     if(this.mode==='balanced')this.planner.observeDevelopment?.(p,this.goal,this.style);
-    if(this.runItemTarget(p)) {
-      return;
-    }
     const hotPreview=this.hotFollowStatus(p);
     const claim=hotPreview.active?null:this.planner.questClaim?.(p,this.style);
     if(claim?.intent)return this.issue(claim);

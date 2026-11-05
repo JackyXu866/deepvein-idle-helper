@@ -46,8 +46,7 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
   const label = c => c.monsterId != null ? `战斗 · ${data.monsters.find(m => m.id === c.monsterId)?.name ?? c.monsterId}` :
     `${c.rarity ? RARITY_NAMES[c.rarity] : ''}${jobName(c.recipeId)}`;
   const layer = boss?.owned && BOSS_PHASES.has(boss.phase) ? '世界 Boss（最高优先）' :
-    trainer.itemTarget && trainer.itemTarget.status !== 'completed' ? '物品目标' :
-    goal?.quest ? (goal.quest.period === 'daily' ? '每日任务（必做）' : '每周任务') :
+    goal?.quest ? (goal.quest.period === 'daily' ? '每日任务（必做）' : goal.quest.period === 'order' ? '城镇订单' : '每周任务') :
     goal?.upgrade?.priority ? '装备升级' : goal?.hot ? '热门技能' : MODE_LAYERS[trainer.mode] ?? '成长策略';
 
   // Experience is not comparable between skills (each has its own XP scale and
@@ -79,7 +78,7 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
     };
     // 经验优先 deliberately trades skills against each other on raw XP.
     xpAcross = trainer.mode === 'experience';
-    xpSkill = xpAcross || goal?.quest || goal?.itemTarget ? null : goal?.mainSkill ?? goal?.skill ?? null;
+    xpSkill = xpAcross || goal?.quest ? null : goal?.mainSkill ?? goal?.skill ?? null;
     // Within the goal's skill: the recipe choice's own ratings (whole stage
     // with its gathering, or the batch score), not a separate estimate.
     const ratings = planner.recipeRatings?.();
@@ -142,8 +141,7 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
     message: trainer.message ?? null,
     // A level goal is about the skill; its recipe or monster is only the
     // current means of getting there.
-    goal: goal ? (goal.itemTarget ? {label: '物品目标', target: null, via: null, reason: goal.reason ?? null} :
-      goal.quest ? {label: `${goal.quest.period === 'daily' ? '每日任务' : goal.quest.period === 'order' ? '城镇订单' : '每周任务'} · ${label(goal.quest.monsterId != null ? {monsterId: goal.quest.monsterId} : {recipeId: goal.quest.jobId})}`,
+    goal: goal ? (goal.quest ? {label: `${goal.quest.period === 'daily' ? '每日任务' : goal.quest.period === 'order' ? '城镇订单' : '每周任务'} · ${label(goal.quest.monsterId != null ? {monsterId: goal.quest.monsterId} : {recipeId: goal.quest.jobId})}`,
         target: null, via: null, reason: goal.reason ?? null} :
       {label: goal.skill ? NAMES[goal.skill] ?? goal.skill : null, target: goal.target ?? null,
         via: running(goal) ? label(running(goal)) : null, reason: goal.reason ?? null}) : null,

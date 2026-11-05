@@ -524,16 +524,8 @@ import {itemLabel, packQty} from '../planner/items.js';
     if(restoredRun.hotParkedGoal)trainer.hotParkedGoal=restoredRun.hotParkedGoal;
   }
   try {trainer.boss.setParticipation(localStorage.getItem(bossParticipationKey));}catch{}
-  let savedRun='',savedItemTarget='';
+  let savedRun='';
   function saveRun() {
-    if(trainer.player) {
-      const key=itemTargetKey+trainer.player.id,target=trainer.itemTarget;
-      const record=target?.playerId===trainer.player.id?JSON.stringify(target):'';
-      if(savedItemTarget!==key+record)try {
-        if(record)sessionStorage.setItem(key,record);else sessionStorage.removeItem(key);
-        savedItemTarget=key+record;
-      } catch { /* The current target remains usable in this page. */ }
-    }
     const record=trainer.active||trainer.recovery?JSON.stringify({
       playerId:trainer.recovery?.playerId??trainer.player?.id,
       lastTick:trainer.recovery?.lastTick??trainer.player?.lastTick,style:trainer.style,mode:trainer.mode,mainTrade:trainer.mainTrade,mainJobId:trainer.mainJobId,mainMonsterId:trainer.mainMonsterId,boss:trainer.boss.save(),development:planner.developmentRuntime(),housing:planner.housingRuntime(),mastery:planner.masteryRuntime(),buffRefill:trainer.buffRefill,hotFollow:trainer.getHotFollow(),hotParkedGoal:trainer.hotParkedGoal,hotFollowState:trainer.hotFollowStatus()}):'';
@@ -618,9 +610,8 @@ import {itemLabel, packQty} from '../planner/items.js';
           const frame=JSON.parse(event.data),pending=trainer.pending;
           const welcome=frame.m?.find(message=>message.t==='welcome');
           if(welcome?.you?.id!=null) {
-            // Item targets were removed from the panel: a saved one is dropped.
+            // Item targets were removed (v0.12.9): a target an older build saved is dropped.
             try {sessionStorage.removeItem(itemTargetKey+welcome.you.id);}catch{}
-            if(trainer.itemTarget)trainer.restoreItemTarget(null);
           }
           bossLoot.observe(frame);
           if(Array.isArray(frame.m)&&frame.m.some(m=>m?.t==='bossAutoJoin'))gameAutoJoin();
@@ -714,8 +705,8 @@ import {itemLabel, packQty} from '../planner/items.js';
   }
   // The queue-clear button starts through the same checks as 开始调度.
   trainer.onStartAfterClear=()=>startScheduling();
-  async function startScheduling(target=null) {
-    if(checking||trainer.recovery||!target&&trainer.active)return;
+  async function startScheduling() {
+    if(checking||trainer.recovery||trainer.active)return;
     const attempt=++startCheck;
     planningFailures=0;planningError='';
     checking=true;trainer.log('正在启动…');render();
@@ -724,7 +715,6 @@ import {itemLabel, packQty} from '../planner/items.js';
       if(attempt!==startCheck)return;
       checking=false;
       if(!claimLease())trainer.pause('另一个标签页正在调度，请先暂停那个标签页');
-      else if(target)trainer.startItemTarget(target.itemId,target.quantity);
       else trainer.start();
     } catch {
       if(attempt!==startCheck)return;
@@ -1006,50 +996,6 @@ import {itemLabel, packQty} from '../planner/items.js';
         background: var(--panel-raised);
       }
       button:disabled { opacity: .4; cursor: default; }
-      [data-compact-target] {
-        width: 100%;
-        padding: 4px 8px;
-        background: var(--panel);
-        border: 1px solid var(--edge);
-        border-radius: 6px;
-        font-size: 11px;
-        font-variant-numeric: tabular-nums;
-        display: flex;
-        flex-direction: column;
-        gap: 3px;
-      }
-      .compact-target-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 8px;
-      }
-      [data-compact-target-name] {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        color: var(--brass-bright);
-        font-weight: 700;
-      }
-      [data-compact-target-count] {
-        white-space: nowrap;
-        color: var(--ink-faint);
-        font-family: var(--font-mono);
-      }
-      .compact-target-bar {
-        height: 4px;
-        background: var(--panel-sunken);
-        border-radius: 2px;
-        box-shadow: inset 0 0 0 1px var(--edge);
-        overflow: hidden;
-      }
-      .compact-target-fill {
-        height: 100%;
-        background: linear-gradient(180deg, #ffd06a, #c98a1e);
-        width: var(--target-pct, 0%);
-        transition: width var(--trans);
-      }
-      .compact-label { display: none; }
       section[data-folded="true"]:not([data-integrated="true"]) {
         width: auto;
         min-width: 310px;
@@ -1110,17 +1056,6 @@ import {itemLabel, packQty} from '../planner/items.js';
         max-width: 140px;
         font-size: 11px;
       }
-      section[data-folded="true"][data-target="true"] [data-status] {
-        max-width: 90px;
-      }
-      section[data-folded="true"] [data-compact-target] {
-        padding: 2px 6px;
-        border: 0;
-        background: transparent;
-        max-width: 130px;
-        flex-shrink: 0;
-      }
-      section[data-folded="true"] .compact-target-bar { display: none; }
       section[data-folded="true"] .buttons button {
         min-height: 28px;
         padding: 3px 9px;
@@ -1648,13 +1583,6 @@ import {itemLabel, packQty} from '../planner/items.js';
             <span class="status-pill"><span class="status-led" aria-hidden="true"></span><b data-run-state>待机</b></span>
             <p data-status role="status">等待游戏状态…</p>
           </div>
-          <div data-compact-target hidden role="progressbar" aria-label="本次物品目标" aria-valuemin="0">
-            <div class="compact-target-header">
-              <span data-compact-target-name></span>
-              <span data-compact-target-count></span>
-            </div>
-            <div class="compact-target-bar"><div class="compact-target-fill"></div></div>
-          </div>
         </div>
         <div class="buttons">
           <button data-start><span class="full-label">开始调度</span><span class="compact-label">开始</span></button>
@@ -2086,7 +2014,7 @@ import {itemLabel, packQty} from '../planner/items.js';
     panel.querySelector('[data-equipment-details]').ontoggle=()=>{rendered='';render();};
     panel.querySelector('[data-export]').onclick=()=>{
       const report={version:SCRIPT_VERSION,exportedAt:new Date().toISOString(),client:GAME_DATA.client,
-        profession:trainer.style,mode:trainer.mode,mainTrade:trainer.mainTrade,mainJobId:trainer.mainJobId,mainMonsterId:trainer.mainMonsterId,itemTarget:trainer.itemTargetStatus(),farmingPreference:planner.farmingPreference(),autoSell,potionRestock,capacitySales,boss:trainer.boss.status(trainer.player),metrics:trainer.telemetry.summary(),history:trainer.history,rejections,
+        profession:trainer.style,mode:trainer.mode,mainTrade:trainer.mainTrade,mainJobId:trainer.mainJobId,mainMonsterId:trainer.mainMonsterId,farmingPreference:planner.farmingPreference(),autoSell,potionRestock,capacitySales,boss:trainer.boss.status(trainer.player),metrics:trainer.telemetry.summary(),history:trainer.history,rejections,
         bossLoot:bossLoot.diagnostics(),
         goal:trainer.goal,waitingGoals:trainer.waitingGoals,blocked:trainer.blockedReasons,market:market.summary(),
         growth:trainer.player&&trainer.mode==='balanced'?planner.growthStatus(trainer.player,trainer.style,trainer.deferred):null,
@@ -2243,15 +2171,6 @@ import {itemLabel, packQty} from '../planner/items.js';
           flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
           font-size: 11.5px; color: var(--ink, #f5e6c8);
         }
-        .dvh-bar-progress {
-          flex: 0 0 64px; height: 6px; border-radius: 3px; background: var(--panel-sunken, #120a05);
-          box-shadow: inset 0 0 0 1px var(--edge, #4d3219); overflow: hidden; display: block;
-        }
-        .dvh-bar-progress[hidden] { display: none !important; }
-        .dvh-bar-progress > b {
-          display: block; height: 100%; background: linear-gradient(180deg, #ffd06a, #c98a1e);
-          transition: width 180ms ease;
-        }
         .dvh-bar-toggle {
           flex: none; padding: 4px 12px; min-height: 26px; border: 0; border-radius: 6px;
           background: linear-gradient(180deg, #f5c572, #c98a2c); color: #2a1706;
@@ -2311,7 +2230,7 @@ import {itemLabel, packQty} from '../planner/items.js';
         bar.innerHTML = `
           <b class="dvh-bar-state" data-state="idle" role="status" aria-live="polite">待机</b>
           <span class="dvh-bar-what">等待游戏状态</span>
-          <span class="dvh-bar-progress" hidden><b style="width:0%"></b></span>
+          
           <button type="button" class="dvh-bar-toggle">开始</button>
         `;
         bar.onclick = event => {
@@ -2716,7 +2635,6 @@ import {itemLabel, packQty} from '../planner/items.js';
     if (!panel) return;
     inspectPlanning();
     const p=trainer.player, lv=p?planner.levels(p):null;
-    const itemTarget=trainer.itemTargetStatus();
     const review=p?(background?planningView?.review:economy.review(p,reserveWaitingGoals(trainer.goal,trainer.waitingGoals),trainer.style)):null;
     const metrics=trainer.telemetry.summary();
     const marketText=market.summary();
@@ -2761,7 +2679,7 @@ import {itemLabel, packQty} from '../planner/items.js';
     const equipmentOpen=panel.querySelector('[data-equipment-details]').open;
     const houseText=p?planner.housingStatus(p):'等待房屋状态';
     const hotFollow=trainer.getHotFollow();
-    const signature=JSON.stringify([planningError,updates.state,autoSell,potionRestock,capacitySales,itemTarget,review,metrics,farmText,houseText,farming,preference,choices,marketText,growth,business,mainJobs,trainer.mainJobId,mainMonsters,trainer.mainMonsterId,boss,hot,hotFollow,buffs,quests,activity,equipmentOpen,checking,compatibilityMessage,trainer.style,trainer.mode,trainer.mainTrade,trainer.active,trainer.message,trainer.goal,trainer.plan?.label,trainer.plan?.reason,lv,trainer.history,trainer.blockedReasons,rejections,rejectionsSaved,
+    const signature=JSON.stringify([planningError,updates.state,autoSell,potionRestock,capacitySales,review,metrics,farmText,houseText,farming,preference,choices,marketText,growth,business,mainJobs,trainer.mainJobId,mainMonsters,trainer.mainMonsterId,boss,hot,hotFollow,buffs,quests,activity,equipmentOpen,checking,compatibilityMessage,trainer.style,trainer.mode,trainer.mainTrade,trainer.active,trainer.message,trainer.goal,trainer.plan?.label,trainer.plan?.reason,lv,trainer.history,trainer.blockedReasons,rejections,rejectionsSaved,
       trainer.pausedError,trainer.recovery,p?.fallback??null,trainer.fallbackOwned,autoFallback,sellCrafted]);
     if (signature===rendered) return;
     rendered=signature;
@@ -2919,20 +2837,6 @@ import {itemLabel, packQty} from '../planner/items.js';
       const input=panel.querySelector(selector);
       if(input&&input!==panel.activeElement&&input.value!==String(value))input.value=String(value);
     }
-    const targetActive=!!itemTarget&&!itemTarget.completed,compactTarget=panel.querySelector('[data-compact-target]');
-    panel.querySelector('section').setAttribute('data-target',String(targetActive));compactTarget.hidden=!targetActive;
-    if(targetActive) {
-      const gained=Math.min(itemTarget.quantity,itemTarget.gained),percent=Math.floor(gained/itemTarget.quantity*100);
-      const name=gameLabel(itemTarget.name),count=itemTarget.status==='pending'?'同步起始库存…':`${gained} / ${itemTarget.quantity} · ${percent}%`;
-      panel.querySelector('[data-compact-target-name]').textContent=name;
-      panel.querySelector('[data-compact-target-count]').textContent=count;
-      compactTarget.setAttribute('aria-valuemax',String(itemTarget.quantity));compactTarget.setAttribute('aria-valuenow',String(gained));
-      compactTarget.setAttribute('aria-valuetext',`${name}：${count}`);
-      compactTarget.title=`${trainer.active?'运行中':'已暂停'} · ${name}：本次新增 ${gained} / ${itemTarget.quantity}；${translateGameText(trainer.message)}`;
-      compactTarget.style.setProperty('--target-pct',`${percent}%`);
-    } else {
-      compactTarget.style.setProperty('--target-pct','0%');
-    }
     panel.querySelector('[data-auto-sell]').checked=autoSell;
     panel.querySelector('[data-potion-restock]').checked=potionRestock;
     panel.querySelector('[data-capacity-sales]').checked=capacitySales;
@@ -2974,7 +2878,7 @@ import {itemLabel, packQty} from '../planner/items.js';
       `\n当时${r.active?'正在调度':'已暂停'}；${r.stale?'过期消息；':''}${r.scope==='guild'?'公会功能返回，与自动任务分开处理':'错误归属未确定'}`+
       `\n待确认操作：${r.pending?`${translateGameText(r.pending.label??r.pending.intent?.t??'未知')} (${r.pending.intent?.t??'未知'})`:'无'}`+
       (r.pendingConfirmed?'；同帧已观察到成功回报':'')).join('\n\n');
-    panel.querySelector('[data-goal]').textContent=trainer.mode==='mastery'&&!trainer.itemTarget?
+    panel.querySelector('[data-goal]').textContent=trainer.mode==='mastery'?
       translateGameText(p?planner.masteryStatus(p,trainer.style):'开始后按每点金币从最划算的开始补精通'):trainer.goal ?
       `目标：${NAMES[trainer.goal.skill]} · ${trainer.goal.reason??`目标 ${trainer.goal.target} 级`}` :
       trainer.mode==='balanced'?'比较库存、供料、解锁与收入，选择下一项发展计划':
@@ -3131,25 +3035,10 @@ import {itemLabel, packQty} from '../planner/items.js';
     if (bar && !bar.hidden) {
       const stateBadge=bar.querySelector('.dvh-bar-state');
       const whatSpan=bar.querySelector('.dvh-bar-what');
-      const progSpan=bar.querySelector('.dvh-bar-progress');
-      const progFill=progSpan.querySelector('b');
       const toggleBtn=bar.querySelector('.dvh-bar-toggle');
       if (stateBadge.getAttribute('data-state') !== stateCode) stateBadge.setAttribute('data-state', stateCode);
       if (stateBadge.textContent !== stateText) stateBadge.textContent = stateText;
-      const targetActive=!!itemTarget&&!itemTarget.completed;
-      let whatText='';
-      if (targetActive) {
-        const gained=Math.min(itemTarget.quantity,itemTarget.gained);
-        const percent=Math.floor(gained/itemTarget.quantity*100);
-        const name=gameLabel(itemTarget.name);
-        whatText=`目标 ${name} · ${gained}/${itemTarget.quantity} (${percent}%) · ${translateGameText(activity)}`;
-        progSpan.hidden=false;
-        const pctWidth = `${percent}%`;
-        if (progFill.style.width !== pctWidth) progFill.style.width = pctWidth;
-      } else {
-        whatText=translateGameText(activity);
-        progSpan.hidden=true;
-      }
+      let whatText=translateGameText(activity);
       if (hot.active && hot.skill) {
         whatText=`热门·${NAMES[hot.skill]??hot.skill} · ${whatText}`;
       }

@@ -13,7 +13,7 @@ import {PLANNING_STORAGE_KEYS, enhancementStorage, wirePlanner} from '../economy
 // Only the decision phase is transferable. The page owns the socket, receipts,
 // transaction journal, Boss lifecycle and every actual command submission.
 export const decisionFields=['goal','served','deferred','questDeferred','waitingGoals','blockedReasons','sequence',
-  'goalSince','bankedLoad','message','plan','history','farmJobId','progress','stallCheck','failures','failureKey','itemTarget','buffRefill',
+  'goalSince','bankedLoad','message','plan','history','farmJobId','progress','stallCheck','failures','failureKey','buffRefill',
   'hotFollow','hotParkedGoal','hotFollowValidation','fallbackCheckedAt','pausedError','consumableLogAt','potionBrew','questAside','questRoute'];
 // fallbackOwned is read-only here: only a confirmed snapshot on the page changes it.
 export const inputFields=[...decisionFields,'player','active','style','mode','mainTrade','mainJobId','mainMonsterId','softRefused','fallbackOwned',

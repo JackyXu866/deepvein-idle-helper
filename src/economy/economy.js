@@ -64,7 +64,7 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
     if(p.id!==lastPlayer||style!==lastStyle||mode!==lastMode||mainTrade!==lastMain||mainJobId!==lastJob||mainMonsterId!==lastMonster){lastGoal=null;investmentGoal=null;gearDeferredUntil=0;recovery=null;lastPlayer=p.id;lastStyle=style;lastMode=mode;lastMain=mainTrade;lastJob=mainJobId;lastMonster=mainMonsterId;}
     if(mode==='business'&&goal?.mainSkill!==professionSkill(style)||goal?.development&&goal.skill!==professionSkill(style))investmentGoal=null;
     const upgrading=goal?.upgrade?.priority;
-    if(upgrading||goal?.itemTarget)investmentGoal=null;
+    if(upgrading)investmentGoal=null;
     if(goal)lastGoal=goal;
     // Preserve the in-flight supply budget across a reconnect/goal-selection gap.
     const protection=protectionGoal(p,goal);
@@ -118,7 +118,7 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
     // needs the bank), so the table's worthwhile, affordable step starts now,
     // not at a batch end that a sale or the next batch then takes over.
     let enhancement=null;
-    if(!overflow&&!goal?.temporary&&!goal?.developmentFiller&&!goal?.itemTarget&&!upgrading&&!goal?.upgrade&&
+    if(!overflow&&!goal?.temporary&&!goal?.developmentFiller&&!upgrading&&!goal?.upgrade&&
       (mode==='balanced'||goal&&(goal.specialization||mode==='experience'))) {
       // Every slot, as the investment table values it for this goal (its use share);
       // never the slot a gear project is replacing.
@@ -133,7 +133,7 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
     if(p.route?.errand&&!overflow)return null;
     if(!overflow&&p.coins>=capacity.coins&&finishTaskReason(data,p))return null;
     // Assist mode arranges no gear: its quests use what is worn.
-    if(!overflow&&!upgrading&&mode!=='assist'&&!goal?.temporary&&!goal?.developmentFiller&&!goal?.itemTarget&&!goal?.mastery&&planner.professionUpgrade&&p.lastTick>=gearDeferredUntil&&
+    if(!overflow&&!upgrading&&mode!=='assist'&&!goal?.temporary&&!goal?.developmentFiller&&!goal?.mastery&&planner.professionUpgrade&&p.lastTick>=gearDeferredUntil&&
       (!goal?.development||goal.skill===professionSkill(style))&&
       (mode!=='business'||goal?.mainSkill===professionSkill(style))) {
       const gearPlan=planner.professionUpgrade(p,style,investmentGoal,{growth:goal?!!goal.growth:mode==='balanced',stage:goal?.stage});
@@ -186,8 +186,6 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
     }
     if(capacity.recoverableOverflow)return waiting();
     if(overflow&&(deferredSale||!rows.some(i=>i.bank>0&&i.sellFromBank===i.bank))) {
-      if(goal?.itemTarget)return action(null,'物品目标等待仓库空间',
-        '仓库剩余物品均受保护或正在等待成交；保留当前物品目标，整理后继续',{capacityLimited:true});
       // All remaining stock is protected. Continue a coin-only task without
       // creating new item kinds, rather than buying shelves or deleting valuables:
       // the gold table's rows in its order, those paying coins only. A bonus
