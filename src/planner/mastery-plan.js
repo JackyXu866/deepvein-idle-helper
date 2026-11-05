@@ -1,5 +1,6 @@
-// Mastery points (client 1.0.12xx). Ranks are permanent: the server refuses
-// fewer ranks than held, so a point is placed once. The work page's points go
+// Mastery points (client 1.0.12xx). The server refuses fewer ranks than held,
+// but a reset (masteryReset) returns every point for 50,000 gold, doubling with
+// each reset (resetCost). The work page's points go
 // where the current kind of work gains most per point, measured by the rule
 // that picks that work:
 //  - 补精通: the gold to earn the points its next targets give, each trial
@@ -25,6 +26,9 @@ export const WORK_TRACKS = ['xp', 'gather', 'craft', 'move', 'maxhit', 'accuracy
 // targets that may supply them, those up to POOL_REACH× the gold per point of
 // the dearest of these (at most POOL_SIZE).
 export const PLAN_TARGETS = 12, POOL_REACH = 3, POOL_SIZE = 60;
+// A reset's price (client Gw): 50,000 gold x 2^(resets so far).
+export const resetCost = resets => 5e4 * 2 ** Math.min(30, Math.max(0, Math.floor(resets ?? 0)));
+const DAY = 86400, WEEK = 7 * DAY;
 
 // How the account spends its time, from measured routes: gathering, crafting,
 // fighting and walking (bank trips). Without measurements, the current goal's
@@ -111,6 +115,8 @@ export function createMasteryPlan(data, planner) {
         };
         return {label: `按补精通：攒 ${points.toLocaleString()} 点精通（接下来约 ${head.length} 个收藏目标的量）花的金币最少，每种分配按它自己最便宜的目标算`,
           value: ranks => -cost(ranks),
+          // A week of 补精通: the share of its spending saved, at the gold rate.
+          gold: (before, after) => before < 0 && Number.isFinite(before) && Number.isFinite(after) ? (after - before) / -before * rate * WEEK : 0, horizon: '一周补精通',
           change: (before, after) => `约 ${gold(-before)} → ${gold(-after)} 金币`};
       }
     }
@@ -118,6 +124,7 @@ export function createMasteryPlan(data, planner) {
     const job = !monster && goal?.recipeId != null ? data.jobs.find(j => j.id === goal.recipeId) : null;
     if (goal?.specialization && goal.rate?.coins > 0 && (monster || job)) return {label: '按主业收益：当前工作每小时金币最多',
       value: ranks => goldRate(data, planner, at(ranks), {job, monster, profession}),
+      gold: (before, after) => (after - before) * WEEK, horizon: '一周主业',
       change: (before, after) => `约 ${gold(before * 3600)} → ${gold(after * 3600)} 金币/小时`};
     // Leveling: each measured route's time per XP, walking, and rarer drops as time.
     let list = routes(data, usage);
@@ -140,6 +147,8 @@ export function createMasteryPlan(data, planner) {
       value: ranks => -(list.reduce((n, r, i) => n + r.seconds * seconds(ranks, r) / start[i], 0) +
         walk * masteryLift(base, 'move') / masteryLift(ranks, 'move')) / total +
         (rate > 0 ? list.reduce((n, r, i) => n + r.seconds / total * (goldRate(data, planner, at({...base, rare: ranks.rare}), work(r)) - startGold[i]) / rate, 0) : 0),
+      // A leveling goal changes often: a day of it, as time at the gold rate.
+      gold: (before, after) => (after - before) * rate * DAY, horizon: '一天练级',
       change: (before, after) => `用时约 -${((after - before) * 100).toFixed(1)}%`};
   }
 
@@ -159,9 +168,12 @@ export function createMasteryPlan(data, planner) {
         reason: '第二页只点强化成功率；强化只在第二页进行，投资表按这一页的成功率估算强化花费'};
     }
     const usable = tracks.filter(id => WORK_TRACKS.includes(id));
-    if (!usable.length || !(available >= Math.min(...usable.map(id => rankCost(current[id] + 1))))) return null;
+    if (!usable.length) return null;
     const goalOf = objective(p, goal, style, usage);
     if (!goalOf) return null;
+    const reset = resetCheck(p, goalOf, current, earned, available, usable);
+    if (reset) return reset;
+    if (!(available >= Math.min(...usable.map(id => rankCost(current[id] + 1))))) return null;
     const result = allocate(current, available, usable, goalOf.value);
     const name = id => MASTERY_NAMES_ZH[id] ?? id;
     const changes = Object.entries(result.bought).map(([id, n]) => `${name(id)} +${n}`).join('、');
@@ -169,7 +181,27 @@ export function createMasteryPlan(data, planner) {
     if (!changes) return result.saving ? {intent: null, saving: result.saving, reason: `${goalOf.label}；${wait}`} : null;
     return {intent: {t: 'masteryConfirm', ranks: Object.fromEntries(Object.entries(result.ranks).filter(([, n]) => n > 0))},
       label: `分配精通点数 · ${changes}`,
-      reason: `${goalOf.label}；精通加了不能退，所以每次都按整体最优分配（${goalOf.change(goalOf.value(current), result.value)}）${wait ? `；${wait}` : ''}`};
+      reason: `${goalOf.label}；按整体最优分配（${goalOf.change(goalOf.value(current), result.value)}）${wait ? `；${wait}` : ''}`};
+  }
+  // Reset when allocating every earned point afresh earns, over the goal's
+  // horizon (a week for 补精通 or a main trade, a day for a leveling goal),
+  // at least 1.2x the reset's price (the payback rule) than the present ranks
+  // with the free points added. Weighed once an hour per goal and ranks.
+  let resetMemo = {key: null, fresh: null};
+  function resetCheck(p, goalOf, current, earned, available, tracks) {
+    if (!goalOf.gold || !tracks.some(id => current[id] > 0)) return null;
+    const hour = Math.floor((p.lastTick ?? 0) * data.tickMs / 3600000);
+    const key = JSON.stringify([p.id, goalOf.label, current, Math.floor(earned / 50), hour]);
+    if (resetMemo.key !== key) {
+      const blank = Object.fromEntries(MASTERY_TRACKS.map(id => [id, 0]));
+      resetMemo = {key, fresh: allocate(blank, earned, tracks, goalOf.value), kept: allocate(current, available, tracks, goalOf.value)};
+    }
+    const {fresh, kept} = resetMemo, cost = resetCost(p.masteryResets), gain = goalOf.gold(kept.value, fresh.value);
+    if (!(gain >= 1.2 * cost) || !(p.coins >= cost)) return null;
+    const name = id => MASTERY_NAMES_ZH[id] ?? id;
+    const plan = Object.entries(fresh.ranks).filter(([, n]) => n > 0).map(([id, n]) => `${name(id)} ${n}`).join('、');
+    return {intent: {t: 'masteryReset', pay: 'coins'}, label: `重置精通 · ${cost.toLocaleString()} 金币`,
+      reason: `${goalOf.label}；全部 ${Math.floor(earned).toLocaleString()} 点从头分配（${plan}）比现在多赚约 ${gold(gain)} 金币（按${goalOf.horizon}算），超过重置费的 1.2 倍；重置后马上按新分配加点`};
   }
   return {choose, objective};
 }

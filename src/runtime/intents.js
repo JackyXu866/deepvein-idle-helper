@@ -9,6 +9,7 @@ import {onPriceStep} from '../economy/market.js';
 import {baseId, dayTicks, merchantPrice, nearBank, packCapacity, packQty, packUsed} from '../planner/items.js';
 import {MASTERY_RANK_LIMIT, MASTERY_TRACKS} from '../engine/mastery-rules.js';
 import {ENHANCE_PAGE, WORK_PAGE, hasEnhancePage, pageCooldown} from '../planner/mastery-pages.js';
+import {resetCost} from '../planner/mastery-plan.js';
 
 export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mode='balanced',waitingGoals={}}={}) {
   goal=reserveWaitingGoals(goal,waitingGoals);
@@ -81,6 +82,10 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
     const cost=nextPerkCost(p,intent.id);
     return typeof intent.id==='string'&&cost!=null&&Number.isInteger(p.questPoints)&&p.questPoints>=cost;
   }
+  // A reset (client cX): the work page only (it would wipe the enhance page's
+  // ranks there), with ranks to return and the coins for its price.
+  if(intent.t==='masteryReset')return Object.keys(intent).length===2&&intent.pay==='coins'&&(p.masteryPage??WORK_PAGE)===WORK_PAGE&&
+    Object.values(p.masteries??{}).some(n=>n>0)&&p.coins>=resetCost(p.masteryResets);
   if(intent.t==='masteryPage')return Object.keys(intent).length===2&&hasEnhancePage(p)&&
     [WORK_PAGE,ENHANCE_PAGE].includes(intent.page)&&intent.page!==(p.masteryPage??WORK_PAGE)&&pageCooldown(p)===0;
   if(intent.t==='masteryConfirm') {

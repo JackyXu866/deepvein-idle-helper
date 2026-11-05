@@ -38,7 +38,7 @@ export const TRADE_GATE_REFUSALS=new Set(['email-needed','email-changed']);
 // refusal disables the action for a while instead of pausing the helper.
 // Growth modes and their labels (the UI uses the same names).
 export const MODE_LABELS={balanced:'自主发展',experience:'经验优先',business:'主业经营',mastery:'补精通',assist:'只收菜＋蹭世界 Boss'};
-export const SOFT_ACTIONS=new Set(['rerollQuest','goQuest','contract','buyPerk','masteryConfirm','masteryPage','setFallback','plantPref','plotChoice']);
+export const SOFT_ACTIONS=new Set(['rerollQuest','goQuest','contract','buyPerk','masteryConfirm','masteryReset','masteryPage','setFallback','plantPref','plotChoice']);
 // How long a refused or unconfirmed optional action rests: six hours, or one
 // switch cooldown for the mastery page.
 const softRest=(data,t)=>t==='masteryPage'?PAGE_COOLDOWN_TICKS*data.tickMs:t==='goQuest'||t==='contract'?600000:6*3600000;
@@ -143,6 +143,7 @@ export function acknowledged(before, p, intent, data=null) {
       Object.entries(intent.ranks??{}).some(([id,n])=>n>(before.masteries?.[id]??0));
     case 'enhance': return p.enhance?.itemId===intent.itemId || p.skills.enhancing>before.skills.enhancing;
     case 'masteryPage': return p.masteryPage===intent.page;
+    case 'masteryReset': return !Object.values(p.masteries??{}).some(n=>n>0)&&(p.masteryResets??0)>(before.masteryResets??0);
     default: return false;
   }
 }
@@ -1033,7 +1034,9 @@ export class Trainer {
     // cannot be valued reliably enough to spend them automatically.
     const fallback=softReady('setFallback')&&this.fallbackUpkeep(p);
     if(fallback?.intent)return this.issue(fallback);
-    const mastery=softReady('masteryConfirm')&&this.planner.masteryPurchase?.(p,this.goal,this.style);
+    const offered=softReady('masteryConfirm')&&this.planner.masteryPurchase?.(p,this.goal,this.style);
+    // A reset the game did not confirm waits out its own rest, not only the allocation's.
+    const mastery=offered?.intent?.t==='masteryReset'&&!softReady('masteryReset')?null:offered;
     if(mastery?.intent)return this.issue(mastery);
     if(this.mode==='mastery')return this.runMastery(p);
     if(this.goal?.enhancementProject&&this.goal.enhancement&&

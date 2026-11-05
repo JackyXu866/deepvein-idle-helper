@@ -138,7 +138,7 @@ import {itemLabel, packQty} from '../planner/items.js';
       item:id?{id,bank:p.bank[id]??0,pack:packQty(p,id),overflow:p.overflow?.[id]??0}:null};
   }
   const allowed=new Set([...readOnly,'setRoute','fight','walk','wear','equipFromBank','deposit',
-    'eatAt','eat','drink','chooseFood','foodMaxTier','carryFood','enhance','clearRoute','marketDump','depositItem','dropItem','withdraw','marketBuy','marketSell','marketCancel','vendorBuy','breedMounts','claimQuest','rerollQuest','goQuest','contract','buyPerk','masteryConfirm','masteryPage','setFallback','plantPref','plotChoice','unqueue',
+    'eatAt','eat','drink','chooseFood','foodMaxTier','carryFood','enhance','clearRoute','marketDump','depositItem','dropItem','withdraw','marketBuy','marketSell','marketCancel','vendorBuy','breedMounts','claimQuest','rerollQuest','goQuest','contract','buyPerk','masteryConfirm','masteryReset','masteryPage','setFallback','plantPref','plotChoice','unqueue',
     'setAside','skip','attackWorldBoss','leaveWorldBoss','startQueued','portal',...HOUSE_ACTIONS]);
   function rememberRequest(intent) {
     const list=recentRequests[readOnly.has(intent.t)?'queries':'actions'];
