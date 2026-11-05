@@ -5,7 +5,6 @@ import {action} from '../planner/result.js';
 import {dropEnhancementGold, inventoryBudget, reviewInventory} from '../planner/inventory.js';
 import {planEnhancement} from '../planner/enhancement.js';
 import {pageStep} from '../planner/mastery-pages.js';
-import {marketQuality} from '../planner/quality.js';
 import {bankTripSeconds, nearestBank, packCapacity, packQty, packUsed} from '../planner/items.js';
 
 // Items made by crafting skills (cooking, smithing, fletching, crafting).
@@ -48,8 +47,23 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
   }
   // The sale list shown: the same protection and the same sale rule, each row
   // marked whether maintenance sells it now (`autoSold`).
-  function review(p,goal,style='magic') {
-    const protection=protectionGoal(p,goal),inspected=reviewInventory(data,planner,p,protection,style);
+  // Fuel the house's next worthwhile upgrades would burn is the cheapest point
+  // there is (housing.js fuelHold, at the one sale value): it is kept from sale
+  // as plans keep their materials. Selling it and burning dearer stock instead
+  // (or buying points dearer) would lose.
+  function keepHouseFuel(p,inspected,goal,style,mode) {
+    const hold=planner.houseFuelHold?.(p,goal,style,mode)??{};
+    if(!Object.keys(hold).length)return inspected;
+    return {...inspected,items:inspected.items.map(r=>{
+      const kept=Math.min(hold[r.itemId]??0,r.sell??0);
+      if(!(kept>0))return r;
+      const sell=r.sell-kept,sellFromBank=Math.max(0,r.sellFromBank-kept);
+      return {...r,sell,sellFromBank,sellFromPack:Math.min(r.sellFromPack,Math.max(0,sell-sellFromBank)),keep:r.keep+kept,
+        reason:`${r.reason}；留 ${kept} 个给房屋升级（每点比其他材料便宜）`};
+    })};
+  }
+  function review(p,goal,style='magic',mode=lastMode??'balanced') {
+    const protection=protectionGoal(p,goal),inspected=keepHouseFuel(p,reviewInventory(data,planner,p,protection,style),goal,style,mode);
     const sold=new Set(saleRows(goal,inspected,budget(p,protection)).rows.map(i=>i.itemId));
     return {...inspected,items:inspected.items.map(i=>({...i,autoSold:sold.has(i.itemId)}))};
   }
@@ -143,7 +157,7 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
       } else if(gearPlan)return {...gearPlan,priorityGear:true};
     }
     dropEnhancementGold(goal);
-    const inspected=reviewInventory(data,planner,p,protection,style),reserve=inspected.budget;
+    const inspected=keepHouseFuel(p,reviewInventory(data,planner,p,protection,style),goal,style,mode),reserve=inspected.budget;
     const {capacitySale,profitItems,profitSale,rows}=saleRows(goal,inspected,capacity);
     const saleFlags=capacitySale?{capacitySale:true}:profitSale?{profitSale:true}:{};
     let deferredSale=null;
@@ -210,9 +224,6 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
     if(value) ({lastGoal,lastPlayer,lastStyle,lastMode,lastMain,lastJob,lastMonster,investmentGoal,gearDeferredUntil,recovery}=value);
     return {lastGoal,lastPlayer,lastStyle,lastMode,lastMain,lastJob,lastMonster,investmentGoal,gearDeferredUntil,recovery};
   }
-  // Crafted surplus is sold with 出售制作产出 on (saleRows): common pieces, and
-  // the quality ones sold on the market (marketQuality: bars and the like).
-  const craftedSale=id=>sellCrafted===true&&craftedIds.has(planner.base(id))&&(id===planner.base(id)||marketQuality(data,id));
-  return {runtime,maintenance,budget,review,craftedSale,setAutoSell:enabled=>{autoSell=enabled===true;},
+  return {runtime,maintenance,budget,review,setAutoSell:enabled=>{autoSell=enabled===true;},
     setCapacitySales:enabled=>{capacitySales=enabled===true;},setSellCrafted:enabled=>{sellCrafted=enabled===true;}};
 }

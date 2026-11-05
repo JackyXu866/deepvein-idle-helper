@@ -74,11 +74,10 @@ export function createSpecialization(data,planner) {
         const quote=planner.marketOpportunity?.(p,Number(id),qty);
         if(quote?.qty===qty&&Number.isFinite(quote.net)&&quote.net>0){proceeds+=quote.net;saleItems.push(Number(id));}
       }
-      // Held materials the work uses up cost what using stock gives up (their
-      // sale value when the helper sells them, else nothing). Bought inputs are
-      // already in the estimate's coins, gathering in its time.
-      const stock=(id,qty)=>qty>0?(planner.stockValue??planner.saleValue)(p,id,Math.max(1,Math.round(qty)))*qty:0;
-      const inputValue=Object.entries(c.estimate.owned??{}).reduce((n,[id,qty])=>n+stock(Number(id),qty),0);
+      // Held materials the work uses up cost what they would sell for
+      // (planner.ownedGold). Bought inputs are already in the estimate's
+      // coins, gathering in its time.
+      const inputValue=planner.ownedGold?.(p,c.estimate)??0;
       const coins=c.estimate.coins+proceeds-inputValue;
       if(!(coins>0)||!Number.isFinite(c.estimate.seconds)||c.estimate.seconds<=0)continue;
       // saleItems: what this choice's income assumes is sold; economy sells them even with everyday selling off.

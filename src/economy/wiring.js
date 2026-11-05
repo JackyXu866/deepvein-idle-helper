@@ -14,10 +14,10 @@ const MARKET_HOOKS={marketSale:'sale',marketPurchase:'purchase',marketOpportunit
 export function wirePlanner(planner,market,economy,potionRestock) {
   planner.maintenance=(...args)=>economy().maintenance(...args);
   for(const [name,method]of Object.entries(MARKET_HOOKS))planner[name]=(...args)=>market[method](...args);
-  // Whether the helper sells this stock, by every everyday sale rule (everyday
-  // selling, or crafted surplus): then using it gives up its sale value
-  // (planner.stockValue), so a bar the helper would sell is never free to use.
-  planner.stockSold=(p,id)=>market.sells(p,id)||(economy().craftedSale?.(id)??false)&&market.saleable(p,id);
+  // Held stock is worth what it would sell for, whether or not the helper's
+  // own sale settings sell it: using or burning it gives that up. Only what
+  // cannot be sold at all costs nothing to use (planner.stockValue).
+  planner.stockSold=(p,id)=>market.saleable(p,id);
   planner.restockPotion=(...args)=>potionRestock()?market.restockPotion(...args):null;
   planner.restockIngredient=(...args)=>potionRestock()?market.restockIngredient(...args):null;
   planner.potionStatus=(...args)=>potionRestock()?market.potionStatus(...args):

@@ -64,7 +64,7 @@ export function createTownOrders(data,planner) {
     // Held stock, the pieces and the inputs the route uses up (estimate.owned),
     // costs what using it gives up, as the gold table counts it.
     const stock=(id,qty)=>qty>0?(planner.stockValue??planner.saleValue)(p,id,Math.max(1,Math.round(qty)))*qty:0;
-    const heldGold=stock(o.itemId,have)+Object.entries(estimate.owned??{}).reduce((n,[id,qty])=>n+stock(Number(id),qty),0);
+    const heldGold=stock(o.itemId,have)+(planner.ownedGold?.(p,estimate)??0);
     const seconds=estimate.seconds,left=((o.day+1)*dayTicks(data)-p.lastTick)*data.tickMs/1000;
     const paid=seconds+goldToSeconds(Math.max(0,-(estimate.coins??0))+heldGold,coinRate),saved=goldToSeconds(o.coins,coinRate);
     const base={...o,job,rest,estimate,seconds,paid,saved,net:saved-paid};

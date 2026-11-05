@@ -311,22 +311,22 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     const top=topOfBook(id);
     return top?.ask>0&&top.askQty>0?top.ask:null;
   }
-  // What one unit would sell for through the three selling layers: the market
-  // (bid, or listing in listing mode), the town buyback and the merchant.
-  // Quality items are not sold automatically, so their market value is the
-  // best fresh bid (live book or price feed) that could take the quantity.
+  // What one unit is worth: what the sale rule itself gets for it, after tax.
+  // That is the day's traded price (dayPrice: the price it lists at), or a
+  // fresh buy order when one pays more, and never less than the merchant or
+  // the town buyback. Every valuation reads it (planner.saleValue): held stock
+  // used, burnt as house fuel or sold, and new output. It used to count only
+  // buy orders big enough to take the quantity on top of the stock already
+  // held, so a bank of logs selling for 100+ was worth the merchant's few coins.
   function unitValue(p,id,qty=1) {
     select(p);
     const merchant=merchantPrice(data,id);
     if(closed(p))return merchant;
-    // Protected ordinary items (e.g. bonus gems) have no sale quote: value them
-    // like quality items, at the best fresh bid.
-    const best=id===planner.base(id)?opportunity(p,id,qty):null;
-    if(best)return Math.max(merchant,best.net>0?best.net/qty:0);
+    const n=Math.max(1,qty),net=price=>price>0?netOf(price,n)/n:0;
     const live=quotes.get(id);
-    const bid=live&&now()-live.at<ttl?bidsHighFirst(live).find(row=>row.qty>=qty)?.price:
-      feedRow(id)?.bidQty>=qty?feedRow(id).bid:null;
-    return Math.max(merchant,bid?netOf(steady(id,bid,'bid'),qty)/qty:0);
+    const bid=live&&now()-live.at<ttl?bidsHighFirst(live)[0]?.price:feedRow(id)?.bid;
+    const bb=id===planner.base(id)?buybackFor(p,id):null;
+    return Math.max(merchant,net(dayPrice(id)),net(bid?steady(id,bid,'bid'):0),bb?net(Math.round(bb.merchant*bb.ratio)):0);
   }
   // Freshness counts from our fetch; a feed whose own timestamp is far from it
   // (an old cached copy, or a badly wrong clock) is not used.
@@ -688,16 +688,15 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     return {qty:row.qty,ratio:buyback.ratio,merchant,cap:Math.floor(merchant*1.5),nextTick};
   }
   const buybackHolds=()=>Object.values(state?.owned??{}).filter(o=>o.buyback).length;
-  // Whether the helper ever sells this stock: everyday selling on, the market
-  // open to the character, and not a protected item. Stock it never sells
-  // costs nothing to use (planner.stockValue).
-  // Could this stock be sold at all (market open, tradable, not protected)?
-  // On the market, which also sells quality bars, gear and potions.
+  // Could this stock be sold at all, and so what is using it worth giving up
+  // (planner.stockValue)? A tradable, unprotected item: on the market (which
+  // also takes quality bars, gear and potions), or a common one to the
+  // merchant when the market is closed to the character.
   function saleable(p,id) {
     select(p);
-    return !closed(p)&&tradable(planner.base(id))&&!saleProtectionReason(data,id,true);
+    return tradable(planner.base(id))&&!saleProtectionReason(data,id,true)&&(!closed(p)||id===planner.base(id));
   }
-  // Everyday selling sells it (crafted surplus: economy.craftedSale).
+  // Everyday selling sells it.
   const sells=(p,id)=>salesEnabled&&saleable(p,id);
   function listedQuantity(p,itemId) {
     select(p);

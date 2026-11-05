@@ -1795,13 +1795,14 @@ export function createPlanner(data) {
   api.enhancementTraining=createEnhancementTraining(data,api);
   const strategy=createStrategy(data,api);
   api.crafting=createCrafting(data,api);
-  Object.assign(api,{inputCost:createInputCost(data,api),chooseGoal:strategy.chooseGoal,routeEstimate:strategy.routeEstimate,combatOptions:strategy.combatOptions,
+  Object.assign(api,{inputCost:createInputCost(data,api),chooseGoal:strategy.chooseGoal,routeEstimate:strategy.routeEstimate,ownedGold:strategy.ownedGold,combatOptions:strategy.combatOptions,
     candidates:strategy.candidates,estimateWork:strategy.estimateWork,setMeasurements:strategy.setMeasurements,byFormula:strategy.byFormula,rateSource:strategy.rateSource,routeMeasurement:strategy.routeMeasurement,
     gearScore,combatRate,combatFood,combatChoice,dropSeconds,bonusSource,bonusSeconds,batchRating,stageRating,incomeRows,coinRate,stageSupply,stageCraftCount,questQualitySets,recipeRatings:()=>recipeRatings,
     // What one unit would sell for, net of tax: the market's sale layers, else the merchant.
     saleValue:(p,id,qty=1)=>api.marketUnitValue?.(p,id,qty)??merchantPrice(data,id),
-    // What using held stock gives up: its sale value when the helper sells it,
-    // nothing when it never does (everyday selling off, a protected item).
+    // What using held stock gives up: what it would sell for, whatever the
+    // helper's own sale settings; nothing only when it cannot be sold at all
+    // (a protected or untradable item).
     stockValue:(p,id,qty=1)=>api.stockSold?.(p,id)===false?0:api.saleValue(p,id,qty)});
   const growth=createProgression(data,api);
   const specialization=createSpecialization(data,api);
@@ -1815,7 +1816,7 @@ export function createPlanner(data) {
     herbloreNeeds:p=>herbloreNeeds(data,p,levels(p),thresholds),
     qualityHold:(p,profession=api.styleHint??'magic',options)=>qualityHold(data,api,p,profession,options),
     potionSaleWorth:(p,id)=>potionSaleWorth(data,api,p,id),
-    housingRuntime:housing.runtime,cancelHousing:housing.cancel,housingRejected:housing.rejected,refuseHouseFuel:housing.refuseFuel,setHousingEnabled:housing.setEnabled,
+    housingRuntime:housing.runtime,houseFuelHold:housing.fuelHold,cancelHousing:housing.cancel,housingRejected:housing.rejected,refuseHouseFuel:housing.refuseFuel,setHousingEnabled:housing.setEnabled,
     observeDevelopment:growth.observe,resetDevelopment:growth.reset,developmentRuntime:growth.runtime,developmentStalled:growth.stalled,
     resumeDevelopment:growth.resumeReady,
     incomeChoices:specialization.incomeChoices,

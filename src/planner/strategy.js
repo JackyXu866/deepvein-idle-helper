@@ -129,10 +129,10 @@ export function createStrategy(data, planner) {
       for (const [id,n] of Object.entries(p.bank)) stock[id]=n;
       for (const i of p.pack) stock[i.itemId]=(stock[i.itemId]??0)+i.qty;
     }
-    // Gold is what the route earns and spends: coins and market purchases.
-    // Owned materials are not charged at their market price (that made every
-    // craft look like millions lost an hour); whether to sell them instead is
-    // the sale review's question (inventory.planUseValue).
+    // Coins are what the route earns and spends: coins and market purchases.
+    // Held materials are priced apart (planner.ownedGold), for callers that weigh the
+    // whole cost against the output's value: in coins alone, with the output
+    // unvalued, every craft looked like millions lost an hour.
     let seconds=0,xp=0,coins=0,position=p,unlocks=[],marketCoins=0;
     // `owned`: how much of the stock held at the start the route uses up (not
     // what it makes and uses on the way), for callers that do price it: the
@@ -284,6 +284,11 @@ export function createStrategy(data, planner) {
     return {seconds,xp,coins,rate:{xp:xp/Math.max(1,seconds),coins:coins/Math.max(1,seconds)},
       budget:{coins:Math.max(0,-coins-marketCoins),items:budget},recipes,supplyRecipes,unlocks,purchases,owned};
   }
+  // The held stock a route uses up (estimate.owned), at what it would sell for
+  // now (planner.stockValue): the one price every caller weighing a route's
+  // whole cost adds.
+  const ownedGold=(p,estimate)=>Object.entries(estimate?.owned??{}).reduce((n,[id,qty])=>
+    n+(qty>0?(planner.stockValue??planner.saleValue)(p,Number(id),Math.max(1,Math.round(qty)))*qty:0),0);
   function candidates(p,style='magic',deferred={},options={}) {
     const skill=professionSkill(style);
     const stockedBatch=options.stockedBatch===true;
@@ -396,6 +401,6 @@ export function createStrategy(data, planner) {
       `收益约 ${Math.round(coins*3600).toLocaleString()} 金币/时（金币效率表口径，含出售产物）；已计供料与旅行`};
     return goal;
   }
-  return {chooseGoal,candidates,routeEstimate,estimateWork,combatOptions,calibratedCombat,byFormula,setMeasurements,efficiencyRuntime,supplyCost,horizon,rateSource,
+  return {chooseGoal,candidates,routeEstimate,ownedGold,estimateWork,combatOptions,calibratedCombat,byFormula,setMeasurements,efficiencyRuntime,supplyCost,horizon,rateSource,
     routeMeasurement:(p,key)=>usableMeasurement(p,key)};
 }

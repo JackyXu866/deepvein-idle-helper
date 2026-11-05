@@ -255,3 +255,30 @@ test('assist mode visits home beside the player\'s queue and hands it back', asy
   assert.equal(planner.housingPlan({...out, held: true}, null, 'melee', 'assist'), null);
   assert.equal(planner.housingPlan({...out, queue: [queued, queued, queued]}, null, 'melee', 'assist'), null);
 });
+
+// Live: rare yew staffs sold on the market at 7,000 (135 wood points: about 52
+// gold a point) while logs worth 100+ a point would have fed the house. Every
+// item is valued at what it sells for; the house's next upgrade takes the
+// cheapest points, and maintenance keeps that fuel from sale.
+test('the cheapest points feed the house and are kept from sale, valued at what each sells for', async () => {
+  const {makePlanner, player} = await import('./helpers.js');
+  const {createEconomy} = await import('../src/economy/economy.js');
+  const planner = makePlanner(), d = planner.data, R = d.rarityScale, entrance = d.houseRules.entrance;
+  const staff = id('Yew staff') + 2 * R, logs = id('Logs');
+  planner.coinRate = () => 1000;
+  planner.setHousingEnabled(true);
+  planner.marketUnitValue = (_p, item) => item === staff ? 7000 : item === logs ? 100 : 1;
+  const sawmill = d.houseRooms.find(r => r.id === 'mine'); // takes wood points
+  const p = player(planner, {levels: {mining: 60, melee: 60}, coins: 0, activity: 'idle', path: null, route: null,
+    houseCells: [entrance, entrance + 1], houseFurniture: {[sawmill.id]: {cell: entrance + 1, slot: 0}}, house: {[sawmill.id]: 3},
+    housePoints: {}, houseUpgrades: {}, bank: {[staff]: 5, [logs]: 2000}});
+  const goal = {skill: 'mining', target: 61, budget: {coins: 0, items: {}}};
+  const hold = planner.houseFuelHold(p, goal, 'melee', 'balanced');
+  assert.ok(hold[staff] > 0, `the staff is the cheaper point: ${JSON.stringify(hold)}`);
+  // One staff is kept as the best copy; the other four go first, logs top up the rest.
+  assert.equal(hold[staff], 4);
+  assert.equal(hold[staff] * 135 + (hold[logs] ?? 0), Math.round(d.houseRules.upgradePoints * d.houseRules.pointsGrowth ** 3));
+  const economy = createEconomy(d, planner, {autoSell: true});
+  const row = economy.review(p, goal, 'melee', 'balanced').items.find(r => r.itemId === staff);
+  assert.ok(!row || row.sell <= 5 - hold[staff], `kept from sale: ${JSON.stringify(row && {sell: row.sell, reason: row.reason})}`);
+});

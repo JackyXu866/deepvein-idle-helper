@@ -145,12 +145,16 @@ export function createHousing(data,planner) {
     const budget=combinedBudget(data,planner,p,[goal??{},planner.pendingEquipmentPlan?.(p,style)]);
     return budget;
   }
-  function work(p,goal,style='magic',mode='balanced') {
-    review=[];
-    goal=houseGoal(goal,mode);
-    if(!idle(p,goal,mode))return null;
+  // `hold`: instead of a step, collect the fuel the next worthwhile upgrade of
+  // each facility would burn (the next level of one already upgrading too).
+  // Maintenance keeps it from sale: what is burnt is the cheapest point there
+  // is, so selling it and burning dearer stock instead would lose.
+  function work(p,goal,style='magic',mode='balanced',hold=null) {
+    if(!hold)review=[];
+    goal=houseGoal(goal,mode)??(hold?{}:null);
+    if(hold?!enabled||!known(p):!idle(p,goal,mode))return null;
     const budget=reserves(p,goal,style),cells=frontier(p);
-    if(!goal||goal.developmentFiller||goal.temporary||goal.quest)return null;
+    if(!goal||!hold&&(goal.developmentFiller||goal.temporary||goal.quest))return null;
     const skill=goal.mainSkill??goal.skill,combat=professionSkill(style),pressure=budget.freeSlots<=3;
     const trained=planner.trainedSkills(style).filter(s=>!['defence','hitpoints','farming'].includes(s));
     const coinRate=planner.coinRate(p);
@@ -184,10 +188,15 @@ export function createHousing(data,planner) {
       (current(room)||p.houseFurniture[room.id]&&(trained.includes(room.bonus.skill)||room.bonus.kind==='combatXp')));
     relevant.sort((a,b)=>Number(b.id==='storeroom')-Number(a.id==='storeroom')||
       Number(b.bonus.skill===skill)-Number(a.bonus.skill===skill)||(p.house[a.id]??0)-(p.house[b.id]??0));
-    const inventory=reviewInventory(data,planner,p,goal,style,budget);
+    const reviewed=reviewInventory(data,planner,p,goal,style,budget);
+    // Fuel already set aside for an earlier facility is not counted twice.
+    const taken={},inventoryNow=()=>({...reviewed,items:reviewed.items.map(r=>taken[r.itemId]?{...r,sellFromBank:Math.max(0,r.sellFromBank-taken[r.itemId])}:r)});
+    const budgetNow=()=>({...budget,items:{...budget.items,...Object.fromEntries(Object.entries(taken).map(([id,n])=>[id,(budget.items[id]??0)+n]))}});
     for(const room of relevant) {
-      if(p.houseUpgrades[room.id]!=null)continue;
+      const upgrading=p.houseUpgrades[room.id]!=null;
+      if(upgrading&&!hold)continue;
       if(!p.houseFurniture[room.id]) {
+        if(hold)continue;
         // The entrance has a central passage through every possible 3x3 slot.
         const cell=p.houseCells.filter(c=>c!==rules.entrance&&c!==rules.lake)
           .find(c=>!Object.values(p.houseFurniture).some(f=>f.cell===c));
@@ -206,15 +215,18 @@ export function createHousing(data,planner) {
         }
         review.push(`${roomName(room.id)}：暂无空房间可摆放`);continue;
       }
-      const needed=pointsFor(p,room.id),missing=Math.max(0,needed-points(p,room));
+      // The level this fuel is for: the next one, or the one after an upgrade under way.
+      const level=(p.house[room.id]??0)+Number(upgrading);
+      const needed=Math.round(rules.upgradePoints*rules.pointsGrowth**level),missing=Math.max(0,needed-points(p,room));
       if(!Number.isSafeInteger(needed))continue;
+      if(hold&&!missing)continue;
       if(!missing)return action({t:'upgradeRoom',room:room.id},`升级${roomName(room.id)} · ${(p.house[room.id]??0)+1} 级`,
         `使用 ${needed} 点已有房屋点数；升级在后台计时，原任务继续`);
-      if(!(coinRate>0)){review.push(`${roomName(room.id)}：缺 ${missing} 点，收益暂无法估算，暂缓投料`);continue;}
-      const {donors,conversions,cost,remaining}=chooseHouseFuel(data,{p,families:feeds(room),missing,inventory,budget,
+      if(!(coinRate>0)){if(!hold)review.push(`${roomName(room.id)}：缺 ${missing} 点，收益暂无法估算，暂缓投料`);continue;}
+      const {donors,conversions,cost,remaining}=chooseHouseFuel(data,{p,families:feeds(room),missing,inventory:inventoryNow(),budget:budgetNow(),
         unitValue:(id,qty)=>planner.stockValue?.(p,id,qty)??planner.saleValue(p,id,qty),refused:refusedFuel});
-      if(remaining>0){review.push(`${roomName(room.id)}：缺 ${missing} 点，可用材料可补 ${missing-remaining} 点，不足整次升级`);continue;}
-      const level=p.house[room.id]??0,delay=rules.upgradeTicks*rules.upgradeGrowth**level*data.tickMs/1000;
+      if(remaining>0){if(!hold)review.push(`${roomName(room.id)}：缺 ${missing} 点，可用材料可补 ${missing-remaining} 点，不足整次升级`);continue;}
+      const delay=rules.upgradeTicks*rules.upgradeGrowth**level*data.tickMs/1000;
       const share=shareOf(room),gain=gainOf(room,level);
       // Facilities are permanent. A one-day window divided across all skills
       // rejected even cheap first levels. Use a bounded week of active play.
@@ -222,13 +234,17 @@ export function createHousing(data,planner) {
       // two levels are needed for a slot, so halve the value on the odd step.
       if(room.id==='storeroom') {
         const worth=1000*1.5**(p.bankSlotsBought??0)/(level%2?1:2);
-        if(!(cost<=worth)){review.push(`${roomName(room.id)}：材料约 ${Math.ceil(cost)} 金币，超过一格仓位的价值 ${Math.floor(worth)}，暂缓投料`);continue;}
+        if(!(cost<=worth)){if(hold)continue;review.push(`${roomName(room.id)}：材料约 ${Math.ceil(cost)} 金币，超过一格仓位的价值 ${Math.floor(worth)}，暂缓投料`);continue;}
       } else {
         // Shared payback rule (investment.js): materials' sale value, as time at
         // the gold rate, against the time the faster facility saves in that week.
         const result=payback({gold:cost,coinRate,before:1,after:1+share*gain,useSeconds:Math.max(0,USE_CAP_SECONDS-delay)});
-        if(!result.worth){review.push(`${roomName(room.id)}：材料售价约 ${Math.ceil(cost)} 金币（约 ${(result.paid/3600).toFixed(1)} 小时），`+
+        if(!result.worth){if(hold)continue;review.push(`${roomName(room.id)}：材料售价约 ${Math.ceil(cost)} 金币（约 ${(result.paid/3600).toFixed(1)} 小时），`+
           `30 天只省约 ${(result.saved/3600).toFixed(1)} 小时，暂缓投料`);continue;}
+      }
+      if(hold) {
+        for(const c of conversions){taken[c.itemId]=(taken[c.itemId]??0)+c.qty;hold[c.itemId]=(hold[c.itemId]??0)+c.qty;}
+        continue;
       }
       const first=donors.find(d=>d.itemId===conversions[0].itemId);
       return action({t:'convertHouse',...conversions[0]},`准备${roomName(room.id)}升级 · 转换 ${itemLabel(data,conversions[0].itemId)} × ${conversions[0].qty}`,
@@ -236,6 +252,13 @@ export function createHousing(data,planner) {
         (room.id==='storeroom'?'仓库紧张，优先增加仓位':'按 30 天有效挂机、分摊各职业使用时间估算收益')+'；保留原计划材料、口粮和稀有物品');
     }
     return null;
+  }
+  // The fuel to keep from sale (item -> qty), once per state.
+  let held={key:null,items:{}};
+  function fuelHold(p,goal,style='magic',mode='balanced') {
+    const key=JSON.stringify([p.id,p.lastTick,style,mode,goal?.skill??null,goal?.recipeId??null,goal?.monsterId??null]);
+    if(held.key!==key){const items={};work(p,goal,style,mode,items);held={key,items};}
+    return held.items;
   }
   function plan(p,goal,style='magic',mode='balanced',bankedLoad=false) {
     if(owner!==p.id){owner=p.id;visit=null;retryAt=0;review=[];}
@@ -356,7 +379,7 @@ export function createHousing(data,planner) {
   }
   const validate=(p,intent,goal,style,mode)=>HOUSE_ACTIONS.has(intent.t)&&atHome(data,p)&&!p.route&&!p.path?.length&&
     p.lastTick>=retryAt&&(intent.t==='convertHouse'?fuelSafe(p,intent,goal,style,mode):houseSafe(p,intent,goal,style,mode));
-  return {plan,status,validate,rejected,refuseFuel,cancel:()=>{visit=null;},
+  return {plan,status,validate,rejected,refuseFuel,fuelHold,cancel:()=>{visit=null;},
     setEnabled:value=>{enabled=value!==false;},enabled:()=>enabled,
     runtime(value){if(value){({owner,visit,retryAt}=value);review=value.review??[];refusedFuel=value.refusedFuel??{};}
       return {owner,visit,retryAt,review,refusedFuel};}};
