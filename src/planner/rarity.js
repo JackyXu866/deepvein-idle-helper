@@ -22,11 +22,12 @@ export const toolSlotFor=(data,skill)=>Object.keys(data.toolSkills).find(s=>data
 export const shrineBonus=(data,p)=>houseBonus(data,p,'rareChance');
 
 // The factor for work in `skill` (a combat style for fights) with this
-// equipment. `extra` adds to the bonus sum (what a brew or a rank would add).
+// equipment. `extra` adds to the bonus sum (what a brew or a rank would add);
+// `luck`, when given, replaces the gear's luck (0: what the luck is worth).
 // {luck, bonus, factor, dropFactor}: dropFactor scales a monster's bonus drop.
-export function rarityFactor(data,planner,p,skill,{equipment=p?.equipment,extra=0}={}) {
+export function rarityFactor(data,planner,p,skill,{equipment=p?.equipment,extra=0,luck:fixed=null}={}) {
   const slot=toolSlotFor(data,skill),tool=slot?equipment?.[slot]:null;
-  const luck=(planner.equipmentStats(equipment?.amulet)?.luck??0)+(tool!=null?data.toolLuck[rarityOf(data,tool)]??0:0);
+  const luck=fixed??(planner.equipmentStats(equipment?.amulet)?.luck??0)+(tool!=null?data.toolLuck[rarityOf(data,tool)]??0:0);
   const blessing=(p?.brews?.blessing??0)>(p?.lastTick??Infinity)?BLESSING_RARE:0;
   const common=HUNTER_PER_POWER*brewPower(data,p??{},'hunter')+blessing+
     RARE_PER_RANK*(pageRanks(p,WORK_PAGE).rare??0)+extra;

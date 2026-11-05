@@ -13,9 +13,11 @@ export {toolSlotFor};
 // Tool bonus, perks, the house room and mastery speeding the skill (the work
 // page's ranks), and the quality factor (rarity.js: tool and amulet luck,
 // brews, mastery, house).
-export function workInputs(data,planner,p,job,equipment=p.equipment,extra=0) {
+// `quality`: a number added to the rare-find bonus sum, or {extra, luck} (rarity.js).
+const qualityOf=q=>typeof q==='number'?{extra:q}:q??{};
+export function workInputs(data,planner,p,job,equipment=p.equipment,quality=0) {
   const tool=equipment?.[toolSlotFor(data,job.skill)];
-  const rarity=rarityFactor(data,planner,p,job.skill,{equipment,extra});
+  const rarity=rarityFactor(data,planner,p,job.skill,{equipment,...qualityOf(quality)});
   return {toolBonus:planner.equipmentStats(tool)?.bonus??0,quick:p.perks?.quick??0,hands:p.perks?.hands??0,
     home:houseBonus(data,p,['gatherSpeed','craftSpeed'],job.skill),
     mastery:masteryLift(pageRanks(p,WORK_PAGE),GATHER_SKILLS.includes(job.skill)?'gather':'craft'),
@@ -32,13 +34,13 @@ export const weaponStyle=weapon=>weapon?.magic?'magic':weapon?.ranged?'ranged':'
 // Combat stats with this equipment: gear sums signed by style (a piece of
 // another style counts against; defence always counts), the weapon's speed and
 // the quality factor of drops. A two-handed weapon or profession leaves the shield off.
-export function combatStats(data,planner,p,profession,equipment=p.equipment,lv=planner.levels(p),extra=0) {
+export function combatStats(data,planner,p,profession,equipment=p.equipment,lv=planner.levels(p),quality=0) {
   const style=professionSkill(profession),weapon=planner.equipmentStats(equipment.weapon);
   const shieldless=profession==='melee_twohand'||weapon?.twoHanded;
   const gear=Object.entries(equipment).filter(([slot,id])=>Number.isFinite(id)&&(slot!=='shield'||!shieldless))
     .map(([,id])=>planner.equipmentStats(id)).filter(Boolean);
   const sum=k=>gear.reduce((n,g)=>n+(k==='defence'||!g.style||g.style===style?1:-1)*(g[k]??0),0);
-  const rarity=rarityFactor(data,planner,p,style,{equipment,extra}),ranks=pageRanks(p,WORK_PAGE);
+  const rarity=rarityFactor(data,planner,p,style,{equipment,...qualityOf(quality)}),ranks=pageRanks(p,WORK_PAGE);
   return {style,level:lv[style],accuracy:sum('accuracy'),strength:sum('strength'),defence:sum('defence'),
     defenceLevel:lv.defence,speed:weapon?.speed??5,twoHanded:weapon?.twoHanded,luck:rarity.luck,
     damageLift:(1+houseBonus(data,p,'dmg',style))*masteryLift(ranks,'maxhit'),accuracyLift:masteryLift(ranks,'accuracy'),
@@ -52,20 +54,20 @@ export const combatSafe=(lv,stats,monster)=>monster.maxHit<lv.hitpoints/3&&
 // Gold per second of one work by the formula, at sale values (the income
 // ranking's value): a job's output of every quality (a coin stall's coins), or
 // a monster's coins and drops (shards left out). Crafting counts its output
-// only: comparisons of the same work's speed or odds. `extra` adds to the
-// rare-find bonus sum (rarity.js).
-export function goldRate(data,planner,p,{job=null,monster=null,profession='magic'},extra=0) {
+// only: comparisons of the same work's speed or odds. `quality` as workInputs
+// takes it; `equipment` to rate other gear.
+export function goldRate(data,planner,p,{job=null,monster=null,profession='magic',equipment=p.equipment},quality=0) {
   const value=(id,qty)=>qty>0?(planner.saleValue?.(p,id,Math.max(1,Math.round(qty)))??0)*qty:0;
   if(job) {
     if(job.grow)return 0;
-    const e=workEstimate(data,job,planner.levels(p)[job.skill],workInputs(data,planner,p,job,p.equipment,extra));
+    const e=workEstimate(data,job,planner.levels(p)[job.skill],workInputs(data,planner,p,job,equipment,quality));
     if(!(e.seconds>0))return 0;
     const worth=job.output.itemId===data.coinId?e.coins:job.inputs.length?value(job.output.itemId,e.output):
       e.tierOutput.reduce((n,q,i)=>n+value(job.output.itemId+i*data.rarityScale,q),0);
     return worth/e.seconds;
   }
   if(monster) {
-    const e=combatEstimate(data,monster,combatStats(data,planner,p,profession,p.equipment,planner.levels(p),extra));
+    const e=combatEstimate(data,monster,combatStats(data,planner,p,profession,equipment,planner.levels(p),quality));
     if(!(e.seconds>0)||!Number.isFinite(e.seconds))return 0;
     return Object.entries(e.drops).reduce((n,[id,q])=>Number(id)===data.shardId?n:n+value(Number(id),q),e.coins)/e.seconds;
   }
@@ -74,3 +76,6 @@ export function goldRate(data,planner,p,{job=null,monster=null,profession='magic
 // Gold per second the rarer qualities add when the bonus sum rises by `extra`
 // (a hunter brew, a rare-find rank); crafting rolls no quality: 0.
 export const qualityGain=(data,planner,p,work,extra)=>goldRate(data,planner,p,work,extra)-goldRate(data,planner,p,work,0);
+// Gold per second the gear's luck (amulet, tool quality) adds to this work:
+// the same work with that luck against none.
+export const luckGold=(data,planner,p,work)=>goldRate(data,planner,p,work)-goldRate(data,planner,p,work,{luck:0});

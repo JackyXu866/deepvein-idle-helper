@@ -1,5 +1,5 @@
 import {ENHANCEMENT_MAX, enhanceQuote} from './inventory.js';
-import {formulaWork} from './rates.js';
+import {formulaWork, luckGold} from './rates.js';
 import {canWear, professionSkill} from './professions.js';
 import {LEGENDARY, autoUsableMaterial, craftRecipe} from './quality.js';
 import {baseId, heldIds, itemLabel, plusOf, rarityOf} from './items.js';
@@ -95,7 +95,41 @@ export function createInvestments(data,planner) {
     ctx.rates.set(key,value);
     return value;
   }
-  const gearRate=(p,style,goal,slot,id)=>rate(p,style,contexts(p,style),slot,id);
+  // The account's work for luck: measured routes by share (the five largest),
+  // else the fight or job each slot is rated on.
+  function luckWorks(ctx) {
+    const work=measured().slice(0,5),total=work.reduce((n,r)=>n+r.seconds,0);
+    const rows=work.map(r=>({share:r.seconds/total,work:r.combat?{monster:data.monsters.find(m=>m.id===r.id)}:{job:data.jobs.find(j=>j.id===r.id)}}))
+      .filter(r=>r.work.monster||r.work.job);
+    return rows.length?rows:ctx.monster?[{share:1,work:{monster:ctx.monster}}]:[];
+  }
+  // What a piece is worth per second of use, the one index the whole table
+  // compares: its rate (XP/s; a hoe's gold), times (1 + the time its luck
+  // buys): the gold the rarer qualities add (rates.js luckGold), at the gold
+  // rate. A tool's quality luck works in its job; an amulet's luck in all the
+  // account's work, its defence only in fights (so its index is relative).
+  function worth(p,style,ctx,slot,id) {
+    const key=`worth:${slot}:${id}`;
+    if(ctx.rates.has(key))return ctx.rates.get(key);
+    const coinRate=planner.coinRate?.(p)??0,equipment={...p.equipment,[slot]:id};
+    const luck=work=>coinRate>0&&work?Math.max(0,luckGold(data,planner,p,{...work,equipment,profession:style}))/coinRate:0;
+    const value=rate(p,style,ctx,slot,id);
+    let result=value;
+    if(slot==='amulet') {
+      const none=rate(p,style,ctx,slot,null),fight=shareOf(p,style)('combat');
+      const lift=luckWorks(ctx).reduce((n,r)=>n+r.share*luck(r.work),0);
+      result=(none>0?1+fight*(value/none-1):1)*(1+lift);
+    } else if(data.toolSkills[slot]&&slot!=='hoe') {
+      const job=ctx.jobFor(data.toolSkills[slot]);
+      result=value*(1+(job?luck({job}):0));
+    }
+    ctx.rates.set(key,result);
+    return result;
+  }
+  // An amulet's luck works in everything the account does; a hoe in all of it too.
+  const usedShare=(slot,share)=>slot==='hoe'||slot==='amulet'?1:share(data.toolSkills[slot]??'combat');
+  const gearRate=(p,style,goal,slot,id)=>worth(p,style,contexts(p,style),slot,id);
+  const gearXpRate=(p,style,goal,slot,id)=>rate(p,style,contexts(p,style),slot,id);
   const fitsFor=(p,style,ctx,slot)=>{
     const useSkill=data.toolSkills[slot]??ctx.skill,lv=lvOf(p);
     return id=>fitsSlot(planner.equipmentStats(id),slot,useSkill,style)&&canWear(data,lv,id);
@@ -105,7 +139,7 @@ export function createInvestments(data,planner) {
   // the table's 已持有 row are this one rule.
   function ownedBest(p,style,goal,slot) {
     const ctx=contexts(p,style),fits=fitsFor(p,style,ctx,slot),current=p.equipment[slot];
-    const useSkill=data.toolSkills[slot]??ctx.skill,score=id=>planner.gearScore(id,useSkill),r=id=>rate(p,style,ctx,slot,id);
+    const useSkill=data.toolSkills[slot]??ctx.skill,score=id=>planner.gearScore(id,useSkill),r=id=>worth(p,style,ctx,slot,id);
     const worn=new Set(Object.values(p.equipment).filter(Number.isFinite));
     const best=heldIds(p).filter(id=>!worn.has(id)&&fits(id)).sort((a,b)=>r(b)-r(a)||score(b)-score(a)||b-a)[0];
     if(best==null)return null;
@@ -170,23 +204,24 @@ export function createInvestments(data,planner) {
       if(slot==='mount')continue;
       // Used until outgrown, within 30 days of the account's time in that work
       // (the fields grow whatever is done, so a hoe counts all of it).
-      const used=hoe?1:share(data.toolSkills[slot]??'combat');
-      const useSkill=data.toolSkills[slot]??ctx.skill,useSeconds=(id,rate)=>
-        Math.min(sharedUseSeconds(data,planner,p,id,slot,hoe?farmRates(p,id).xp:rate,useSkill),USE_CAP_SECONDS*used);
+      const used=usedShare(slot,share);
+      // How long a piece lasts: until outgrown at its XP rate (a hoe: the fields' farming XP).
+      const useSkill=data.toolSkills[slot]??ctx.skill,useSeconds=id=>
+        Math.min(sharedUseSeconds(data,planner,p,id,slot,hoe?farmRates(p,id).xp:rate(p,style,ctx,slot,id),useSkill),USE_CAP_SECONDS*used);
       const fits=fitsFor(p,style,ctx,slot);
       if(worn&&!fitsSlot(worn,slot,useSkill,style))continue;
-      const before=rate(p,style,ctx,slot,current);
+      const before=worth(p,style,ctx,slot,current);
       if(!(before>0))continue;
       // The best piece already in the bank or pack, of any quality (wearing
       // keeps a legendary piece with the player): the same rule the owned swap
       // uses. Nothing is bought or made that is no better than it.
       const owned=ownedBest(p,style,goal,slot);
-      const floor=owned!=null?Math.max(before,rate(p,style,ctx,slot,owned)):before;
+      const floor=owned!=null?Math.max(before,worth(p,style,ctx,slot,owned)):before;
       const priced=(kind,id,label,cost,extra={})=>{
         if(!cost)return null;
-        const after=rate(p,style,ctx,slot,id);
+        const after=worth(p,style,ctx,slot,id);
         if(!(after>before))return null;
-        const use=useSeconds(id,after),result=settle({gold:cost.gold,seconds:cost.seconds,coinRate,before,after,useSeconds:use});
+        const use=useSeconds(id),result=settle({gold:cost.gold,seconds:cost.seconds,coinRate,before,after,useSeconds:use});
         return {slot,kind,id,label,current,source:cost.source??null,gold:Math.round(cost.gold),seconds:cost.seconds,
           gain:after/before-1,useSeconds:use,...result,...extra};
       };
@@ -202,7 +237,7 @@ export function createInvestments(data,planner) {
           if(!plusOf(data,id))return [id,acquire(p,id,coinRate)];
           const ask=planner.marketAsk?.(p,id);
           return [id,ask>0?{gold:ask,seconds:0,source:'市场'}:null];
-        }).filter(([id,cost])=>cost&&rate(p,style,ctx,slot,id)>floor)
+        }).filter(([id,cost])=>cost&&worth(p,style,ctx,slot,id)>floor)
         .map(([id,cost])=>priced(kind,id,`换 ${itemLabel(data,id)}`,cost)).filter(Boolean)
         .sort((a,b)=>b.net-a.net)[0]??null;
       // Enhance the worn piece, any quality (a legendary one stays worn): the
@@ -212,9 +247,9 @@ export function createInvestments(data,planner) {
         let best=null;
         for(let to=plusOf(data,current)+1;to<=ENHANCEMENT_MAX;to++) {
           const cost=expectedEnhancement(data,planner,p,current,to),target=current%data.plusScale+to*data.plusScale;
-          const after=rate(p,style,ctx,slot,target);
+          const after=worth(p,style,ctx,slot,target);
           if(!(after>floor)||!Number.isFinite(cost.gold))continue;
-          const gold=cost.gold+cost.shards*shardValue,use=useSeconds(target,after);
+          const gold=cost.gold+cost.shards*shardValue,use=useSeconds(target);
           const result=settle({gold,coinRate,before,after,useSeconds:use});
           if(!best||result.net>best.net)best={slot,kind:'enhance',id:target,current,toPlus:to,source:null,
             label:`强化 ${itemLabel(data,current)} → +${to}`,gold:Math.round(gold),coins:Math.round(cost.gold),shards:Math.ceil(cost.shards),
@@ -238,7 +273,7 @@ export function createInvestments(data,planner) {
         // (an amulet's luck), as the owned swap does.
         const row=priced('owned',owned,`换 ${itemLabel(data,owned)}`,{gold:0,seconds:0,source:'已持有'});
         rows.push(row?{...row,worth:true}:{slot,kind:'owned',id:owned,label:`换 ${itemLabel(data,owned)}`,current,source:'已持有',gold:0,seconds:0,
-          gain:0,useSeconds:useSeconds(owned,before),paid:0,saved:0,net:0,worth:true});
+          gain:0,useSeconds:useSeconds(owned),paid:0,saved:0,net:0,worth:true});
       }
       // The piece the stage-gear project is making, on the same terms.
       const project=goal?.upgrade?.slot===slot?goal.upgrade.id:null;
@@ -257,11 +292,11 @@ export function createInvestments(data,planner) {
     const current=p.equipment?.[slot]??null;
     if(current==null||slot==='mount'||!slotsFor(p,style).includes(slot))return 0;
     const ctx=contexts(p,style),coinRate=planner.coinRate?.(p)??0,share=shareOf(p,style);
-    const hoe=slot==='hoe',settle=hoe?incomePayback:payback,used=hoe?1:share(data.toolSkills[slot]??'combat');
+    const hoe=slot==='hoe',settle=hoe?incomePayback:payback,used=usedShare(slot,share);
     const useSkill=data.toolSkills[slot]??ctx.skill;
-    const before=rate(p,style,ctx,slot,current),after=rate(p,style,ctx,slot,id);
+    const before=worth(p,style,ctx,slot,current),after=worth(p,style,ctx,slot,id);
     if(!(before>0)||!(after>before))return 0;
-    const use=Math.min(sharedUseSeconds(data,planner,p,id,slot,hoe?farmRates(p,id).xp:after,useSkill),USE_CAP_SECONDS*used);
+    const use=Math.min(sharedUseSeconds(data,planner,p,id,slot,hoe?farmRates(p,id).xp:rate(p,style,ctx,slot,id),useSkill),USE_CAP_SECONDS*used);
     return settle({gold:0,coinRate,before,after,useSeconds:use}).saved;
   }
   // The cheapest way to get `id` (held, made or bought), as gold at the gold rate.
@@ -321,5 +356,5 @@ export function createInvestments(data,planner) {
     if(value){cache=value.cache??null;fundingDeferred=value.fundingDeferred??{};}
     return {cache,fundingDeferred};
   }
-  return {options,fundingGoal,fundingEnded,runtime,gearRate,ownedBest,earningGoal,savingOf,acquireGold};
+  return {options,fundingGoal,fundingEnded,runtime,gearRate,gearXpRate,ownedBest,earningGoal,savingOf,acquireGold};
 }

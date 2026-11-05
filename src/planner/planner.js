@@ -1286,7 +1286,7 @@ export function createPlanner(data) {
       }
       const row=picks.find(r=>(recipeOf(r.id)?.inputs??[]).every(i=>rarity(i.itemId)===0||count(p,i.itemId)>=i.qty))??picks[0];
       goal.upgrade={id:row.id,slot:row.slot,skill:data.toolSkills[row.slot]??professionSkill(profession),priority:true,
-        xpRate:api.gearRate(p,profession,goal,row.slot,row.id)};
+        xpRate:api.gearXpRate(p,profession,goal,row.slot,row.id)};
       gearReserve=plannedGearReserve(p,profession,row.id,goal); // the piece uses its own held materials
       const result=need(row.id,1);
       if(result.blocked)delete goal.upgrade;
@@ -1882,7 +1882,7 @@ export function createPlanner(data) {
     perkOverview:p=>perkOverview(p),
     investmentOptions:(p,style,goal)=>investments.options(p,style,goal),fundingEnded:(p,goal)=>investments.fundingEnded(p,goal),
     // One gear rating for the table and every gear decision (investment.js).
-    gearRate:(p,style,goal,slot,id)=>investments.gearRate(p,style,goal,slot,id),
+    gearRate:(p,style,goal,slot,id)=>investments.gearRate(p,style,goal,slot,id),gearXpRate:(p,style,goal,slot,id)=>investments.gearXpRate(p,style,goal,slot,id),
     ownedBest:(p,style,goal,slot)=>investments.ownedBest(p,style,goal,slot),
     gearSaving:(p,style,slot,id)=>investments.savingOf(p,style,slot,id),
     gearAcquire:(p,id)=>investments.acquireGold(p,id),
