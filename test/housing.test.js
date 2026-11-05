@@ -228,3 +228,30 @@ test('the lectern is upgraded while an enhancement on the table is worth doing',
   assert.deepEqual(plan(true)?.intent, {t: 'upgradeRoom', room: 'lectern'});
   assert.equal(plan(false)?.intent?.room, undefined, 'nothing to enhance: the lectern waits');
 });
+
+// 只收菜 upgrades the house too, beside the player's queue: their work goes to
+// the front of the queue (held), the visit runs, and the queue carries on.
+test('assist mode visits home beside the player\'s queue and hands it back', async () => {
+  const {makePlanner, player} = await import('./helpers.js');
+  const planner = makePlanner(), d = planner.data, region = d.houseTravel.region, entrance = d.houseRules.entrance;
+  planner.coinRate = () => 1;
+  planner.setHousingEnabled(true);
+  planner.taskBoundary = () => true;
+  const own = {zoneId: null, siteId: 46, jobId: 45, onFull: 'bank', limit: null, phase: 'toWork'};
+  const queued = {kind: 'job', siteId: 23, jobId: 8, onFull: 'bank', limit: null, rarity: 0};
+  const base = {coins: 0, levels: {mining: 50}, houseCells: [entrance, entrance + 1], houseFurniture: {mine: {cell: entrance + 1, slot: 0}},
+    house: {mine: 3}, housePoints: {stone: 1e9, wood: 1e9, fish: 1e9, crop: 1e9, hide: 1e9}, houseUpgrades: {}, queueSlots: 2, activity: 'idle', path: null};
+  const out = player(planner, {...base, route: own, queue: [queued], held: false});
+  assert.deepEqual(planner.housingPlan(out, null, 'melee', 'assist')?.intent, {t: 'setAside'}, 'the player\'s work goes to the front of the queue');
+  const parked = {...out, route: null, held: true, queue: [{kind: 'job', ...own}, queued]};
+  assert.equal(planner.housingPlan(parked, null, 'melee', 'assist')?.intent?.t, 'walk', 'then home, with the queue held');
+  const home = {...parked, x: region.x + 1, y: region.y + 1};
+  assert.deepEqual(planner.housingPlan(home, null, 'melee', 'assist')?.intent, {t: 'upgradeRoom', room: 'mine'});
+  const done = {...home, houseUpgrades: {mine: 1e12}};
+  assert.ok(['walk', 'portal'].includes(planner.housingPlan(done, null, 'melee', 'assist')?.intent?.t), 'then out of the house');
+  assert.deepEqual(planner.housingPlan({...parked, houseUpgrades: {mine: 1e12}}, null, 'melee', 'assist')?.intent, {t: 'startQueued', index: 0}, 'outside again: the queue carries on');
+  // A queue the player paused, or one with no room, is left alone.
+  planner.housingRuntime({owner: out.id, visit: null, retryAt: 0});
+  assert.equal(planner.housingPlan({...out, held: true}, null, 'melee', 'assist'), null);
+  assert.equal(planner.housingPlan({...out, queue: [queued, queued, queued]}, null, 'melee', 'assist'), null);
+});

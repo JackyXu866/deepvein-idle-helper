@@ -127,7 +127,14 @@ export function createHousing(data,planner) {
       .filter(c=>c>=0&&c<rules.grid**2&&c!==rules.lake&&!p.houseCells.includes(c)).sort((a,b)=>a-b);
   }
   const action=(intent,label,reason)=>step(intent,label,reason,{housing:true});
-  const idle=(p,goal,mode)=>enabled&&known(p)&&mode!=='assist'&&!p.held&&!p.raidHeld&&!p.queue?.length&&!p.enhance;
+  // Free for house work: nothing held but by this visit, no Boss hold or
+  // enhancing; assist mode works beside the player's queue (room to set their
+  // work aside), the other modes with no queue at all.
+  const idle=(p,goal,mode)=>enabled&&known(p)&&!p.raidHeld&&!p.enhance&&(visit?.aside||!p.held&&
+    (mode==='assist'?(p.queue?.length??0)<=(p.queueSlots??0):!p.queue?.length));
+  // Assist mode has no goal of its own: it keeps the placed facilities of the
+  // skills the profession trains (and the lectern, the shrine) going.
+  const houseGoal=(goal,mode)=>goal??(mode==='assist'?{}:null);
   // What home spending must leave alone: the plans' coins and materials.
   function reserves(p,goal,style) {
     // The quality hold in the budget is by profession: the planner and the
@@ -140,6 +147,7 @@ export function createHousing(data,planner) {
   }
   function work(p,goal,style='magic',mode='balanced') {
     review=[];
+    goal=houseGoal(goal,mode);
     if(!idle(p,goal,mode))return null;
     const budget=reserves(p,goal,style),cells=frontier(p);
     if(!goal||goal.developmentFiller||goal.temporary||goal.quest)return null;
@@ -231,7 +239,8 @@ export function createHousing(data,planner) {
   }
   function plan(p,goal,style='magic',mode='balanced',bankedLoad=false) {
     if(owner!==p.id){owner=p.id;visit=null;retryAt=0;review=[];}
-    if(!known(p)||!data.houseTravel||mode==='assist'||playerQueued(p)||p.enhance||p.route?.errand)return null;
+    const queued=visit?.aside?false:mode==='assist'?p.held||p.raidHeld:playerQueued(p);
+    if(!known(p)||!data.houseTravel||queued||p.enhance||p.route?.errand)return null;
     const home=atHome(data,p),wait=reason=>action(null,'房屋维护',reason);
     if(!enabled) {
       if(!visit)return null;
@@ -241,12 +250,20 @@ export function createHousing(data,planner) {
       if(p.lastTick<retryAt)return null;
       // A manually opened home can be maintained without claiming a return task.
       if(home)return !p.route&&!p.path?.length?work(p,goal,style,mode):null;
-      if(p.path?.length&&!bankedLoad||p.route&&!bankedLoad)return null;
+      // The player's own work in assist mode is left at a load's end too.
+      const boundary=bankedLoad||mode==='assist'&&!!planner.taskBoundary?.(p);
+      if(p.path?.length&&!boundary||p.route&&!boundary)return null;
       if(!work(p,goal,style,mode))return null;
       const route=p.route;
       if(route?.questId!=null)return null;
-      const resume=!route||route.limit===0?null:resumeIntent(p,route);
       const portal=[...data.houseTravel.portals].sort((a,b)=>houseDistance(p,a)-houseDistance(p,b))[0];
+      // Assist mode: as the game's "keep my task", the player's work goes to the
+      // front of their queue (held) and the queue carries on after the visit.
+      if(mode==='assist'&&route) {
+        visit={phase:'enter',portalId:portal.id,aside:true,resume:{t:'startQueued',index:0}};
+        return action({t:'setAside'},'把你当前的工作排到队列最前，回家升级房屋','你的队列暂停；升级完出门后，游戏接着做你的队列');
+      }
+      const resume=!route||route.limit===0?null:resumeIntent(p,route);
       visit={phase:'enter',portalId:portal.id,resume};
     }
     if(visit.phase==='enter'&&home)visit.phase='work';
@@ -305,6 +322,7 @@ export function createHousing(data,planner) {
   // placed facility not already upgrading takes its points.
   function fuelSafe(p,intent,goal,style,mode) {
     if(Object.keys(intent).length!==3||!Number.isSafeInteger(intent.itemId)||!Number.isSafeInteger(intent.qty)||intent.qty<=0)return false;
+    goal=houseGoal(goal,mode);
     if(!idle(p,goal,mode)||!goal||goal.developmentFiller||goal.temporary||goal.quest)return false;
     const points=housePoints(intent.itemId);
     if(!points||!rooms.some(r=>p.houseFurniture[r.id]&&p.houseUpgrades[r.id]==null&&feeds(r).includes(points.family)))return false;
@@ -317,6 +335,7 @@ export function createHousing(data,planner) {
   // planner's decision (a page re-plan could pick another room and refuse a
   // ready upgrade, as happened to 陪练桩 13).
   function houseSafe(p,intent,goal,style,mode) {
+    goal=houseGoal(goal,mode);
     if(!idle(p,goal,mode))return false;
     const keys=Object.keys(intent).sort().join(),room=rooms.find(r=>r.id===intent.room);
     if(intent.t==='buildRoom') {

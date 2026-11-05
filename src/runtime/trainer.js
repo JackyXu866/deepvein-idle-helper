@@ -1013,6 +1013,11 @@ export class Trainer {
       if(this.questAside&&p.held&&!p.raidHeld&&!p.route&&p.queue?.length)
         return this.issue({intent:{t:'startQueued',index:0},label:'继续你的队列',reason:'任务做完或暂缓，接着做你排在最前的工作'});
       if(!p.held)this.questAside=false;
+      // The house too, beside the player's queue (housing.js sets their work aside).
+      const bossSoon=(this.boss.status().nextIn??Infinity)<=300;
+      let housing=this.planner.housingPlan?.(p,null,this.style,this.mode,this.bankedLoad);
+      if(bossSoon&&housing&&!atHome(this.data,p)&&['portal','walk','setAside'].includes(housing.intent?.t))housing=null;
+      if(housing){this.plan=housing;if(housing.intent)return this.issue(housing);this.message=housing.reason;return;}
       this.plan=this.planner.harvestOnly?.(p)??null;
       if(this.plan?.intent)return this.issue(this.plan);
       const consumable=this.consume(p,reserveWaitingGoals(this.goal,this.waitingGoals),this.style,this.plan);
