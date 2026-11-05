@@ -161,6 +161,23 @@ test('a best-quality task saved for the Boss may come back at another quality', 
   assert.equal(boss.ownsQueue(saved), true, 'native best banking changed the quality; the save is still ours');
 });
 
+test('a save that finds the route already gone (our own walk replaced it) goes on to the Boss', () => {
+  const {boss, you, advance} = setup();
+  rise(boss, 1000 + 100000);
+  const working = {...you, route: {zoneId: null, jobId: 5, siteId: 2, onFull: 'bank', limit: 0}};
+  const plan = boss.next(working);
+  assert.equal(plan.intent.t, 'setAside');
+  boss.issued(plan.intent, working, plan.reason);
+  // The walk to the bank sent in the same second cleared the route: nothing held, queue unchanged.
+  const walked = {...you, route: null, held: false, raidHeld: false, queue: [], x: 101};
+  boss.observe({tick: 1002, m: [{t: 'snapshot', you: walked}]});
+  assert.match(boss.next(walked, {interruptWalk: true})?.reason ?? '', /等待服务器确认/, 'waits a few seconds first');
+  advance(6000);
+  const next = boss.next(walked, {interruptWalk: true});
+  assert.notEqual(next?.blocked, true, 'not stopped');
+  assert.equal(next?.intent?.t, 'walk', 'on to the Boss: ' + JSON.stringify(next));
+});
+
 test('the Boss is checked before ordinary waits: a pending walk does not delay joining', async () => {
   const {Trainer} = await import('../src/runtime/trainer.js');
   const {makePlanner, player} = await import('./helpers.js');

@@ -218,6 +218,13 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
       if(run.stage==='saving'){
         if(acceptSaved(p)){run.stage='ready';run.progressAt=now();run.position={x:p.x,y:p.y};}
         else if(!p.route&&p.held&&(p.raidHeld||!same(p.queue??[],run.beforeQueue))){finish();return null;}
+        // The route was already gone when the save arrived (the helper's own
+        // walk to the bank replaced it in the same second): nothing was set
+        // aside, the player's queue is untouched, so there is nothing to
+        // restore; the round goes on as from no task.
+        else if(!p.route&&!p.held&&!p.raidHeld&&same(p.queue??[],run.beforeQueue)&&now()-run.sentAt>5000){
+          run.expectedQueue=null;run.stage='ready';run.progressAt=now();run.position={x:p.x,y:p.y};
+        }
         else if(now()-run.sentAt>15000)return {...wait('原任务保存未获确认，已停止自动操作；请检查游戏队列后再开始'),blocked:true};
         else return wait('等待服务器确认原任务和玩家队列已完整保留');
       }
