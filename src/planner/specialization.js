@@ -53,6 +53,11 @@ export function createSpecialization(data,planner) {
           const quote=planner.marketOpportunity?.(p,itemId,saleQty);
           if(quote?.qty===saleQty&&Number.isFinite(quote.net)&&quote.net>0){proceeds=quote.net;saleItems.push(itemId);}
         }
+        // What the batch makes beyond the sale (kept as working stock) is worth
+        // what it would sell for too, as held stock is charged when used.
+        // (The batch makes qty, or qty x multiplier once re-sized to sell.)
+        const made=saleQty>0?qty*multiplier:qty,kept=Math.max(0,made-(proceeds>0?saleQty:0));
+        if(kept>0)proceeds+=kept*((planner.stockValue??planner.saleValue)(p,itemId,Math.max(1,Math.round(kept)))??0);
         // Gathered quality output (legendary included) and the bonus drop count
         // at market value; quality ore is sold (marketQuality), the rest kept.
         if(c.qualityPerAction&&actions>0) {
@@ -79,9 +84,11 @@ export function createSpecialization(data,planner) {
       // coins, gathering in its time.
       const inputValue=planner.ownedGold?.(p,c.estimate)??0;
       const coins=c.estimate.coins+proceeds-inputValue;
-      if(!(coins>0)||!Number.isFinite(c.estimate.seconds)||c.estimate.seconds<=0)continue;
+      // Real time: bought inputs are in the coins already, not again as time.
+      const seconds=c.estimate.seconds-(c.estimate.boughtSeconds??0);
+      if(!(coins>0)||!Number.isFinite(seconds)||seconds<=0)continue;
       // saleItems: what this choice's income assumes is sold; economy sells them even with everyday selling off.
-      choices.push({...c,rate:{xp:c.rate.xp,coins:coins/c.estimate.seconds},marketProceeds:proceeds,inputValue,saleItems});
+      choices.push({...c,rate:{xp:c.rate.xp,coins:coins/seconds},marketProceeds:proceeds,inputValue,saleItems});
     }
     choices.sort((a,b)=>b.rate.coins-a.rate.coins||b.rate.xp-a.rate.xp);
     return choices;

@@ -133,7 +133,7 @@ export function createStrategy(data, planner) {
     // Held materials are priced apart (planner.ownedGold), for callers that weigh the
     // whole cost against the output's value: in coins alone, with the output
     // unvalued, every craft looked like millions lost an hour.
-    let seconds=0,xp=0,coins=0,position=p,unlocks=[],marketCoins=0;
+    let seconds=0,xp=0,coins=0,position=p,unlocks=[],marketCoins=0,boughtSeconds=0;
     // `owned`: how much of the stock held at the start the route uses up (not
     // what it makes and uses on the way), for callers that do price it: the
     // gold table charges it at what it would sell for.
@@ -195,7 +195,10 @@ export function createStrategy(data, planner) {
           planner.inputCost.decide({...p,x:position.x,y:position.y},id,missing,{style,credit}).buy;
         if(buyIt&&marketCoins+cost+Math.max(0,-coins-marketCoins)<=allowance) {
           const bank=bankAt(position),to=bank.approach??bank;
-          travel(to);seconds+=unit*qty;coins-=cost;marketCoins+=cost;
+          // Bought: its coins, and the same gold as time at the gold rate for the
+          // XP ranking (gold as time). The latter is kept apart (boughtSeconds):
+          // what earns or spends gold weighs the coins and the real time only.
+          travel(to);seconds+=unit*qty;boughtSeconds+=unit*qty;coins-=cost;marketCoins+=cost;
           purchases[id]=(purchases[id]??0)+qty;
           stock[id]=(stock[id]??0)+qty-missing;
           return true;
@@ -282,7 +285,7 @@ export function createStrategy(data, planner) {
     } else if (root) ok=work(root,amount,[root.output.itemId]);
     if (!ok||!Number.isFinite(seconds)) return invalid();
     return {seconds,xp,coins,rate:{xp:xp/Math.max(1,seconds),coins:coins/Math.max(1,seconds)},
-      budget:{coins:Math.max(0,-coins-marketCoins),items:budget},recipes,supplyRecipes,unlocks,purchases,owned};
+      budget:{coins:Math.max(0,-coins-marketCoins),items:budget},recipes,supplyRecipes,unlocks,purchases,owned,boughtSeconds};
   }
   // The held stock a route uses up (estimate.owned), at what it would sell for
   // now (planner.stockValue): the one price every caller weighing a route's

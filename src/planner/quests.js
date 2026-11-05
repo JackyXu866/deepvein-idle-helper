@@ -57,7 +57,8 @@ export function createQuests(data,planner) {
     const estimate=rest>0?planner.routeEstimate(p,job??{monsterId:q.monsterId},rest,{style,buyInputs:true,credit:false}):
       {seconds:0,xp:0,coins:0,budget:{coins:0,items:{}},recipes:{[skill]:job.id},supplyRecipes:{},purchases:{}};
     if(held>0)estimate.seconds+=held*perAction(work),estimate.xp+=held*work.xp;
-    const seconds=estimate.seconds,left=(q.expiresAtTick-p.lastTick)*data.tickMs/1000;
+    // Real time against the reset: bought inputs cost coins, not time.
+    const seconds=estimate.seconds-(estimate.boughtSeconds??0),left=(q.expiresAtTick-p.lastTick)*data.tickMs/1000;
     const base={job,skill,estimate,seconds,left};
     if(!Number.isFinite(seconds)||seconds<=0)return {...base,reason:q.kind==='kill'?'没有可安全击杀的路线':'没有可行的供料路线'};
     if(seconds>left)return {...base,reason:'刷新前无法完成'};

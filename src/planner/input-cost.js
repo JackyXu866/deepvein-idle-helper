@@ -21,7 +21,8 @@ export function createInputCost(data,planner) {
   // trained: the skills whose XP counts, when not the profession's.
   function context(p,{style=planner.styleHint??'magic',stock,credit=true,trained=null,grow=null,buyOnly=false}={}) {
     return {p,lv:planner.levels(p),stock:stock??stockMap(p),grow,buyOnly,rates:new Map(),coinRate:planner.coinRate?.(p)??0,
-      trained:new Set(!credit?[]:trained??planner.trainedSkills?.(style)??[]),
+      // XP is worth something only below the level cap: a maxed skill earns no credit.
+      trained:new Set(!credit?[]:(trained??planner.trainedSkills?.(style)??[]).filter(s=>!(planner.levels?.(p)?.[s]>=planner.maxLevel))),
       trip:bankTripSeconds(data,p)};
   }
   // XP per second of the best unlocked work in a skill (what its XP is worth).

@@ -65,7 +65,8 @@ export function createTownOrders(data,planner) {
     // costs what using it gives up, as the gold table counts it.
     const stock=(id,qty)=>qty>0?(planner.stockValue??planner.saleValue)(p,id,Math.max(1,Math.round(qty)))*qty:0;
     const heldGold=stock(o.itemId,have)+(planner.ownedGold?.(p,estimate)??0);
-    const seconds=estimate.seconds,left=((o.day+1)*dayTicks(data)-p.lastTick)*data.tickMs/1000;
+    // Real time: bought inputs count once, as the coins they cost.
+    const seconds=estimate.seconds-(estimate.boughtSeconds??0),left=((o.day+1)*dayTicks(data)-p.lastTick)*data.tickMs/1000;
     const paid=seconds+goldToSeconds(Math.max(0,-(estimate.coins??0))+heldGold,coinRate),saved=goldToSeconds(o.coins,coinRate);
     const base={...o,job,rest,estimate,seconds,paid,saved,net:saved-paid};
     if(!Number.isFinite(seconds))return {...base,reason:'没有可行的供料路线'};
