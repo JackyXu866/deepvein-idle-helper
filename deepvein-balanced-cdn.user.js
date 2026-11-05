@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         Deep Vein Idle 自给成长与职业助手
 // @namespace    local.deepvein.balanced
-// @version      0.9.0
+// @version      0.10.0
 // @description  自主发展、经验优先、指定主业与收菜Boss辅助；连续发展计划、批量供料、装备与市场比价；默认暂停
-// @homepageURL  https://github.com/ljyoukong-cpu/deepvein-idle-helper
-// @updateURL    https://gcore.jsdelivr.net/gh/ljyoukong-cpu/deepvein-idle-helper@main/deepvein-balanced-cdn.meta.js
-// @downloadURL  https://gcore.jsdelivr.net/gh/ljyoukong-cpu/deepvein-idle-helper@v0.9.0/deepvein-balanced-cdn.user.js
+// @homepageURL  https://github.com/JackyXu866/deepvein-idle-helper
+// @updateURL    https://gcore.jsdelivr.net/gh/JackyXu866/deepvein-idle-helper@modular-rewrite/deepvein-balanced-cdn.meta.js
+// @downloadURL  https://gcore.jsdelivr.net/gh/JackyXu866/deepvein-idle-helper@v0.10.0/deepvein-balanced-cdn.user.js
 // @match        https://deepveinidle.com/*
 // @match        https://cn.deepveinidle.com/*
 // @run-at       document-start
@@ -17,9 +17,11 @@
 (function () {
 'use strict';
 // src/version.js
-var SCRIPT_VERSION = "0.9.0";
+var SCRIPT_VERSION = "0.10.0";
 var SCRIPT_DISTRIBUTION = "cdn";
-var SCRIPT_BUILT = "11-04 20:47";
+var SCRIPT_BUILT = "11-04 20:50";
+var SCRIPT_REPO = "JackyXu866/deepvein-idle-helper";
+var SCRIPT_BRANCH = "modular-rewrite";
 
 // src/data/game-data.json
 var game_data_default = {
@@ -25310,9 +25312,10 @@ function validateIntent(data, p, intent, { planner, goal = null, style = "magic"
 }
 
 // src/ui/update-checker.js
-var SCRIPT_UPDATE_URL = "https://raw.githubusercontent.com/ljyoukong-cpu/deepvein-idle-helper/main/deepvein-balanced.meta.js";
-var SCRIPT_INSTALL_URL = "https://raw.githubusercontent.com/ljyoukong-cpu/deepvein-idle-helper/main/deepvein-balanced.user.js";
-var SCRIPT_CDN_ROOT = "https://gcore.jsdelivr.net/gh/ljyoukong-cpu/deepvein-idle-helper@main/deepvein-balanced-cdn";
+var SCRIPT_UPDATE_URL = `https://raw.githubusercontent.com/${SCRIPT_REPO}/${SCRIPT_BRANCH}/deepvein-balanced.meta.js`;
+var SCRIPT_INSTALL_URL = `https://raw.githubusercontent.com/${SCRIPT_REPO}/${SCRIPT_BRANCH}/deepvein-balanced.user.js`;
+var SCRIPT_CDN_ROOT = `https://gcore.jsdelivr.net/gh/${SCRIPT_REPO}@${SCRIPT_BRANCH}/deepvein-balanced-cdn`;
+var branchTag = `@${SCRIPT_BRANCH}`;
 function createUpdateChecker({ version, fetch: fetch2, distribution = "github", now = () => Date.now(), onChange = () => {
 } }) {
   const sources = [
@@ -25320,7 +25323,7 @@ function createUpdateChecker({ version, fetch: fetch2, distribution = "github", 
     { updateUrl: `${SCRIPT_CDN_ROOT}.meta.js`, installUrl: `${SCRIPT_CDN_ROOT}.user.js` }
   ];
   if (distribution === "cdn") sources.reverse();
-  const state = { checking: false, available: null, installUrl: distribution === "cdn" ? `${SCRIPT_CDN_ROOT.replace("@main", `@v${version}`)}.user.js` : SCRIPT_INSTALL_URL, message: `当前运行 v${version}，等待检查更新` };
+  const state = { checking: false, available: null, installUrl: distribution === "cdn" ? `${SCRIPT_CDN_ROOT.replace(branchTag, `@v${version}`)}.user.js` : SCRIPT_INSTALL_URL, message: `当前运行 v${version}，等待检查更新` };
   let attemptedAt = null;
   const newer = (a, b) => a.split(".").map((n, i) => Number(n) - Number(b.split(".")[i])).find((n) => n !== 0) > 0;
   async function check(manual = false) {
@@ -25339,7 +25342,7 @@ function createUpdateChecker({ version, fetch: fetch2, distribution = "github", 
           const remote = metadata.match(/^\/\/ @version[ \t]+([^\r\n]+)/m)?.[1].trim();
           const namespace = metadata.match(/^\/\/ @namespace[ \t]+([^\r\n]+)/m)?.[1].trim();
           if (metadata.length > 8192 || namespace !== "local.deepvein.balanced" || !/^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(remote ?? "")) throw new Error("invalid update metadata");
-          const pinned = `${SCRIPT_CDN_ROOT.replace("@main", `@v${remote}`)}.user.js`;
+          const pinned = `${SCRIPT_CDN_ROOT.replace(branchTag, `@v${remote}`)}.user.js`;
           const download = metadata.match(/^\/\/ @downloadURL[ \t]+([^\r\n]+)/m)?.[1].trim();
           const installUrl = candidate.installUrl === `${SCRIPT_CDN_ROOT}.user.js` && download === pinned ? pinned : candidate.installUrl;
           if (!latest || newer(remote, latest.version)) latest = { ...candidate, installUrl, version: remote };

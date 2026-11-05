@@ -8,17 +8,21 @@ import * as esbuild from 'esbuild';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {version} = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-const REPO = 'ljyoukong-cpu/deepvein-idle-helper';
+// Where releases are published (the update and download URLs, and the
+// script's own update check): the fork and the branch it ships from. Each
+// release is also tagged v<version> (the CDN download pins that tag).
+const REPO = 'JackyXu866/deepvein-idle-helper';
+const BRANCH = 'modular-rewrite';
 
 const DISTRIBUTIONS = {
   github: {
     file: 'deepvein-balanced',
-    updateURL: `https://raw.githubusercontent.com/${REPO}/main/deepvein-balanced.meta.js`,
-    downloadURL: `https://raw.githubusercontent.com/${REPO}/main/deepvein-balanced.user.js`,
+    updateURL: `https://raw.githubusercontent.com/${REPO}/${BRANCH}/deepvein-balanced.meta.js`,
+    downloadURL: `https://raw.githubusercontent.com/${REPO}/${BRANCH}/deepvein-balanced.user.js`,
   },
   cdn: {
     file: 'deepvein-balanced-cdn',
-    updateURL: `https://gcore.jsdelivr.net/gh/${REPO}@main/deepvein-balanced-cdn.meta.js`,
+    updateURL: `https://gcore.jsdelivr.net/gh/${REPO}@${BRANCH}/deepvein-balanced-cdn.meta.js`,
     downloadURL: `https://gcore.jsdelivr.net/gh/${REPO}@v${version}/deepvein-balanced-cdn.user.js`,
   },
 };
@@ -28,7 +32,7 @@ const header = d => `// ==UserScript==
 // @namespace    local.deepvein.balanced
 // @version      ${version}
 // @description  自主发展、经验优先、指定主业与收菜Boss辅助；连续发展计划、批量供料、装备与市场比价；默认暂停
-// @homepageURL  https://github.com/ljyoukong-cpu/deepvein-idle-helper
+// @homepageURL  https://github.com/${REPO}
 // @updateURL    ${d.updateURL}
 // @downloadURL  ${d.downloadURL}
 // @match        https://deepveinidle.com/*
@@ -79,7 +83,7 @@ const built = `${two(now.getMonth() + 1)}-${two(now.getDate())} ${two(now.getHou
 for (const [name, d] of Object.entries(DISTRIBUTIONS)) {
   const code = await bundle('src/main/entry.js', {
     define: {__SCRIPT_VERSION__: JSON.stringify(version), __SCRIPT_DISTRIBUTION__: JSON.stringify(name),
-      __SCRIPT_BUILT__: JSON.stringify(built)},
+      __SCRIPT_BUILT__: JSON.stringify(built), __SCRIPT_REPO__: JSON.stringify(REPO), __SCRIPT_BRANCH__: JSON.stringify(BRANCH)},
     plugins: [workerSourcePlugin],
   });
   const script = `${header(d)}\n(function () {\n'use strict';\n${code}\n})();\n`;

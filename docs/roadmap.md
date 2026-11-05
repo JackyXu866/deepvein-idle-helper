@@ -23,7 +23,6 @@
   - dailies finish, including one that needs a bought input;
   - one reroll, one perk purchase and one mastery allocation are each confirmed. Then check the 诊断 tab for refusals.
 - **Boss loot log.** Client 1.0.1189 pays world-boss shares over 30 s. Check that 掉落 still records exactly one entry per kill (`src/ui/boss-loot.js`).
-- **Distribution.** The update and download URLs still point to `ljyoukong-cpu/deepvein-idle-helper`. Decide where v0.8.0 is published before pushing.
 
 ## Open: decide what to include next
 
