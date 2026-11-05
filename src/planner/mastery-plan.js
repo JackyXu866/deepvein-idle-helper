@@ -171,22 +171,24 @@ export function createMasteryPlan(data, planner) {
     if (!usable.length) return null;
     const goalOf = objective(p, goal, style, usage);
     if (!goalOf) return null;
-    const reset = resetCheck(p, goalOf, current, earned, available, usable);
-    if (reset) return reset;
-    if (!(available >= Math.min(...usable.map(id => rankCost(current[id] + 1))))) return null;
+    // A reset worth doing is advice for the player, never done by the helper.
+    const resetAdvice = resetCheck(p, goalOf, current, earned, available, usable);
+    const advised = result => result || resetAdvice ? {intent: null, ...result, resetAdvice} : null;
+    if (!(available >= Math.min(...usable.map(id => rankCost(current[id] + 1))))) return advised(null);
     const result = allocate(current, available, usable, goalOf.value);
     const name = id => MASTERY_NAMES_ZH[id] ?? id;
     const changes = Object.entries(result.bought).map(([id, n]) => `${name(id)} +${n}`).join('、');
     const wait = result.saving ? `剩余 ${Math.floor(result.left)} 点攒给 ${name(result.saving.id)}（下一级需 ${result.saving.need}）` : '';
-    if (!changes) return result.saving ? {intent: null, saving: result.saving, reason: `${goalOf.label}；${wait}`} : null;
-    return {intent: {t: 'masteryConfirm', ranks: Object.fromEntries(Object.entries(result.ranks).filter(([, n]) => n > 0))},
+    if (!changes) return advised(result.saving ? {intent: null, saving: result.saving, reason: `${goalOf.label}；${wait}`} : null);
+    return advised({intent: {t: 'masteryConfirm', ranks: Object.fromEntries(Object.entries(result.ranks).filter(([, n]) => n > 0))},
       label: `分配精通点数 · ${changes}`,
-      reason: `${goalOf.label}；按整体最优分配（${goalOf.change(goalOf.value(current), result.value)}）${wait ? `；${wait}` : ''}`};
+      reason: `${goalOf.label}；按整体最优分配（${goalOf.change(goalOf.value(current), result.value)}）${wait ? `；${wait}` : ''}`});
   }
-  // Reset when allocating every earned point afresh earns, over the goal's
-  // horizon (a week for 补精通 or a main trade, a day for a leveling goal),
-  // at least 1.2x the reset's price (the payback rule) than the present ranks
-  // with the free points added. Weighed once an hour per goal and ranks.
+  // A reset is worth it when allocating every earned point afresh earns, over
+  // the goal's horizon (a week for 补精通 or a main trade, a day for a leveling
+  // goal), at least 1.2x its price (the payback rule) more than the present
+  // ranks with the free points added. Only advised: the player resets. Weighed
+  // once an hour per goal and ranks.
   let resetMemo = {key: null, fresh: null};
   function resetCheck(p, goalOf, current, earned, available, tracks) {
     if (!goalOf.gold || !tracks.some(id => current[id] > 0)) return null;
@@ -197,11 +199,11 @@ export function createMasteryPlan(data, planner) {
       resetMemo = {key, fresh: allocate(blank, earned, tracks, goalOf.value), kept: allocate(current, available, tracks, goalOf.value)};
     }
     const {fresh, kept} = resetMemo, cost = resetCost(p.masteryResets), gain = goalOf.gold(kept.value, fresh.value);
-    if (!(gain >= 1.2 * cost) || !(p.coins >= cost)) return null;
+    if (!(gain >= 1.2 * cost)) return null;
     const name = id => MASTERY_NAMES_ZH[id] ?? id;
     const plan = Object.entries(fresh.ranks).filter(([, n]) => n > 0).map(([id, n]) => `${name(id)} ${n}`).join('、');
-    return {intent: {t: 'masteryReset', pay: 'coins'}, label: `重置精通 · ${cost.toLocaleString()} 金币`,
-      reason: `${goalOf.label}；全部 ${Math.floor(earned).toLocaleString()} 点从头分配（${plan}）比现在多赚约 ${gold(gain)} 金币（按${goalOf.horizon}算），超过重置费的 1.2 倍；重置后马上按新分配加点`};
+    return {cost, gain, ranks: fresh.ranks,
+      reason: `建议重置精通（${cost.toLocaleString()} 金币）：${goalOf.label}；全部 ${Math.floor(earned).toLocaleString()} 点从头分配（${plan}）比现在多赚约 ${gold(gain)} 金币（按${goalOf.horizon}算），超过重置费的 1.2 倍。需要你在游戏里手动重置，之后助手按新分配加点`};
   }
   return {choose, objective};
 }

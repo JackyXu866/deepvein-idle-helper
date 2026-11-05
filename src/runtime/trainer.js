@@ -637,9 +637,9 @@ export class Trainer {
     if(this.failures.length>3){this.pauseError(`连续恢复仍未成功：${reason}`);return false;}
     return true;
   }
-  noteConsumable(key,message) {
+  noteConsumable(key,message,every=600000) {
     const now=this.now(),last=this.consumableLogAt[key];
-    if(Number.isFinite(last)&&now-last<600000)return;
+    if(Number.isFinite(last)&&now-last<every)return;
     this.consumableLogAt[key]=now;this.log(message);
   }
   consume(p,goal,style,plan) {
@@ -1034,9 +1034,9 @@ export class Trainer {
     // cannot be valued reliably enough to spend them automatically.
     const fallback=softReady('setFallback')&&this.fallbackUpkeep(p);
     if(fallback?.intent)return this.issue(fallback);
-    const offered=softReady('masteryConfirm')&&this.planner.masteryPurchase?.(p,this.goal,this.style);
-    // A reset the game did not confirm waits out its own rest, not only the allocation's.
-    const mastery=offered?.intent?.t==='masteryReset'&&!softReady('masteryReset')?null:offered;
+    const mastery=softReady('masteryConfirm')&&this.planner.masteryPurchase?.(p,this.goal,this.style);
+    // A reset worth doing is told, not done: once, then again every six hours while it holds.
+    if(mastery?.resetAdvice)this.noteConsumable('mastery-reset',mastery.resetAdvice.reason,6*3600000);
     if(mastery?.intent)return this.issue(mastery);
     if(this.mode==='mastery')return this.runMastery(p);
     if(this.goal?.enhancementProject&&this.goal.enhancement&&

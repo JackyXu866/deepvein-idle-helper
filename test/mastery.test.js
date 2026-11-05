@@ -69,10 +69,10 @@ test('the allocation buys the ranks with the most gained per point, max hit by i
   assert.equal(result.left, 0);
 });
 
-// A reset returns every point for 50,000 gold, doubling with each reset. Ranks
-// placed for leveling are reset once a lasting goal (a main trade) earns, over
-// a week, at least 1.2x that price more with every point placed afresh.
-test('ranks placed for leveling are reset for a lasting main trade that earns more with them', async () => {
+// A reset returns every point for 50,000 gold, doubling with each reset. Once a
+// lasting goal (a main trade) would earn, over a week, at least 1.2x that price
+// more with every point placed afresh, the player is told; the helper never resets.
+test('a reset worth doing for a lasting main trade is advised, never done', async () => {
   const {resetCost} = await import('../src/planner/mastery-plan.js');
   assert.equal(resetCost(0), 50000);
   assert.equal(resetCost(3), 400000);
@@ -87,10 +87,10 @@ test('ranks placed for leveling are reset for a lasting main trade that earns mo
     const goal = {skill: 'mining', recipeId: ore.id, specialization: true, mainSkill: 'mining', rate: {coins: 1000}};
     return planner.masteryPlan(p, goal, {earned: spentPoints(leveling), usage: null});
   };
-  const reset = plan(1e7);
-  assert.deepEqual(reset?.intent, {t: 'masteryReset', pay: 'coins'}, JSON.stringify(reset));
-  assert.match(reset.reason, /从头分配/);
-  assert.equal(plan(1000)?.intent?.t !== 'masteryReset', true, 'not without the coins');
+  const advised = plan(1e7);
+  assert.notEqual(advised?.intent?.t, 'masteryReset', 'never sent');
+  assert.match(advised?.resetAdvice?.reason ?? '', /建议重置精通.*从头分配/, JSON.stringify(advised));
+  assert.equal(advised.resetAdvice.cost, 50000);
   assert.equal(validateIntent(d, {masteries: leveling, coins: 1e6, masteryResets: 0}, {t: 'masteryReset', pay: 'coins'}), true);
   assert.equal(validateIntent(d, {masteries: leveling, coins: 1e6, masteryPage: 2}, {t: 'masteryReset', pay: 'coins'}), false, 'never on the enhance page');
   assert.equal(acknowledged({masteries: leveling, masteryResets: 0}, {masteries: {}, masteryResets: 1}, {t: 'masteryReset', pay: 'coins'}), true);
