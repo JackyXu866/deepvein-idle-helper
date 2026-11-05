@@ -106,27 +106,6 @@ export function createQuests(data,planner) {
     return choices;
   }
   const chooseGoal=(p,baseline,style='magic',deferred={})=>choices(p,baseline,style,deferred)[0]??null;
-  // Assist mode: the same choice, started with the game's own goQuest, which
-  // sets the player's work aside at the front of their queue, runs the quest
-  // and carries on with the queue after it. Only a quest the game can run as
-  // it stands: its inputs held (the game crafts, it does not supply), a fight
-  // in the profession's weapon. Not while the player has paused their queue,
-  // a Boss holds it, or a quest or harvest is under way.
-  function go(p,style='magic',deferred={}) {
-    if(p.route?.questId!=null||p.route?.errand||p.held||p.raidHeld||p.enhance||(p.queue?.length??0)>(p.queueSlots??0))return null;
-    if(p.queue?.some(t=>t.kind==='quest'))return null;
-    const fighting=weaponStyle(planner.equipmentStats(p.equipment.weapon))===professionSkill(style);
-    const held=id=>(p.bank?.[id]??0)+p.pack.filter(i=>i.itemId===id).reduce((n,i)=>n+i.qty,0);
-    const ready=g=>{
-      if(g.quest.kind==='kill')return fighting;
-      const job=data.jobs.find(j=>j.id===g.quest.jobId),q=read(p).find(q=>q.key===g.quest.key);
-      return !!job&&!!q&&job.inputs.every(i=>held(i.itemId)>=i.qty*q.remaining);
-    };
-    const g=choices(p,null,style,deferred).find(ready);
-    if(!g)return null;
-    return {intent:{t:'goQuest',id:g.quest.id},goal:g,label:`做${g.quest.period==='daily'?'每日':'每周'}任务 · ${title(g.quest)??g.quest.id}`,
-      reason:`${g.reason}；由游戏执行，你当前的工作排到队列最前，任务完成后继续你的队列`};
-  }
   function completed(p,goal) {
     if(!goal?.quest)return false;
     const q=read(p).find(q=>q.key===goal.quest.key);
@@ -145,5 +124,5 @@ export function createQuests(data,planner) {
         {...base,status:check.reason};
     });
   }
-  return {read,claim,chooseGoal,go,completed,reroll,overview};
+  return {read,claim,chooseGoal,completed,reroll,overview};
 }

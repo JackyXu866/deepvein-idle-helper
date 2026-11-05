@@ -3025,7 +3025,7 @@ import {itemLabel, packQty} from '../planner/items.js';
     }
     panel.querySelector('[data-mode-info]').textContent=modeInfo[trainer.mode];
     panel.querySelector('[data-training-policy]').textContent=trainer.mode==='assist'?
-      '不安排练级、装备、交易或采购任务；不采种、不解锁新作物。每日／每周任务用游戏自带的去做任务完成：你当前的工作排到队列最前，任务完成后游戏接着做你的队列；只做材料已备齐的任务。药水按你正在做的工作喝。玩家可继续编辑自己的队列，手动操作优先。':
+      '不安排练级、装备、交易或采购任务；不采种、不解锁新作物。每日／每周任务照做（含备料）：你当前的工作排到队列最前，任务完成后游戏接着做你的队列；队列搁置或没有空位时不做。药水按你正在做的工作喝。玩家可继续编辑自己的队列，手动操作优先。':
       `自动打造换装 · ${autoSell?'比价出售与必要采购':capacitySales?'仅满仓清理普通盈余和淘汰装备 · 必要采购':'不自动出售 · 必要采购'}。常规切换遵守背包／批次边界；世界 Boss 临时参与结束后继续原任务。`;
     for(const selector of ['[data-equipment-details]','[data-economy-details]','[data-market-details]','[data-buffs-details]'])
       panel.querySelector(selector).hidden=trainer.mode==='assist';

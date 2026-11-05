@@ -38,8 +38,11 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
       !p.route&&!p.path?.length&&!p.enhance&&nearBank(data,p)&&
       (used<packCapacity(p)||item.stackable&&p.pack.some(i=>i.itemId===intent.itemId&&i.qty>0));
   }
-  if(intent.t==='setAside')return intent.raid===true&&!!p.route&&!p.route.errand&&!p.held&&!p.enhance;
-  if(intent.t==='startQueued')return intent.index===0&&p.held===true&&p.raidHeld===true&&!p.route&&!!p.queue?.length;
+  // The game's "keep my task" (a Boss trip, or a quest in assist mode): the
+  // route goes to the front of the queue, which may then hold one more than its slots.
+  if(intent.t==='setAside')return (intent.raid===true||intent.raid===undefined&&(p.queue?.length??0)<=(p.queueSlots??0))&&
+    !!p.route&&!p.route.errand&&!p.held&&!p.enhance;
+  if(intent.t==='startQueued')return intent.index===0&&p.held===true&&!p.route&&!!p.queue?.length;
   if(intent.t==='drink') {
     const carried=packQty(p,intent.itemId);
     const atBank=nearBank(data,p);

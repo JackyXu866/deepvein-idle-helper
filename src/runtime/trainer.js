@@ -125,6 +125,8 @@ export function acknowledged(before, p, intent, data=null) {
         p.quests?.[period]?.some(q=>q.id===intent.id&&q.claimed===true);
     });
     case 'goQuest': return p.route?.questId===intent.id;
+    case 'setAside': return p.held===true&&(p.queue?.length??0)>(before.queue?.length??0);
+    case 'startQueued': return p.held!==true&&(!!p.route||(p.queue?.length??0)<(before.queue?.length??0));
     case 'rerollQuest': return before.quests?.day===p.quests?.day&&
       before.quests?.daily?.some(q=>q.id===intent.id)===true&&!p.quests?.daily?.some(q=>q.id===intent.id);
     case 'buyPerk': return (p.perks?.[intent.id]??0)>(before.perks?.[intent.id]??0);
@@ -145,7 +147,7 @@ export class Trainer {
     this.data=data; this.planner=planner; this.send=send; this.now=now;
     this.active=false; this.player=null; this.received=0; this.goal=null;
     this.pending=null; this.recentDeposit=null; this.served={}; this.deferred={}; this.questDeferred={}; this.waitingGoals={}; this.blockedReasons={}; this.sequence=0;
-    this.softRefused={};
+    this.softRefused={}; this.questAside=false; this.questRoute=null;
     // Native fallback activity: on/off, the one the helper set per player, last check.
     this.autoFallback=true; this.fallbackOwned={}; this.fallbackCheckedAt=0;
     // The last error pause (shown on the overview) and whether this copy runs in the Worker.
@@ -223,6 +225,7 @@ export class Trainer {
   // A changed style, mode or main trade starts planning from scratch.
   resetPlans() {
     this.goal=null;this.plan=null;this.served={};this.deferred={};this.questDeferred={};this.waitingGoals={};this.blockedReasons={};
+    this.questRoute=null;
   }
   setMode(mode) {
     if(!Object.hasOwn(MODE_LABELS,mode)||mode===this.mode)return;
@@ -436,13 +439,19 @@ export class Trainer {
       gained,remaining:Math.max(0,g.quantity-gained),completed};
   }
   // The helper drives the character: every mode but assist, and assist while it
-  // runs an item target (its quests are run by the game, beside the player's queue).
+  // runs an item target (its quests run beside the player's queue: acting()).
   drives() {
     return this.mode!=='assist'||!!(this.itemTarget&&this.itemTarget.status!=='completed');
+  }
+  // The helper is giving work commands: when it drives, or runs an assist-mode quest.
+  acting() {
+    return this.drives()||!!this.goal?.quest;
   }
   manualAction(intent) {
     this.boss?.manualAction(intent,this.player);
     if(this.drives())return this.pause('检测到手动操作，已暂停调度');
+    // The player took over in assist mode: their command wins, the quest waits ten minutes.
+    if(this.goal?.quest){this.questDeferred[this.goal.quest.key]=this.now()+600000;this.goal=null;this.questAside=false;}
     this.pending=null;this.resolution=null;this.plan=null;
     this.syncAfter=this.snapshotSequence;this.nextSync=0;this.nextAction=this.now()+1500;
     this.log('已让行手动操作；队列由你安排，继续监看收菜与世界 Boss');
@@ -867,20 +876,47 @@ export class Trainer {
     if(now-this.goalSince<=(this.goal.horizon??600)*1000)return false;
     this.questDeferred[this.goal.quest.key]=now+120000;return true;
   }
-  // 补精通: is a quest the goal now? Takes one over at a task boundary (the
-  // growth modes pick it inside their own goal loop; assist hands it to the
-  // game's goQuest).
+  // 补精通 and assist: is a quest the goal now? Takes one over at a task
+  // boundary (the growth modes pick it inside their own goal loop). Assist
+  // works beside the player's queue, so needs room in it to set their work
+  // aside, and leaves a queue the player paused alone.
   questTurn(p) {
     const now=this.now(),boundary=this.bankedLoad||this.planner.taskBoundary?.(p);
     if(this.goal?.quest&&boundary&&this.questOver(p,now))this.goal=null;
     if(this.goal?.quest)return true;
-    if(!boundary||playerQueued(p)||p.route?.errand)return false;
+    if(!boundary||p.route?.errand||p.raidHeld)return false;
+    if(this.mode==='assist'?p.held&&!this.questAside||(p.queue?.length??0)>(p.queueSlots??0):playerQueued(p))return false;
     const quest=this.planner.questChooseGoal?.(p,this.goal,this.style,this.questDeferred);
     if(!quest)return false;
     this.goal=quest;this.goalSince=now;this.log(quest.reason);return true;
   }
+  // Assist mode works around the player's own work, as the game's "keep my
+  // task" does: before a route of the quest's own replaces the player's route,
+  // that route is set aside to the front of their queue (setAside); the quest
+  // itself starts with goQuest, after which the game carries on with the queue.
+  keepPlayerWork(p,goal,plan) {
+    const intent=plan.intent,t=intent?.t,quest=goal.quest;
+    // A harvest errand keeps the route it interrupts itself.
+    if(this.mode!=='assist'||!quest||!intent||intent.errand)return plan;
+    // A fight first gets the food settings that keep legendary food safe.
+    if(t==='fight'||t==='setRoute'&&quest.kind==='kill'){const food=this.combatFoodPlan(p);if(food)return food;}
+    const monsterOf=zoneId=>this.data.zones.find(z=>z.id===zoneId)?.monsterId;
+    if(t==='setRoute'&&quest.jobId!=null&&intent.jobId===quest.jobId||t==='fight'&&quest.monsterId!=null&&monsterOf(intent.zoneId)===quest.monsterId) {
+      this.questAside=false;
+      return {...plan,intent:{t:'goQuest',id:quest.id},label:`做${quest.period==='daily'?'每日':'每周'}任务`,
+        reason:`${goal.reason??''}；由游戏执行，你的工作排在队列最前，任务完成后游戏接着做你的队列`};
+    }
+    const own=r=>r&&this.questRoute&&(r.zoneId??null)===this.questRoute.zoneId&&(r.jobId??null)===this.questRoute.jobId;
+    if(['setRoute','fight','walk','clearRoute','portal'].includes(t)&&p.route&&!p.route.errand&&p.route.questId==null&&!own(p.route)) {
+      this.questAside=true;
+      return {intent:{t:'setAside'},label:'把你当前的工作排到队列最前',reason:'为任务备料前先保留你的工作；任务完成后游戏接着做'};
+    }
+    if(t==='setRoute'||t==='fight')this.questRoute={zoneId:intent.zoneId??null,jobId:t==='fight'?null:intent.jobId};
+    return plan;
+  }
   // One goal to its next command: a 补精通 collection, or a quest it took over.
   runGoal(p,goal) {
+    const issue=plan=>this.issue(this.keepPlayerWork(p,goal,plan));
     let plan=this.planner.plan(p,goal,this.style,this.bankedLoad);
     if(goal.quest&&(plan.blocked||plan.deferUntilTick)) {
       const now=this.now();
@@ -889,16 +925,16 @@ export class Trainer {
       this.log(plan.reason);this.goal=null;this.plan=null;return;
     }
     const market=this.market?.next(p,goal,this.style);
-    if(market?.intent)return this.issue(market);
+    if(market?.intent)return issue(market);
     const maintenance=this.planner.maintenance?.(p,goal,this.style,this.mode,this.mainTrade,this.mainJobId,this.mainMonsterId);
-    if(maintenance?.intent)return this.issue(maintenance);
+    if(maintenance?.intent)return issue(maintenance);
     if(maintenance?.marketWaiting||maintenance?.capacityLimited){this.plan=maintenance;this.message=maintenance.reason??maintenance.label;return;}
     // Forge levels cheaper per point than this collection: enhanced beside the work.
     const forge=goal.mastery?this.planner.masteryForge?.(p,this.style,goal):null;
-    if(forge?.intent)return this.issue(forge);
+    if(forge?.intent)return issue(forge);
     if(Object.values(p.overflow??{}).some(n=>n>0))return this.pause('等待仓库空间；当前目标已保留，请整理后继续');
     const housing=this.planner.housingPlan?.(p,goal,this.style,this.mode,this.bankedLoad);
-    if(housing){this.plan=housing;if(housing.intent)return this.issue(housing);this.message=housing.reason;return;}
+    if(housing){this.plan=housing;if(housing.intent)return issue(housing);this.message=housing.reason;return;}
     if(this.watchProgress(p))return;
     const harvest=plan.intent?.t!=='clearRoute'&&(this.bankedLoad||this.planner.taskBoundary?.(p))?
       this.planner.harvestOnly?.(p):null;
@@ -907,10 +943,10 @@ export class Trainer {
     this.plan=plan;
     if(plan.intent?.t!=='clearRoute') {
       const consumable=this.consume(p,goal,this.style,plan);
-      if(consumable?.intent)return this.issue(consumable);
+      if(consumable?.intent)return issue(consumable);
     }
     if(!plan.intent){this.message=plan.reason??plan.label;return;}
-    this.bankedLoad=false;this.issue(plan);
+    this.bankedLoad=false;issue(plan);
   }
   bossFoodPlan(p) {
     const target=this.itemTarget;
@@ -1001,7 +1037,7 @@ export class Trainer {
         this.log('已取得新状态，保留目标和备料进度，重新规划可执行步骤');
       }
     }
-    if(this.drives()&&this.compatible&&!this.awaitInitial&&(ready||this.snapshotSequence>this.syncAfter)) {
+    if(this.acting()&&this.compatible&&!this.awaitInitial&&(ready||this.snapshotSequence>this.syncAfter)) {
       const query=this.market?.query(this.player);
       if(query&&!(query.t==='resync'&&this.lastSync===now)) {
         if(query.t==='resync')this.lastSync=now;
@@ -1077,11 +1113,11 @@ export class Trainer {
     const p=this.player,now=this.now();
     for (const [key,until] of Object.entries(this.questDeferred)) if (until<=now) delete this.questDeferred[key];
     const currentJob=this.data.jobs.find(job=>job.id===p.route?.jobId);
-    if(this.drives()&&this.goal&&!p.held&&!p.raidHeld&&!p.queue?.length&&
+    if(this.acting()&&this.goal&&!p.held&&!p.raidHeld&&!p.queue?.length&&
       currentJob?.inputs.length&&!currentJob.grow&&(p.workRarity??p.route.rarity??0)===LEGENDARY)
       return this.issue({intent:{t:'clearRoute'},label:'停止旧传说制作并保留材料',
         reason:'恢复的制作任务仍会消耗传说材料，先停止，再按普通至史诗材料重新规划'});
-    if(this.drives()&&this.goal&&p.route?.zoneId!=null&&!p.held&&!p.raidHeld&&!p.queue?.length&&this.combatFoodPlan(p))
+    if(this.acting()&&this.goal&&p.route?.zoneId!=null&&!p.held&&!p.raidHeld&&!p.queue?.length&&this.combatFoodPlan(p))
       return this.issue({intent:{t:'clearRoute'},label:'先停止战斗并保护传说食物',
         reason:'原生自动进食设置允许消耗传说食物，确认安全设置后继续当前成长目标'});
     if(this.mode==='balanced')this.planner.observeDevelopment?.(p,this.goal,this.style);
@@ -1096,14 +1132,13 @@ export class Trainer {
     const reroll=softReady('rerollQuest')&&this.planner.questReroll?.(p,this.style);
     if(reroll?.intent)return this.issue(reroll);
     if(this.mode==='assist') {
-      // Quests too, like every mode, run by the game's goQuest so the player's
-      // work and queue carry on after it (quests.js go). A fight first gets the
-      // food settings that keep legendary food safe.
-      const quest=softReady('goQuest')&&this.planner.questGo?.(p,this.style,this.questDeferred);
-      if(quest) {
-        const food=quest.goal.quest.kind==='kill'?this.combatFoodPlan(p):null;
-        return this.issue(food??quest);
-      }
+      // Quests too, like every mode, supplied and done beside the player's work
+      // (keepPlayerWork). A quest the helper set the work aside for and then
+      // dropped hands the queue back.
+      if(softReady('goQuest')&&this.questTurn(p))return this.runGoal(p,this.goal);
+      if(this.questAside&&p.held&&!p.raidHeld&&!p.route&&p.queue?.length)
+        return this.issue({intent:{t:'startQueued',index:0},label:'继续你的队列',reason:'任务做完或暂缓，接着做你排在最前的工作'});
+      if(!p.held)this.questAside=false;
       this.plan=this.planner.harvestOnly?.(p)??null;
       if(this.plan?.intent)return this.issue(this.plan);
       const consumable=this.consume(p,reserveWaitingGoals(this.goal,this.waitingGoals),this.style,this.plan);

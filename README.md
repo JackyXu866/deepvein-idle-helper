@@ -2,12 +2,12 @@
 
 [Deep Vein Idle](https://deepveinidle.com/)（含 [中国入口](https://cn.deepveinidle.com/)）的 Tampermonkey 用户脚本。它替你安排练级、供料、装备、强化、买卖、收菜和世界 Boss，默认暂停，点“开始调度”才会动手。
 
-当前版本 **v0.12.5**，由本 fork 维护 · [更新日志](CHANGELOG.md)
+当前版本 **v0.12.6**，由本 fork 维护 · [更新日志](CHANGELOG.md)
 
 ## 安装
 
 1. 安装 Tampermonkey。
-2. 打开 [安装链接](https://raw.githubusercontent.com/JackyXu866/deepvein-idle-helper/modular-rewrite/deepvein-balanced.user.js) 并确认安装（GitHub 打不开时用 [Gcore CDN 备用链接](https://gcore.jsdelivr.net/gh/JackyXu866/deepvein-idle-helper@v0.12.5/deepvein-balanced-cdn.user.js)）。
+2. 打开 [安装链接](https://raw.githubusercontent.com/JackyXu866/deepvein-idle-helper/modular-rewrite/deepvein-balanced.user.js) 并确认安装（GitHub 打不开时用 [Gcore CDN 备用链接](https://gcore.jsdelivr.net/gh/JackyXu866/deepvein-idle-helper@v0.12.6/deepvein-balanced-cdn.user.js)）。
 3. 刷新游戏，从右侧工具栏打开“脚本助手”，选好策略和战斗职业，点“开始调度”。
 
 只启用一份助手，只开一个游戏标签页。以后有新版时，油猴会按它自己的设置更新；助手标题旁也会提示，点“安装／更新”后刷新游戏才生效。从上游或旧链接装过的，请用上面的链接重装一次，以后才会从本 fork 更新。
@@ -20,9 +20,9 @@
 | 经验优先 | 按总经验效率选工作，允许技能差距拉大 |
 | 主业经营 | 专做你选的主业（可固定具体工作或怪物），或按收益自动选 |
 | 补精通 | 按“每点精通花多少金币”赚精通点数：补收藏下一档，同时在后台强化刷强化记录 |
-| 只收菜＋蹭世界 Boss | 只收菜补种、参加 Boss、按你在做的工作喝药水，并用游戏自带的“去做任务”完成每日／每周任务（你当前的工作排到队列最前，任务完成后游戏接着做你的队列）；练级和队列由你自己安排 |
+| 只收菜＋蹭世界 Boss | 只收菜补种、参加 Boss、按你在做的工作喝药水，并完成每日／每周任务（含备料）：像游戏的“保留当前任务”一样把你当前的工作排到队列最前，任务完成后游戏接着做你的队列；练级和队列由你自己安排 |
 
-战斗职业（法师、单手／双手战士、短弓／长弓游侠）决定需要战斗时用哪条路线。换策略、主业或职业会暂停调度，游戏里正在做的任务不受影响，点“开始调度”后在任务边界接手。每种策略都会先完成每日任务，再做每周任务（只收菜模式只做材料已备齐的任务，你搁置了队列时不做）。
+战斗职业（法师、单手／双手战士、短弓／长弓游侠）决定需要战斗时用哪条路线。换策略、主业或职业会暂停调度，游戏里正在做的任务不受影响，点“开始调度”后在任务边界接手。每种策略都会先完成每日任务，再做每周任务（只收菜模式在你搁置了队列、或队列没有空位时不做）。
 
 ## 它怎么做决定
 
