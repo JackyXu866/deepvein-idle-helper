@@ -2,9 +2,9 @@
 // fewer ranks than held, so a point is placed once. The work page's points go
 // where the current kind of work gains most per point, measured by the rule
 // that picks that work:
-//  - 补精通: the gold to finish the next collection targets, in collection.js
-//    order (masteryPrice: their work and bank walks at the gold rate, inputs
-//    held fixed);
+//  - 补精通: the gold to earn the points its next targets give, each trial
+//    allocation taking its own cheapest targets (masteryPrice: work and bank
+//    walks at the gold rate, inputs held fixed);
 //  - an income goal: its gold per second (rates.goldRate);
 //  - leveling: the time the measured routes take for their XP, walking
 //    included, plus the gold rarer drops add, as time at the gold rate.
@@ -20,8 +20,10 @@ const CRAFT_SKILLS = ['smithing', 'cooking', 'fletching', 'herblore', 'crafting'
 // Tracks the work page buys: offline time is not time an online helper saves,
 // max HP only keeps a fight safe, enhance belongs to the enhance page.
 export const WORK_TRACKS = ['xp', 'gather', 'craft', 'move', 'maxhit', 'accuracy', 'rare'];
-// The 补精通 targets the points are weighed on: the next ones in its order.
-export const PLAN_TARGETS = 12;
+// 补精通: the points weighed are those of its next PLAN_TARGETS targets; the
+// targets that may supply them, those up to POOL_REACH× the gold per point of
+// the dearest of these (at most POOL_SIZE).
+export const PLAN_TARGETS = 12, POOL_REACH = 3, POOL_SIZE = 60;
 
 // How the account spends its time, from measured routes: gathering, crafting,
 // fighting and walking (bank trips). Without measurements, the current goal's
@@ -89,11 +91,27 @@ export function createMasteryPlan(data, planner) {
     if (goal?.mastery) {
       const units = new Map();
       const price = (ranks, t) => planner.masteryPrice?.(at(ranks), t, style, {rate, units}) ?? Infinity;
-      const base = Object.fromEntries(MASTERY_TRACKS.map(id => [id, p.masteries?.[id] ?? 0]));
-      const targets = (planner.masteryTargets?.(p, style) ?? []).filter(t => !t.forge && Number.isFinite(price(base, t))).slice(0, PLAN_TARGETS);
-      if (targets.length) return {label: `按补精通：接下来 ${targets.length} 个收藏目标花的金币（时间按金币效率折算）最少`,
-        value: ranks => -targets.reduce((n, t) => n + price(ranks, t), 0),
-        change: (before, after) => `这些目标约 ${gold(-before)} → ${gold(-after)} 金币`};
+      // The points the next targets give now; each allocation is judged by the
+      // gold to earn as many, its own cheapest targets first: rare-find can
+      // bring a rarer collection (3-30× the points) into reach, speed a slower
+      // one. Only targets within POOL_REACH of the dearest one taken now can
+      // get there (ranks at most double a speed or the odds).
+      const ranked = (planner.masteryTargets?.(p, style) ?? []).filter(t => !t.forge && t.points > 0 && Number.isFinite(t.gold));
+      const head = ranked.slice(0, PLAN_TARGETS), points = head.reduce((n, t) => n + t.points, 0);
+      if (head.length && points > 0) {
+        const margin = Math.max(...head.map(t => t.gold / t.points));
+        const pool = ranked.filter(t => t.gold / t.points <= margin * POOL_REACH).slice(0, POOL_SIZE);
+        const cost = ranks => {
+          const priced = pool.map(t => ({points: t.points, gold: price(ranks, t)})).filter(x => Number.isFinite(x.gold))
+            .sort((a, b) => a.gold / a.points - b.gold / b.points);
+          let left = points, total = 0;
+          for (const x of priced) { if (left <= 0) break; const take = Math.min(1, left / x.points); total += x.gold * take; left -= x.points * take; }
+          return left > 0 ? Infinity : total;
+        };
+        return {label: `按补精通：攒 ${points.toLocaleString()} 点精通（接下来约 ${head.length} 个收藏目标的量）花的金币最少，每种分配按它自己最便宜的目标算`,
+          value: ranks => -cost(ranks),
+          change: (before, after) => `约 ${gold(-before)} → ${gold(-after)} 金币`};
+      }
     }
     const monster = goal?.monsterId != null ? data.monsters.find(m => m.id === goal.monsterId) : null;
     const job = !monster && goal?.recipeId != null ? data.jobs.find(j => j.id === goal.recipeId) : null;

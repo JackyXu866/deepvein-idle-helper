@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {rarityFactor, shrineBonus} from '../src/planner/rarity.js';
 import {combatDrops, workEstimate} from '../src/planner/estimates.js';
 import {qualityGain, workInputs} from '../src/planner/rates.js';
+import {createMasteryPlan} from '../src/planner/mastery-plan.js';
 import {makePlanner, player} from './helpers.js';
 
 const close = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} vs ${b}`);
@@ -58,6 +59,19 @@ test('a brew or rank is worth the rarer drops it adds, at sale value', () => {
   close(qualityGain(d, planner, p, {job}, .5), 2 * gain, 1e-6);
   // Crafting rolls no quality.
   assert.equal(qualityGain(d, planner, p, {job: d.jobs.find(j => j.inputs.length && !j.grow)}, .25), 0);
+});
+
+test('补精通 counts a rarer collection that rare-find ranks bring within reach', () => {
+  const planner = makePlanner(), p = player(planner, {});
+  // Twelve ordinary targets at 100 gold per point; a rare one outside them at 120.
+  const targets = [...Array.from({length: 12}, (_, i) => ({itemId: i + 1, points: 10, gold: 1000})),
+    {itemId: 99, points: 100, gold: 12000, rare: true}];
+  const stub = {...planner, coinRate: () => 1, masteryTargets: () => targets,
+    masteryPrice: (q, t) => t.rare ? 12000 / (1 + .05 * (q.masteries.rare ?? 0)) : 1000};
+  const goal = createMasteryPlan(planner.data, stub).objective(p, {mastery: targets[0]}, 'melee', null);
+  // At 20 ranks the rare target is the cheapest way to the same 120 points: 6,000 + 2,000.
+  assert.equal(goal.value({rare: 0}), -12000);
+  assert.equal(goal.value({rare: 20}), -8000);
 });
 
 test('补精通 spends points only on what finishes its next collections sooner', () => {
