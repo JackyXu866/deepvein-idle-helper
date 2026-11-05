@@ -550,8 +550,8 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   }
   // The most one bottle of this quality may cost. With a known worth (the
   // coins its hour of effect saves at the gold rate) the gold-as-time payback
-  // rule applies; otherwise 3x base value per effect multiplier.
-  const potionCap=(id,itemId,worth=null)=>(Number.isFinite(worth)&&worth>0?maxPrice(worth):data.items[id].value*3)*
+  // rule applies; with no known worth nothing is bought.
+  const potionCap=(id,itemId,worth=null)=>(Number.isFinite(worth)&&worth>0?maxPrice(worth):0)*
     rarityPower(data,itemId);
   function balancedPotion(p,id,goal,desired,uncovered=[],worth=null) {
     if(!POTIONS.some(potion=>potion.itemId===id)||!valid(desired)||!planner.nearBank(p)||p.route||p.path?.length||

@@ -7,6 +7,7 @@ import {inventoryBudget} from './inventory.js';
 import {goldToSeconds, pays, secondsToGold} from './gold.js';
 import {bankTripSeconds, baseStride, itemName, playerQueued, distance, nearestBank, packCapacity, packUsed, reachableQty} from './items.js';
 import {routeKey} from './keys.js';
+import {professionSkill} from './professions.js';
 
 export function swiftPotion(data,planner,p,plan,window,drinkQty) {
   const itemId=225,next=plan?.intent,route=next??p.route;
@@ -150,8 +151,12 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
     const missing=due.filter(({itemId,desired})=>surplus(itemId)<desired);
     const uncovered=missing.filter(({kind})=>!active(kind)).map(potion=>potion.itemId);
     planner.watchPotions?.(p,missing.map(potion=>potion.itemId));
+    // A bottle held is drunk only when its hour of effect is worth what it
+    // would sell for (stockValue, per unit of effect): else selling it earns more.
+    const worthDrinking=(itemId,worth)=>worth==null||!(worth>=0)||worth*rarityPower(data,itemId)>=(planner.stockValue?.(p,itemId,1)??0);
     for(const {itemId,kind,action,desired,worth,canDrink=true}of due)if(canDrink) {
       const dose=planner.potionDose?.(p,itemId,goal,desired)??ownedDose(itemId,desired);
+      if(dose&&!worthDrinking(dose.itemId,worth)){report('worth',`药水未喝：${itemName(data,dose.itemId)}一小时药效约 ${Math.round(worth)} 金币，不如卖掉`);continue;}
       const qty=useQty(itemId,desired);
       // Recover an expired effect immediately. If it is still active, a known
       // same-kind purchase can complete the 20-hour batch before drinking.
@@ -255,8 +260,10 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
   for(const potion of POTIONS) {
     const {kind}=potion;
     let effect='',worth=null;
-    if((kind==='gatherer'&&job&&!job.inputs.length&&['mining','fishing','woodcutting','thieving'].includes(job.skill))||
-      (kind==='elixir'&&(job||monster))) {
+    // XP is worth something only below the level cap.
+    const xpSkill=job?job.skill:monster?professionSkill(profession):null,xpWorth=xpSkill&&!(lv[xpSkill]>=planner.maxLevel);
+    if(xpWorth&&((kind==='gatherer'&&job&&!job.inputs.length&&['mining','fishing','woodcutting','thieving'].includes(job.skill))||
+      (kind==='elixir'&&(job||monster)))) {
       effect='经验 +10%';worth=worthOf(1-1/1.1);
     } else if(kind==='warrior'&&monster) {
       effect='命中 +10、最大伤害 +10%';worth=worthOf(1-fightSeconds(1,brewPower(data,p,'haste'))/fightSeconds(0,brewPower(data,p,'haste')));
@@ -274,6 +281,7 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
       const gain=qualityGain(data,planner,p,job?{job}:{monster,profession},HUNTER_PER_POWER)*3600;
       effect=`${job?'产物':'掉落物'}的稀有发现 +25%（每小时多得约 ${Math.round(gain).toLocaleString()} 金币的稀有品质）`;
       worth=gain>0?gain:null;
+      if(!(gain>0))effect=''; // no rarer drops to add: not worth a bottle
     }
     if(effect)add(potion,effect,worth);
   }

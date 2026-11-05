@@ -15,6 +15,7 @@ import {GATHER_SKILLS, MASTERY_NAMES_ZH, MASTERY_RANK_LIMIT, MASTERY_TRACKS, mas
 import {ENHANCE_PAGE, ENHANCE_RANK_CAP, WORK_PAGE, hasEnhancePage} from './mastery-pages.js';
 import {combatEstimate, workEstimate} from './estimates.js';
 import {combatStats, goldRate, workInputs} from './rates.js';
+import {professionSkill} from './professions.js';
 
 const CRAFT_SKILLS = ['smithing', 'cooking', 'fletching', 'herblore', 'crafting'];
 // Tracks the work page buys: offline time is not time an online helper saves,
@@ -128,7 +129,9 @@ export function createMasteryPlan(data, planner) {
       const q = at(ranks), lv = planner.levels(q);
       const s = r.monster ? combatEstimate(data, r.monster, combatStats(data, planner, q, profession, q.equipment, lv)).seconds :
         workEstimate(data, r.job, lv[r.job.skill], workInputs(data, planner, q, r.job)).seconds;
-      return s / masteryLift(ranks, 'xp');
+      // The XP track speeds only XP that is worth something: a skill below the cap.
+      const skill = r.monster ? professionSkill(profession) : r.job.skill;
+      return s / (lv[skill] >= planner.maxLevel ? 1 : masteryLift(ranks, 'xp'));
     };
     const base = Object.fromEntries(MASTERY_TRACKS.map(id => [id, p.masteries?.[id] ?? 0]));
     const work = r => ({job: r.job, monster: r.monster, profession});

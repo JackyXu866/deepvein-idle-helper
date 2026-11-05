@@ -2,6 +2,15 @@
 
 版本号由本 fork（[JackyXu866/deepvein-idle-helper](https://github.com/JackyXu866/deepvein-idle-helper)，分支 `modular-rewrite`）维护；v0.8.8 及更早的版本来自上游 [ljyoukong-cpu/deepvein-idle-helper](https://github.com/ljyoukong-cpu/deepvein-idle-helper)。
 
+## v0.13.5 — 2026-11-05
+
+- **药水和精通按值不值钱算**：
+  - 经验药水（采集、全能 +10% 经验）只在技能没满级时喝和买；满级的经验没有价值。
+  - 库存里的药水，一小时药效值的钱不如它的卖价时就不喝，留着卖。
+  - 猎人药剂在当前工作带不来稀有品质时不喝也不买。
+  - 不知道药效值多少钱的药水不再按“底价 3 倍”去买。
+  - 经验精通只算对没满级技能的加速，满级技能的经验不再让它显得值钱。
+
 ## v0.13.4 — 2026-11-05
 
 - **装备和房屋按赚到的钱算准**：
