@@ -65,7 +65,6 @@ export function runPlanning(data,input,inspectOnly=false) {
   // the income table for 'magic' and the plan prices it again for the real style.
   planner.styleHint=input.trainer?.style??planner.styleHint;
   planner.profitFloor=input.settings.profitFloor??0;
-  planner.autoSeedQuality=input.settings.autoSeedQuality!==false;
   planner.automation=input.settings.automation;
   planner.setHousingEnabled(input.settings.autoHousing!==false);
   // The game's own engine (when loaded) calibrates every candidate; real

@@ -132,6 +132,9 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
 
   let quests = [], perks = null;
   try { quests = planner.questOverview?.(p, style, trainer.questDeferred ?? {}) ?? []; } catch { quests = []; }
+  // Town orders, each with the verdict the choice uses (town-orders.js), not in assist mode.
+  let orders = [];
+  try { orders = trainer.mode === 'assist' ? [] : planner.orderOverview?.(p, style, trainer.questDeferred ?? {}) ?? []; } catch { orders = []; }
   try { perks = planner.perkOverview?.(p, goal, style) ?? null; } catch { perks = null; }
 
   return {layer, mode: trainer.mode, profitFloor: planner.profitFloor ?? 0,
@@ -140,9 +143,9 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
     // A level goal is about the skill; its recipe or monster is only the
     // current means of getting there.
     goal: goal ? (goal.itemTarget ? {label: '物品目标', target: null, via: null, reason: goal.reason ?? null} :
-      goal.quest ? {label: `${goal.quest.period === 'daily' ? '每日任务' : '每周任务'} · ${label(goal.quest.monsterId != null ? {monsterId: goal.quest.monsterId} : {recipeId: goal.quest.jobId})}`,
+      goal.quest ? {label: `${goal.quest.period === 'daily' ? '每日任务' : goal.quest.period === 'order' ? '城镇订单' : '每周任务'} · ${label(goal.quest.monsterId != null ? {monsterId: goal.quest.monsterId} : {recipeId: goal.quest.jobId})}`,
         target: null, via: null, reason: goal.reason ?? null} :
       {label: goal.skill ? NAMES[goal.skill] ?? goal.skill : null, target: goal.target ?? null,
         via: running(goal) ? label(running(goal)) : null, reason: goal.reason ?? null}) : null,
-    xpSkill, xpSkillName: xpSkill ? NAMES[xpSkill] ?? xpSkill : null, xpAcross, xpBasis, xpCandidates, goldCandidates, frontier, investments, funding, quests, perks, mastery};
+    xpSkill, xpSkillName: xpSkill ? NAMES[xpSkill] ?? xpSkill : null, xpAcross, xpBasis, xpCandidates, goldCandidates, frontier, investments, funding, quests, orders, perks, mastery};
 }

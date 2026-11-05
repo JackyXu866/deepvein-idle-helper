@@ -37,10 +37,10 @@ export const TRADE_GATE_REFUSALS=new Set(['email-needed','email-changed']);
 // refusal disables the action for a while instead of pausing the helper.
 // Growth modes and their labels (the UI uses the same names).
 export const MODE_LABELS={balanced:'自主发展',experience:'经验优先',business:'主业经营',mastery:'补精通',assist:'只收菜＋蹭世界 Boss'};
-export const SOFT_ACTIONS=new Set(['rerollQuest','goQuest','buyPerk','masteryConfirm','masteryPage','setFallback','plantPref','plotChoice']);
+export const SOFT_ACTIONS=new Set(['rerollQuest','goQuest','contract','buyPerk','masteryConfirm','masteryPage','setFallback','plantPref','plotChoice']);
 // How long a refused or unconfirmed optional action rests: six hours, or one
 // switch cooldown for the mastery page.
-const softRest=(data,t)=>t==='masteryPage'?PAGE_COOLDOWN_TICKS*data.tickMs:t==='goQuest'?600000:6*3600000;
+const softRest=(data,t)=>t==='masteryPage'?PAGE_COOLDOWN_TICKS*data.tickMs:t==='goQuest'||t==='contract'?600000:6*3600000;
 const restText=ms=>ms>=3600000?`${Math.round(ms/3600000)} 小时`:`${Math.round(ms/60000)} 分钟`;
 export const ROUTE_STOPS=new Set(['noMaterials','storageFull','unreachable','levelTooLow','noSuchSite']);
 // Bank, overflow and pack (shared definition in planner/items.js).
@@ -125,6 +125,7 @@ export function acknowledged(before, p, intent, data=null) {
         p.quests?.[period]?.some(q=>q.id===intent.id&&q.claimed===true);
     });
     case 'goQuest': return p.route?.questId===intent.id;
+    case 'contract': return p.coins>before.coins||p.contracts?.done?.includes(intent.slot)===true;
     case 'setAside': return p.held===true&&(p.queue?.length??0)>(before.queue?.length??0);
     case 'startQueued': return p.held!==true&&(!!p.route||(p.queue?.length??0)<(before.queue?.length??0));
     case 'rerollQuest': return before.quests?.day===p.quests?.day&&
@@ -467,6 +468,12 @@ export class Trainer {
         this.compatible=message.protocol===this.data.protocol;
         if (!this.compatible) this.pause('游戏协议版本不匹配');
       }
+      // Today's delivered town orders (town-orders.js), kept on the player.
+      const contracts=message.t==='welcome'?message.contracts:message.t==='contracts'?{day:message.day,done:message.done}:null;
+      if(contracts&&Number.isInteger(contracts.day)&&Array.isArray(contracts.done)) {
+        this.contracts={day:contracts.day,done:contracts.done.filter(Number.isInteger)};
+        if(this.player)this.player={...this.player,contracts:this.contracts};
+      }
       if (message.t==='welcome'||message.t==='snapshot') {
         if (this.awaitingWelcome&&message.t!=='welcome') continue;
         if (!this.awaitingWelcome&&Number.isFinite(this.snapshotTick) && frame.tick<this.snapshotTick) continue;
@@ -499,7 +506,7 @@ export class Trainer {
         this.metrics=this.telemetry.summary();this.planner.setMeasurements?.(this.metrics.rates);
         this.planner.perkUsage=this.metrics.rates;
         this.awaitingWelcome=false;
-        this.player=message.you; this.received=this.now(); this.snapshotTick=frame.tick; this.awaitInitial=false;
+        this.player=this.contracts?{...message.you,contracts:this.contracts}:message.you; this.received=this.now(); this.snapshotTick=frame.tick; this.awaitInitial=false;
         this.planner.enhancementTraining?.observe(this.player);
         this.snapshotSequence++;
         if(this.startAfterClear&&!this.active) {
@@ -886,7 +893,7 @@ export class Trainer {
     if(this.goal?.quest)return true;
     if(!boundary||p.route?.errand||p.raidHeld)return false;
     if(this.mode==='assist'?p.held&&!this.questAside||(p.queue?.length??0)>(p.queueSlots??0):playerQueued(p))return false;
-    const quest=this.planner.questChooseGoal?.(p,this.goal,this.style,this.questDeferred);
+    const quest=this.planner.questChooseGoal?.(p,this.goal,this.style,this.questDeferred,{orders:this.mode!=='assist'});
     if(!quest)return false;
     this.goal=quest;this.goalSince=now;this.log(quest.reason);return true;
   }
@@ -897,7 +904,7 @@ export class Trainer {
   keepPlayerWork(p,goal,plan) {
     const intent=plan.intent,t=intent?.t,quest=goal.quest;
     // A harvest errand keeps the route it interrupts itself.
-    if(this.mode!=='assist'||!quest||!intent||intent.errand)return plan;
+    if(this.mode!=='assist'||!quest||quest.period==='order'||!intent||intent.errand)return plan;
     // A fight first gets the food settings that keep legendary food safe.
     if(t==='fight'||t==='setRoute'&&quest.kind==='kill'){const food=this.combatFoodPlan(p);if(food)return food;}
     const monsterOf=zoneId=>this.data.zones.find(z=>z.id===zoneId)?.monsterId;
@@ -1003,6 +1010,8 @@ export class Trainer {
         // Optional upkeep: an unconfirmed result disables it for a while, never pauses.
         const rest=softRest(this.data,pending.intent.t);
         this.softRefused[pending.intent.t]=now+rest;
+        // An order the game would not take is set aside too, not handed in again and again.
+        if(pending.intent.t==='contract'&&this.goal?.order){this.questDeferred[this.goal.quest.key]=now+rest;this.goal=null;}
         this.pending=null;this.resolution=null;this.plan=null;this.nextAction=now+1000;
         this.log(`${pending.label} 未得到确认；${restText(rest)}内不再尝试，继续当前任务`);
       } else if(pending&&MARKET_ACTIONS.has(pending.intent.t)) {
@@ -1228,7 +1237,7 @@ export class Trainer {
       let proposedGoal=null;
       const questsOpen=!this.goal?.hot&&this.goal?.quest?.period!=='daily'&&
         (this.bankedLoad||!this.planner.taskBoundary||this.planner.taskBoundary(p))&&
-        this.planner.questRead?.(p).some(q=>!q.claimed&&q.remaining>0);
+        (this.planner.questRead?.(p).some(q=>!q.claimed&&q.remaining>0)||this.planner.ordersOpen?.(p));
       if(questsOpen&&!hotActive) {
         // Dailies, then weeklies, are mandatory in every growth mode, including
         // a fixed trade. One quest goal is finished before the next weekly.

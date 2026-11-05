@@ -16,6 +16,7 @@ import {planConsumable} from './consumables.js';
 import {createProgression} from './progression.js';
 import {createSpecialization} from './specialization.js';
 import {createQuests} from './quests.js';
+import {createTownOrders} from './town-orders.js';
 import {createHousing} from './housing.js';
 import {planGatheringSurplus} from './gathering-surplus.js';
 import {perkOverview} from './perks.js';
@@ -294,7 +295,7 @@ export function createPlanner(data) {
   }
   function sowQuality(p,job,stocks,errand) {
     const row=stocks?.find(r=>r.job.id===job.id);
-    if(api.autoSeedQuality===false||!errand?.intent||!row?.herblore)return errand;
+    if(!errand?.intent||!row?.herblore)return errand;
     const plainest=row.sowTier===0;
     if((p.plantPlainest===true)===plainest)return errand;
     const herb=name(job.output.itemId),drop=row.herblore.drops.map(id=>name(id)).join('、');
@@ -1623,6 +1624,14 @@ export function createPlanner(data) {
       const note=preparationNote(p,goal)||goal?.boundaryNote;
       return wait(note?`${reason}；之后：${note}`:reason);
     }
+    // A town order whose pieces are all held is handed in at a depot counter
+    // (town-orders.js); pieces still in the pack are banked first.
+    if(goal?.order) {
+      const o=goal.order,banked=p.bank?.[o.itemId]??0,carried=p.pack.reduce((n,i)=>i.itemId===o.itemId?n+i.qty:n,0);
+      if(banked>=o.qty)return {...bankAction(p,{t:'contract',slot:o.slot},`上交城镇订单 · ${o.qty} × ${name(o.itemId)}`),
+        reason:`报酬 ${o.coins.toLocaleString()} 金币；在仓库柜台从仓库交付`};
+      if(banked+carried>=o.qty)return bankAction(p,{t:'depositItem',itemId:o.itemId,qty:carried},`存入订单物品 · ${name(o.itemId)}`);
+    }
     const result=plan(p,goal,style);
     if(goal&&result?.reason&&!result.blocked&&!result.deferUntilTick)goal.boundaryNote=result.reason;
     return result;
@@ -1842,6 +1851,7 @@ export function createPlanner(data) {
   const growth=createProgression(data,api);
   const specialization=createSpecialization(data,api);
   const quests=createQuests(data,api);
+  const orders=createTownOrders(data,api);
   const housing=createHousing(data,api);
   const investments=createInvestments(data,api);
   const masteryPlan=createMasteryPlan(data,api);
@@ -1877,7 +1887,13 @@ export function createPlanner(data) {
       return (mode==='business'?this.specialistChooseGoal:mode==='experience'?this.chooseGoal:
         this.growthChooseGoal??this.chooseGoal)(p,served,deferred,style,mainTrade,mainJobId,mainMonsterId);
     },
-    questRead:quests.read,questClaim:quests.claim,questChooseGoal:quests.chooseGoal,questCompleted:quests.completed,
+    questRead:quests.read,questClaim:quests.claim,
+    // The side work every mode takes at a task boundary: mandatory quests first,
+    // then a worthwhile town order (not in assist mode: orders={false}).
+    questChooseGoal:(p,baseline,style,deferred={},{orders:withOrders=true}={})=>quests.chooseGoal(p,baseline,style,deferred)??
+      (withOrders?orders.chooseGoal(p,baseline,style,deferred):null),
+    questCompleted:(p,goal)=>goal?.order?orders.completed(p,goal):quests.completed(p,goal),
+    ordersOpen:p=>orders.read(p).some(o=>o.delivered===false),orderOverview:orders.overview,orderRead:orders.read,
     questReroll:quests.reroll,questOverview:quests.overview,
     perkOverview:p=>perkOverview(p),
     investmentOptions:(p,style,goal)=>investments.options(p,style,goal),fundingEnded:(p,goal)=>investments.fundingEnded(p,goal),

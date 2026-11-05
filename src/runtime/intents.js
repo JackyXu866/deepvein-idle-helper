@@ -2,6 +2,7 @@ import {LEGENDARY, autoUsableMaterial} from '../planner/quality.js';
 import {reserveWaitingGoals, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
 import {HOUSE_ACTIONS, validHomePortal} from '../planner/housing.js';
 import {nextPerkCost} from '../planner/perks.js';
+import {townOrders} from '../planner/town-orders.js';
 import {FALLBACK_SKILLS} from '../planner/fallback.js';
 import {onPriceStep} from '../economy/market.js';
 import {baseId, dayTicks, merchantPrice, nearBank, packCapacity, packQty, packUsed} from '../planner/items.js';
@@ -61,6 +62,12 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
     (p.queue?.length??0)<=(p.queueSlots??0)&&['daily','weekly'].some(period=>
       p.quests?.[period==='daily'?'day':'week']===Math.floor(p.lastTick/dayTicks(data)/(period==='daily'?1:7))&&
       p.quests?.[period]?.some(q=>q.id===intent.id&&!q.claimed&&Number.isInteger(q.done)&&q.done<q.goal));
+  // Town order (client: deliver from the bank at a depot counter, once a day per slot).
+  if(intent.t==='contract') {
+    const order=townOrders(data,Math.floor(p.lastTick/dayTicks(data)))[intent.slot];
+    return Object.keys(intent).length===2&&Number.isInteger(intent.slot)&&!!order&&nearBank(data,p)&&
+      (p.bank?.[order.itemId]??0)>=order.qty&&!(p.contracts?.done??[]).includes(intent.slot);
+  }
   if(intent.t==='rerollQuest') {
     // Server rule: once per day, an unstarted and unclaimed daily.
     const day=Math.floor(p.lastTick/dayTicks(data));

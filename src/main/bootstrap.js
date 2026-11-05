@@ -62,9 +62,6 @@ import {itemLabel, packQty} from '../planner/items.js';
   const autoHousingKey='deepvein-auto-housing-v1';
   let autoHousing=true;
   try {autoHousing=localStorage.getItem(autoHousingKey)!=='false';}catch{}
-  const autoSeedQualityKey='deepvein-auto-seed-quality-v1';
-  let autoSeedQuality=true;
-  try {autoSeedQuality=localStorage.getItem(autoSeedQualityKey)!=='false';}catch{}
   function saveFallbackOwned(owned) {
     try {localStorage.setItem(fallbackOwnedKey,JSON.stringify(owned));}
     catch {/* Without it, a helper-set fallback later reads as the player's and is left alone. */}
@@ -86,10 +83,9 @@ import {itemLabel, packQty} from '../planner/items.js';
   catch {procurement=market.configureProcurement();}
   wirePlanner(planner,market,()=>economy,()=>potionRestock);
   const NativeWebSocket=window.WebSocket;
-  let socket=null, panel=null, rendered='', farmingOptions='', mainJobOptions='', mainMonsterOptions='', targetOptions='', targetIdentity='', checking=false, startCheck=0, compatibilityMessage='', pumping=false,nativeBossClick=null;
+  let socket=null, panel=null, rendered='', farmingOptions='', mainJobOptions='', mainMonsterOptions='', checking=false, startCheck=0, compatibilityMessage='', pumping=false,nativeBossClick=null;
   let foregroundSequence=-1,pendingNativeJoin=null;
   const abortNativeBossJoin=()=>{const scope=nativeBossClick;nativeBossClick=null;scope?.abort();};
-  let targetSearch='',targetSelection='';
   const owner=crypto.randomUUID();
   const leaseKey='deepvein-balanced-trainer-lease';
   const styleKey='deepvein-balanced-trainer-profession';
@@ -142,7 +138,7 @@ import {itemLabel, packQty} from '../planner/items.js';
       item:id?{id,bank:p.bank[id]??0,pack:packQty(p,id),overflow:p.overflow?.[id]??0}:null};
   }
   const allowed=new Set([...readOnly,'setRoute','fight','walk','wear','equipFromBank','deposit',
-    'eatAt','eat','drink','chooseFood','foodMaxTier','carryFood','enhance','clearRoute','marketDump','depositItem','dropItem','withdraw','marketBuy','marketSell','marketCancel','vendorBuy','claimQuest','rerollQuest','goQuest','buyPerk','masteryConfirm','masteryPage','setFallback','plantPref','plotChoice','unqueue',
+    'eatAt','eat','drink','chooseFood','foodMaxTier','carryFood','enhance','clearRoute','marketDump','depositItem','dropItem','withdraw','marketBuy','marketSell','marketCancel','vendorBuy','claimQuest','rerollQuest','goQuest','contract','buyPerk','masteryConfirm','masteryPage','setFallback','plantPref','plotChoice','unqueue',
     'setAside','skip','attackWorldBoss','leaveWorldBoss','startQueued','portal',...HOUSE_ACTIONS]);
   function rememberRequest(intent) {
     const list=recentRequests[readOnly.has(intent.t)?'queries':'actions'];
@@ -272,7 +268,7 @@ import {itemLabel, packQty} from '../planner/items.js';
     const url=URL.createObjectURL(new Blob([PLANNING_WORKER_SOURCE],{type:'text/javascript'}));
     try{return new Worker(url);}finally{URL.revokeObjectURL(url);}
   }):null;
-  const planningSettings=()=>({autoSell,capacitySales,sellCrafted,autoFallback,autoSeedQuality,autoHousing,automation,potionRestock,profitFloor,hotFollow:trainer.getHotFollow()});
+  const planningSettings=()=>({autoSell,capacitySales,sellCrafted,autoFallback,autoHousing,automation,potionRestock,profitFloor,hotFollow:trainer.getHotFollow()});
   function planningStorage() {
     return Object.fromEntries(PLANNING_STORAGE_KEYS.map(key=>[key,localStorage.getItem(key)]));
   }
@@ -493,7 +489,7 @@ import {itemLabel, packQty} from '../planner/items.js';
   let automation=normalizeAutomation();
   try {automation=normalizeAutomation(JSON.parse(localStorage.getItem(automationKey)||'{}'));}catch{}
   trainer.boss.setAutomation(automation);planner.automation=automation;
-  planner.autoSeedQuality=autoSeedQuality;planner.setHousingEnabled?.(autoHousing);
+  planner.setHousingEnabled?.(autoHousing);
   try {
     const owned=JSON.parse(localStorage.getItem(fallbackOwnedKey)||'null');
     if(owned&&typeof owned==='object'&&!Array.isArray(owned))
@@ -622,9 +618,9 @@ import {itemLabel, packQty} from '../planner/items.js';
           const frame=JSON.parse(event.data),pending=trainer.pending;
           const welcome=frame.m?.find(message=>message.t==='welcome');
           if(welcome?.you?.id!=null) {
-            let saved=trainer.itemTarget?.playerId===welcome.you.id?trainer.itemTarget:null;
-            if(!saved)try {saved=JSON.parse(sessionStorage.getItem(itemTargetKey+welcome.you.id)||'null');}catch{}
-            trainer.restoreItemTarget(saved?.playerId===welcome.you.id?saved:null);
+            // Item targets were removed from the panel: a saved one is dropped.
+            try {sessionStorage.removeItem(itemTargetKey+welcome.you.id);}catch{}
+            if(trainer.itemTarget)trainer.restoreItemTarget(null);
           }
           bossLoot.observe(frame);
           if(Array.isArray(frame.m)&&frame.m.some(m=>m?.t==='bossAutoJoin'))gameAutoJoin();
@@ -1415,16 +1411,7 @@ import {itemLabel, packQty} from '../planner/items.js';
         margin: 6px 0 6px 8px;
         cursor: pointer;
       }
-      [data-item-target-search] {
-        width: 100%;
-        min-height: 36px;
-        padding: 7px 10px;
-        border: 1px solid var(--edge);
-        border-radius: 5px;
-        background: var(--panel-sunken);
-        color: var(--ink);
-        margin-bottom: 7px;
-      }
+
       :is(button, select, input, summary, a, [role="tab"], [role="tabpanel"]):focus-visible {
         outline: 2px solid var(--brass-bright);
         outline-offset: 2px;
@@ -1741,7 +1728,7 @@ import {itemLabel, packQty} from '../planner/items.js';
             <div class="card">
               <div class="card-heading"><strong>候选比较</strong><span data-plan-basis></span></div>
               <div data-plan-candidates class="plan-scroll"></div>
-              <p class="fine-print">每小时数值已含供料与往返。来源：引擎＝游戏自身引擎按当前角色模拟；实测＝本次运行测得；公式＝估算。★ 为当前选择；优先级更高的每日任务、Boss、物品目标会先执行。</p>
+              <p class="fine-print">每小时数值已含供料与往返。来源：引擎＝游戏自身引擎按当前角色模拟；实测＝本次运行测得；公式＝估算。★ 为当前选择；优先级更高的每日任务、Boss、值得做的城镇订单会先执行。</p>
             </div>
             <div class="card">
               <div class="card-heading"><strong>投资（金币换时间）</strong><span data-plan-funding class="muted"></span></div>
@@ -1751,6 +1738,7 @@ import {itemLabel, packQty} from '../planner/items.js';
             <div class="card">
               <div class="card-heading"><strong>任务与点数</strong></div>
               <div data-plan-quests></div>
+              <div data-plan-orders></div>
               <p data-plan-points class="muted"></p>
             </div>
           </div>
@@ -1797,7 +1785,7 @@ import {itemLabel, packQty} from '../planner/items.js';
                     </fieldset>
                     <label><span>稀有发现也算加成</span><input type="checkbox" data-hot-count-rarity aria-label="稀有发现也算加成"></label>
                     <label><span>剩余不足不切换</span><input type="number" data-hot-min-minutes aria-label="剩余不足不切换分钟数" min="3" max="20" step="1" value="8"> 分钟</label>
-                    <p class="muted setting-note">有加成且在所选职业里就去练，否则练主职业；世界 Boss、队列、物品目标优先。</p>
+                    <p class="muted setting-note">有加成且在所选职业里就去练，否则练主职业；世界 Boss、队列优先。</p>
                     <div data-hot-schedule class="hot-schedule-box">
                       <div class="hot-schedule-title">热门轮换预报</div>
                       <table class="hot-schedule-table">
@@ -1818,24 +1806,7 @@ import {itemLabel, packQty} from '../planner/items.js';
                 <p data-training-policy class="muted"></p>
                 <label>自动设置后备活动<input type="checkbox" data-auto-fallback aria-label="自动设置后备活动"></label>
                 <p class="fine-print">游戏自带的后备活动：计划做完或缺料时自动开始，手动停止、跳过或阵亡后不会启动；用于关闭页面、离线或暂停时不空闲。助手选能供应当前计划的采集，否则选经验最高的采集；你自己设置或清除的后备活动不会被改动。<span data-fallback-status></span></p>
-                <label>按配对品质选种<input type="checkbox" data-auto-seed-quality aria-label="按配对品质选种"></label>
-                <p class="fine-print">炼药的草药和怪物掉落必须同品质才能配。种草药前，助手按缺口切换游戏的“先种普通种子”：缺普通草药（配普通掉落）时打开，缺稀有草药（有同品质掉落等着）时关闭，稀有优先。关闭此项则不改动你的设置。</p>
                 <p class="fine-print">切换成长策略／职业后点击“开始”。开始后断线或本页刷新自动恢复；暂停取消恢复。保持电脑运行和标签页打开。</p>
-              </div>
-            </details>
-            <details data-item-target-details open>
-              <summary>物品目标<span data-item-target-summary class="muted">未设置</span></summary>
-              <div class="detail-content">
-                <input data-item-target-search type="search" aria-label="搜索目标物品" placeholder="搜索物品名称（中文／英文）" autocomplete="off" aria-describedby="item-target-search-results">
-                <p id="item-target-search-results" data-item-target-results class="muted" role="status" hidden></p>
-                <label>目标物品<select data-item-target-item aria-label="目标物品"></select></label>
-                <label>另外获得<input data-item-target-quantity aria-label="另外获得数量" type="number" min="1" max="1000000" step="1" value="100"></label>
-                <p data-item-target-status class="muted" role="status"></p>
-                <div class="buttons">
-                  <button data-item-target-start>开始目标</button>
-                  <button data-item-target-cancel disabled>取消目标</button>
-                </div>
-                <p class="fine-print">仅普通品质；原库存不计，采购计新增，完成继续原策略。顺路收菜不额外补料，种子目标暂停播种；Boss 可能消耗目标食物时暂缓。暂停保留目标，切换策略、主业或职业取消；不接管玩家队列。</p>
               </div>
             </details>
           </div>
@@ -2018,12 +1989,6 @@ import {itemLabel, packQty} from '../planner/items.js';
       try{trainer.clearGameQueue();}catch(error){trainer.log(`清空游戏队列未完成：${error.message}`);}
       render();
     };
-    panel.querySelector('[data-auto-seed-quality]').onchange=event=>{
-      autoSeedQuality=event.currentTarget.checked===true;planner.autoSeedQuality=autoSeedQuality;
-      try {localStorage.setItem(autoSeedQualityKey,String(autoSeedQuality));}
-      catch {trainer.log('选种设置无法保存，刷新后恢复为开启');}
-      render();
-    };
     panel.querySelector('[data-sell-crafted]').onchange=event=>{
       sellCrafted=event.currentTarget.checked===true;economy.setSellCrafted(sellCrafted);
       try {localStorage.setItem(sellCraftedKey,String(sellCrafted));}
@@ -2117,17 +2082,6 @@ import {itemLabel, packQty} from '../planner/items.js';
       placePanel();
     };
     panel.querySelector('[data-start]').onclick=()=>startScheduling();
-    panel.querySelector('[data-item-target-quantity]').value='100';
-    panel.querySelector('[data-item-target-search]').oninput=event=>{targetSearch=event.currentTarget.value.trim().toLowerCase();render();};
-    panel.querySelector('[data-item-target-item]').onchange=event=>{targetSelection=event.currentTarget.value;};
-    panel.querySelector('[data-item-target-start]').onclick=()=>{
-      const select=panel.querySelector('[data-item-target-item]');
-      if(select.disabled||!select.value)return;
-      return startScheduling({itemId:Number(select.value),quantity:Number(panel.querySelector('[data-item-target-quantity]').value)});
-    };
-    panel.querySelector('[data-item-target-cancel]').onclick=()=>{
-      ++startCheck;checking=false;trainer.cancelItemTarget();render();
-    };
     panel.querySelector('[data-pause]').onclick=()=>pauseScheduling();
     panel.querySelector('[data-equipment-details]').ontoggle=()=>{rendered='';render();};
     panel.querySelector('[data-export]').onclick=()=>{
@@ -2723,6 +2677,9 @@ import {itemLabel, packQty} from '../planner/items.js';
       textContent:`${q.period==='daily'?'每日（必做）':'每周'} · ${translateGameText(q.title)} ${q.done}/${q.goal} · ${q.status}`+
         (q.seconds?` 约 ${Math.ceil(q.seconds/60)} 分钟`:'')+(q.buys?' · 含市场补料':'')})):
       [el('p',{className:'muted',textContent:'今天的任务已全部领取'})]);
+    fill('[data-plan-orders]',JSON.stringify(view.orders??[]),()=>(view.orders??[]).map(o=>el('p',{className:'muted',
+      textContent:`城镇订单 · ${o.qty} × ${translateGameText(GAME_DATA.items[o.itemId]?.name??String(o.itemId))} · ${fmt(o.coins)} 金币 · 已有 ${o.held} · ${o.status}`+
+        (o.minutes!=null?`（做这单约 ${o.minutes} 分钟）`:'')})));
     set('[data-plan-funding]',view.funding?`筹资中：${view.funding.label}，目标 ${fmt(view.funding.gold)} 金币，剩 ${view.funding.minutesLeft} 分钟`:'');
     const hours=h=>h>=10?`${Math.round(h)} 小时`:`${h.toFixed(1)} 小时`;
     fill('[data-plan-investments]',JSON.stringify(view.investments),()=>view.investments.length?
@@ -2759,7 +2716,7 @@ import {itemLabel, packQty} from '../planner/items.js';
     if (!panel) return;
     inspectPlanning();
     const p=trainer.player, lv=p?planner.levels(p):null;
-    const itemTarget=trainer.itemTargetStatus(),targetChoices=planner.itemTargetChoices();
+    const itemTarget=trainer.itemTargetStatus();
     const review=p?(background?planningView?.review:economy.review(p,reserveWaitingGoals(trainer.goal,trainer.waitingGoals),trainer.style)):null;
     const metrics=trainer.telemetry.summary();
     const marketText=market.summary();
@@ -2804,7 +2761,7 @@ import {itemLabel, packQty} from '../planner/items.js';
     const equipmentOpen=panel.querySelector('[data-equipment-details]').open;
     const houseText=p?planner.housingStatus(p):'等待房屋状态';
     const hotFollow=trainer.getHotFollow();
-    const signature=JSON.stringify([planningError,updates.state,autoSell,potionRestock,capacitySales,itemTarget,targetChoices,targetSearch,review,metrics,farmText,houseText,farming,preference,choices,marketText,growth,business,mainJobs,trainer.mainJobId,mainMonsters,trainer.mainMonsterId,boss,hot,hotFollow,buffs,quests,activity,equipmentOpen,checking,compatibilityMessage,trainer.style,trainer.mode,trainer.mainTrade,trainer.active,trainer.message,trainer.goal,trainer.plan?.label,trainer.plan?.reason,lv,trainer.history,trainer.blockedReasons,rejections,rejectionsSaved,
+    const signature=JSON.stringify([planningError,updates.state,autoSell,potionRestock,capacitySales,itemTarget,review,metrics,farmText,houseText,farming,preference,choices,marketText,growth,business,mainJobs,trainer.mainJobId,mainMonsters,trainer.mainMonsterId,boss,hot,hotFollow,buffs,quests,activity,equipmentOpen,checking,compatibilityMessage,trainer.style,trainer.mode,trainer.mainTrade,trainer.active,trainer.message,trainer.goal,trainer.plan?.label,trainer.plan?.reason,lv,trainer.history,trainer.blockedReasons,rejections,rejectionsSaved,
       trainer.pausedError,trainer.recovery,p?.fallback??null,trainer.fallbackOwned,autoFallback,sellCrafted]);
     if (signature===rendered) return;
     rendered=signature;
@@ -2817,38 +2774,6 @@ import {itemLabel, packQty} from '../planner/items.js';
     if(updateTab) updateTab.setAttribute('data-has-update',String(!!updates.state.available));
     const trained=planner.trainedSkills(trainer.style);
     panel.querySelector('[data-mode]').value=trainer.mode;
-    const identity=itemTarget?`${itemTarget.playerId}:${itemTarget.itemId}:${itemTarget.quantity}`:'';
-    if(identity!==targetIdentity) {
-      targetIdentity=identity;targetOptions='';
-      if(itemTarget) {
-        targetSelection=String(itemTarget.itemId);
-        panel.querySelector('[data-item-target-quantity]').value=String(itemTarget.quantity);
-      }
-    }
-    const filteredTargets=targetChoices.filter(item=>targetSearch.split(/\s+/).every(word=>`${gameLabel(item.name)} ${item.name}`.toLowerCase().includes(word)));
-    const targetSelect=panel.querySelector('[data-item-target-item]'),targetSignature=JSON.stringify([targetChoices,targetSearch]);
-    if(targetSignature!==targetOptions) {
-      targetOptions=targetSignature;
-      targetSelection=targetSelection||targetSelect.value||String(targetChoices[0]?.itemId??'');
-      targetSelect.replaceChildren();
-      for(const item of filteredTargets) {
-        const option=document.createElement('option');option.value=String(item.itemId);option.textContent=gameLabel(item.name);targetSelect.append(option);
-      }
-      if(!filteredTargets.length) {
-        const option=document.createElement('option');option.value='';option.textContent='没有匹配的物品';targetSelect.append(option);
-      }
-      targetSelect.value=filteredTargets.some(item=>String(item.itemId)===targetSelection)?targetSelection:String(filteredTargets[0]?.itemId??'');
-      targetSelect.disabled=!filteredTargets.length;
-    }
-    panel.querySelector('[data-item-target-results]').hidden=!targetSearch;
-    panel.querySelector('[data-item-target-results]').textContent=filteredTargets.length?`找到 ${filteredTargets.length} 项物品`:'没有匹配的物品，请换个关键词。';
-    panel.querySelector('[data-item-target-summary]').textContent=!itemTarget?'未设置':itemTarget.completed?'已完成':itemTarget.status==='pending'?'待同步':`${itemTarget.gained} / ${itemTarget.quantity}`;
-    panel.querySelector('[data-item-target-status]').textContent=!itemTarget?'指定一件物品，集中准备原料并获得所填数量。':
-      itemTarget.completed?`${gameLabel(itemTarget.name)}：已另外获得 ${itemTarget.gained} / ${itemTarget.quantity} 个。${trainer.active?`已继续${TRAINING_MODE_LABELS[trainer.mode]}。`:'调度已暂停。'}`:
-      itemTarget.status==='pending'?`${gameLabel(itemTarget.name)}：等待最新库存，另外获得 ${itemTarget.quantity} 个；原有库存不计入。`:
-      `${gameLabel(itemTarget.name)}：新增 ${itemTarget.gained} / ${itemTarget.quantity} 个，还差 ${itemTarget.remaining} 个。${trainer.active?'':'已暂停，点击开始调度继续目标。'}`;
-    panel.querySelector('[data-item-target-start]').disabled=checking||!!trainer.recovery||!p||!trainer.compatible||!filteredTargets.length;
-    panel.querySelector('[data-item-target-cancel]').disabled=!itemTarget;
     panel.querySelector('[data-main-trade-controls]').hidden=trainer.mode!=='business';
     panel.querySelector('[data-profit-floor-controls]').hidden=trainer.mode!=='experience';
     const floorInput=panel.querySelector('[data-profit-floor]');
@@ -3013,7 +2938,6 @@ import {itemLabel, packQty} from '../planner/items.js';
     panel.querySelector('[data-capacity-sales]').checked=capacitySales;
     panel.querySelector('[data-sell-crafted]').checked=sellCrafted;
     panel.querySelector('[data-auto-fallback]').checked=autoFallback;
-    panel.querySelector('[data-auto-seed-quality]').checked=autoSeedQuality;
     panel.querySelector('[data-auto-housing]').checked=autoHousing;
     {
       const p=trainer.player,task=p?.fallback?.task;

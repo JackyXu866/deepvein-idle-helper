@@ -67,7 +67,5 @@ test('before planting, the game\'s sowing order is switched to the quality that 
   assert.match(plan.reason, /普通/);
   const set = planner.harvest({...farmer, plantPlainest: true}, null, null, 'melee', true);
   assert.equal(set?.intent?.t, 'setRoute', 'already set: plant straight away');
-  planner.autoSeedQuality = false;
-  assert.equal(planner.harvest(farmer, null, null, 'melee', true)?.intent?.t, 'setRoute', 'switched off: the player\'s setting is left alone');
   void dust;
 });
