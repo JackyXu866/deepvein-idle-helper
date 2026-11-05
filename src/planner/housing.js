@@ -156,8 +156,14 @@ export function createHousing(data,planner) {
       if(!rareGains.has(room.id))rareGains.set(room.id,coinRate>0?qualityGain(data,planner,p,work,rules.bonusPerLevel*room.rate)/coinRate:0);
       return rareGains.get(room.id);};
     const rolling=trained.filter(s=>['mining','fishing','woodcutting','thieving',combat].includes(s)).length;
+    // The lectern serves enhancing: an enhancement project, or a worthwhile
+    // enhancement step on the investment table (it once read a cash budget
+    // that no longer carries enhancements).
+    let enhancing=null;
+    const enhances=()=>enhancing??=!!goal.enhancementProject||
+      (planner.investmentOptions?.(p,style,goal)??[]).some(r=>r.kind==='enhance'&&r.worth);
     const current=room=>room.bonus.skill===skill||skill===combat&&room.bonus.kind==='combatXp'||
-      room.id==='lectern'&&!!goal.enhancement||room.bonus.kind==='rareChance'&&rareGain(room)>0;
+      room.id==='lectern'&&enhances()||room.bonus.kind==='rareChance'&&rareGain(room)>0;
     // Share of the time a room serves, and what one more level gains: speed
     // rooms the time they save (diminishing), the shrine its drops' gold.
     const shareOf=room=>mode==='business'&&current(room)?1:room.bonus.kind==='rareChance'?

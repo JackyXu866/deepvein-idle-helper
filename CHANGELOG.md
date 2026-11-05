@@ -2,6 +2,10 @@
 
 版本号由本 fork（[JackyXu866/deepvein-idle-helper](https://github.com/JackyXu866/deepvein-idle-helper)，分支 `modular-rewrite`）维护；v0.8.8 及更早的版本来自上游 [ljyoukong-cpu/deepvein-idle-helper](https://github.com/ljyoukong-cpu/deepvein-idle-helper)。
 
+## v0.12.11 — 2026-11-05
+
+- **讲台又会升级了**：讲台（强化成功率）以前只在“任务现金预算里带着强化金币”时才算有用；v0.12.7 去掉那套做法后，讲台就再也不会升级。现在只要投资表里有值得做的强化，讲台就和其他设施一样按回本规则投料升级。
+
 ## v0.12.10 — 2026-11-05
 
 - **物品目标的代码一并删除**：v0.12.9 从面板去掉了物品目标，这次把背后的执行、保存、进度条和为它保护目标物品的特殊规则都删掉了（脚本小了约 30 KB）。旧版本存下的物品目标仍会在进游戏时清除。

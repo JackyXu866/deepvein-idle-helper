@@ -208,3 +208,23 @@ test('a trip home with nothing left to do is dropped before entering, and the wo
   assert.match(plan.reason, /取消这次回家/);
   assert.equal(planner.housingRuntime().visit, null);
 });
+
+// Live: the lectern (enhance success) sat at level 8 with stone points to spare:
+// it served only plans whose cash budget carried an enhancement, which no plan
+// does any more. It serves enhancing whenever the investment table has a
+// worthwhile enhancement step.
+test('the lectern is upgraded while an enhancement on the table is worth doing', async () => {
+  const {makePlanner, player} = await import('./helpers.js');
+  const plan = worth => {
+    const planner = makePlanner(), d = planner.data, region = d.houseTravel.region, entrance = d.houseRules.entrance;
+    planner.coinRate = () => 1;
+    planner.setHousingEnabled(true);
+    planner.investmentOptions = () => [{kind: 'enhance', worth, slot: 'weapon'}];
+    const p = player(planner, {x: region.x + 1, y: region.y + 1, path: null, route: null, activity: 'idle', coins: 0,
+      levels: {mining: 50}, houseCells: [entrance, entrance + 1], houseFurniture: {lectern: {cell: entrance + 1, slot: 0}},
+      house: {lectern: 8}, housePoints: {stone: 1e9}, houseUpgrades: {}});
+    return planner.housingPlan(p, {skill: 'mining', target: 51, budget: {coins: 0, items: {}}}, 'melee', 'balanced');
+  };
+  assert.deepEqual(plan(true)?.intent, {t: 'upgradeRoom', room: 'lectern'});
+  assert.equal(plan(false)?.intent?.room, undefined, 'nothing to enhance: the lectern waits');
+});
