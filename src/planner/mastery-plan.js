@@ -3,7 +3,8 @@
 // where the current kind of work gains most per point, measured by the rule
 // that picks that work:
 //  - 补精通: the gold to finish the next collection targets, in collection.js
-//    order (masteryPrice: their time at the gold rate, inputs held fixed);
+//    order (masteryPrice: their work and bank walks at the gold rate, inputs
+//    held fixed);
 //  - an income goal: its gold per second (rates.goldRate);
 //  - leveling: the time the measured routes take for their XP, walking
 //    included, plus the gold rarer drops add, as time at the gold rate.

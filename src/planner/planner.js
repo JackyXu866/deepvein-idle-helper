@@ -6,7 +6,7 @@ import {createInputCost} from './input-cost.js';
 import {combatKey, jobKey} from './keys.js';
 import {combatSafe, combatStats, weaponStyle} from './rates.js';
 import {action, waiting} from './result.js';
-import {RARITY_NAMES, qualityName, baseId, merchantPrice, mountScale, seedVendorPrice, distance, itemLabel, itemName, nearBank as nearBankAt, nearestBank as nearestBankTo, heldIds, ownedQty, packCapacity, packFree, packQty, plusOf, qualityPrefix, rarityOf, withoutItem} from './items.js';
+import {RARITY_NAMES, qualityName, baseId, bankTripSeconds,merchantPrice, mountScale, seedVendorPrice, distance, itemLabel, itemName, nearBank as nearBankAt, nearestBank as nearestBankTo, heldIds, ownedQty, packCapacity, packFree, packQty, plusOf, qualityPrefix, rarityOf, withoutItem} from './items.js';
 import {createCrafting, finishTaskReason} from './crafting.js';
 import {combatSupplies, foodEligible} from './supplies.js';
 import {createStrategy, outscores} from './strategy.js';
@@ -389,7 +389,8 @@ export function createPlanner(data) {
   }
   // The seconds per bonus drop of a job: an action (failures included) over
   // its chance.
-  const bonusSeconds=(p,j)=>{const e=strategy.estimateWork(p,j,levels(p));return e.seconds/Math.max(.01,e.success)/j.bonus.chance;};
+  const bonusSeconds=(p,j)=>{const e=strategy.estimateWork(p,j,levels(p));
+    return (e.seconds+walkPerAction(p,j))/Math.max(.01,e.success)/j.bonus.chance;};
   // Where a bonus drop is got: the fastest unlocked job per drop. need(), the
   // route estimate and the input cost all get bonus drops there.
   function bonusSource(p,id) {
@@ -400,6 +401,17 @@ export function createPlanner(data) {
   // 补精通 prices in gold (collection.js ranks gold per point); time is money,
   // at the gold rate. A collection tier: the time to produce what is missing,
   // its inputs got the cheapest way (input-cost.js).
+  // Walking per action of a job: a round trip to the bank (and 3 ticks there)
+  // per carried load, from the site nearest its bank, at the walking speed
+  // (mount and move mastery, items.baseStride). Gathered output that does not
+  // stack fills the pack; a recipe carries its batch of inputs.
+  function walkPerAction(p,job) {
+    const trip=Math.min(...sites.filter(s=>s.jobIds.includes(job.id)).map(s=>bankTripSeconds(data,p,s)));
+    if(!Number.isFinite(trip))return 0;
+    const load=job.inputs.length?carriedBatch(p,job):data.items[base(job.output.itemId)]?.stackable?Infinity:
+      Math.max(1,Math.floor(packCapacity(p)/job.output.qty));
+    return Number.isFinite(load)?(trip+3*data.tickMs/1000)/load:0;
+  }
   // The mastery plan (mastery-plan.js) prices the same targets under trial
   // ranks: it passes the gold rate and the input costs, held fixed.
   const unitCosts=new WeakMap();
@@ -414,7 +426,7 @@ export function createPlanner(data) {
     // job's at that quality's yield (the input cost does not roll qualities).
     const gathered=id=>{const r=rarity(id);if(!r)return null;
       const times=jobs.filter(j=>j.output.itemId===base(id)&&!j.inputs.length&&open(j)).map(j=>{
-        const e=strategy.estimateWork(p,j,lv);return e.tierOutput?.[r]>0?e.seconds/e.tierOutput[r]:Infinity;});
+        const e=strategy.estimateWork(p,j,lv);return e.tierOutput?.[r]>0?(e.seconds+walkPerAction(p,j))/e.tierOutput[r]:Infinity;});
       return times.length?Math.min(...times):null;};
     const units=unitCosts.get(p),unit=id=>{if(!units.has(id))units.set(id,gathered(id)??api.inputCost.unitSeconds(p,id,1,{style}));return units.get(id);};
     const job=jobs.find(j=>j.output.itemId===t.base&&open(j));
@@ -427,7 +439,8 @@ export function createPlanner(data) {
       const actions=remaining/per,inputs=recipe.inputs.reduce((n,i)=>{
         const qty=i.qty*actions,held=Math.min(qty,api.count(p,i.itemId)),rest=qty-held;
         return n+held*api.stockValue(p,i.itemId,1)+(rest>0?rest*unit(i.itemId)*rate:0);},0);
-      return actions*e.seconds*rate+inputs;
+      // Work and the walks to the bank it needs.
+      return actions*(e.seconds+walkPerAction(p,recipe))*rate+inputs;
     }
     // A monster's drop of this quality, at the one quality factor.
     if(monsters.some(m=>m.drop===t.base))return dropSeconds(p,t.itemId,style)*remaining*rate;

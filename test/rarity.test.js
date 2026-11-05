@@ -73,6 +73,10 @@ test('补精通 spends points only on what finishes its next collections sooner'
   assert.equal(plan.intent.t, 'masteryConfirm');
   const ranks = plan.intent.ranks;
   assert.ok((ranks.gather ?? 0) + (ranks.rare ?? 0) > 0, JSON.stringify(ranks));
-  for (const id of ['xp', 'craft', 'move', 'maxhit', 'accuracy']) assert.equal(ranks[id], undefined, `${id} does not finish a collection`);
+  for (const id of ['xp', 'craft', 'maxhit', 'accuracy']) assert.equal(ranks[id], undefined, `${id} does not finish a collection`);
   assert.match(plan.reason, /按补精通/);
+  // Gathering walks to the bank with each full pack: move speed makes a target cheaper.
+  const t = targets.find(x => x.itemId === ore + 2 * R);
+  const price = move => planner.masteryPrice({...p, masteries: {move}}, t, 'melee', {rate: 50});
+  assert.ok(price(40) < price(0), `${price(40)} vs ${price(0)}`);
 });
