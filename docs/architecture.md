@@ -24,6 +24,70 @@ The game's own client code is never committed. `src/engine/` extracts the game's
 | `ui/` | Native-button helpers for the Boss, the Boss loot log, Chinese labels, update checker |
 | `data/` | Built-in game data (`game-data.json`) and public tables |
 
+## Module index
+
+Every file under `src/` and what it owns. Before writing logic, find the module that already owns it. A new module gets a line here.
+
+**`main/`**
+- `entry.js`: the userscript entry; loads the bootstrap.
+- `bootstrap.js`: page side: the socket wrapper, command sending, panel and settings, lease, run save/restore, Boss handoffs (the 加入 click, the Vein Blessing's `bossAutoJoin`), `deepveinDebug()`.
+
+**`runtime/`**
+- `trainer.js`: the state machine: receives frames, confirms or refuses the pending command, decides the next step (`advance`, `runMastery`), pauses and resumes.
+- `intents.js`: validation of every outgoing command (`validateIntent`).
+- `world-boss.js`: a World Boss round from spawn to resume; the native join capture.
+- `automation-policy.js`: the Boss time window, the skip chance per round, harvest timing.
+- `telemetry.js`: measured rates per route from the game's receipts.
+- `hot-follow.js`: the hot-skill schedule and following it.
+- `util.js`: small shared helpers for the runtime (copy, same, wait/action).
+
+**`worker/`**
+- `entry.js`, `source.js`: the planning Worker and its embedded source.
+- `planning.js`: what crosses between page and Worker, the guard that drops stale results, per-step timings.
+
+**`planner/`**: decisions
+- `planner.js`: builds the planner API; goal planning (`plan`/`planTask`), supply (`need`, `batch`), fights, the gold rate (`incomeRows`, `coinRate`), gear targets, 补精通 prices (`masteryPrice`, `forgeCandidates`, `masteryForge`).
+- `strategy.js`: candidate rating, the route estimate, calibration, the one switch margin (`outscores`).
+- `progression.js`: 自主发展 projects and the level band.
+- `specialization.js`: 主业经营 and income choices.
+- `quests.js`: dailies and weeklies, rerolls. `perks.js`: quest-point perks.
+- `collection.js`: 补精通: collection tiers and forge-log levels, ranked by gold per point.
+- `mastery-pages.js`: the two mastery pages, enhance odds, the page switch.
+- `investment.js`: the investment table (every way to improve each slot); enhancement expected cost; funding.
+- `enhancement.js`: the enhancing step (`planEnhancement`) and the guard against resending an attempt.
+- `gear.js`: slots, what fits, how long a piece is used. `professions.js`: combat professions, weapons, wear requirements.
+- `rates.js`: game-formula inputs for a job or a fight. `estimates.js`: base work and combat estimates from the formulas.
+- `input-cost.js`: make or buy: the cheapest way to get an input, as time.
+- `crafting.js`: what can be made from held stock; batch boundaries (`finishTaskReason`).
+- `inventory.js`: budgets and reserves (`inventoryBudget`, `coinReserve`), the sale review, enhancement quotes and tiers, what a quality item is worth to a levelling plan.
+- `quality.js`: every quality rule (recipes at a quality, holds, what is worth using, sale ratios).
+- `gold.js`: gold as time, the payback test.
+- `items.js`: item ids, stock, pack, map, prices. `levels.js`: the level curve. `keys.js`: measurement keys.
+- `supplies.js`: potions and food: effects, combat supplies. `consumables.js`: when to drink or eat.
+- `farming.js`: crops, harvest yields, herb and crop reserves. `housing.js`: house plots, rooms, fuel, trips home.
+- `gathering-surplus.js`: dropping unwanted gathered output on the spot.
+- `fallback.js`: the game's own fallback activity.
+- `plan-view.js`: the 计划 tab's data (it reads the decisions, never recomputes them).
+- `result.js`: the decision result shape (`action`, `waiting`).
+
+**`economy/`**
+- `market.js`: quotes and the price feed, buying, selling (day-average pricing, batching), the market ledger, the closed-market rule, whether stock is ever sold (`sells`).
+- `market-history.js`: several days of prices and trades per item.
+- `economy.js`: maintenance at task boundaries: the gear step, enhancing and the page switch, sales and deposits.
+- `wiring.js`: connects the planner's market hooks, alike on the page and in the Worker.
+
+**`engine/`**
+- `extract.js`, `analyze.js`, `fingerprints.js`, `prepare.js`: find and extract the game's tick engine from the live client.
+- `runtime.js`: load, smoke-test and run the engine; simulated rates.
+- `mastery-rules.js`: mastery costs and limits. `mastery.js`: which mastery to buy (page 1 by time saved, page 2 enhance only).
+
+**`ui/`**
+- `boss-join.js`: the game's own Boss join and leave controls. `boss-loot.js`: the Boss loot log in chat.
+- `labels-zh.js`: Chinese names from the game's dictionary. `stay-active.js`: keeps a hidden tab from being marked away.
+- `update-checker.js`: the in-panel update check.
+
+**`data/`**: `game-data.json` (built-in game data), `game-data.js` (loader), `public-tables.js` (reading and checking the live client's public tables). **`vendor/`**: `acorn.js` (JS parser for the engine extraction). **`version.js`**: version, build time, release repo and branch.
+
 ## How one decision flows
 
 1. A frame arrives. `trainer.receive` updates the player snapshot, confirms the pending command, and handles refusals: some are soft, some pause.
