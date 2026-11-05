@@ -65,10 +65,6 @@
 - 电脑休眠、关掉页面、服务器维护会中断运行。请遵守游戏的自动化规则。
 - 两个游戏域名的设置互不相通，换域名后要重新开始一次。
 
-## 独立版：世界 Boss 与种菜助手
-
-上游另有一个只做世界 Boss 和收菜的独立脚本（v0.2.2），本 fork 不维护：[安装](https://raw.githubusercontent.com/ljyoukong-cpu/deepvein-idle-helper/main/deepvein-field-boss.user.js) · [CDN](https://gcore.jsdelivr.net/gh/ljyoukong-cpu/deepvein-idle-helper@field-boss-v0.2.2/deepvein-field-boss-cdn.user.js)。不要和综合助手同时启用。
-
 ## 开发
 
 源码在 `src/`（ES 模块），用 esbuild 打包；不要直接改根目录的 `*.user.js` / `*.meta.js`。
@@ -79,8 +75,7 @@ npm run build
 npm test
 ```
 
-- `src/main/entry.js` 是页面入口，`src/worker/entry.js` 是后台规划 Worker（打包后内嵌）。`src/planner/`、`src/economy/`、`src/runtime/`、`src/ui/` 分别是规划、市场、运行时和界面；`src/data/game-data.json` 是内置游戏数据。
-- 共享规则只写一处：物品与时间换算在 `planner/items.js`，品质在 `planner/quality.js`，金币与回本在 `planner/gold.js`，库存保留与强化报价在 `planner/inventory.js`，精通页在 `planner/mastery-pages.js`。
+- 代码结构、一次决策怎么走、共享规则在哪个文件：见 [docs/architecture.md](docs/architecture.md)。每条规则只写一处，新功能直接用它。
 - 发布：`npm version <版本> --no-git-tag-version`，在 [CHANGELOG.md](CHANGELOG.md) 顶部加一节，构建并确认测试全过，提交、打 `v<版本>` 标签，把分支和标签推到 fork。发布地址只在 `scripts/build.mjs` 的 `REPO`、`BRANCH` 设一次。
 - 待办见 [docs/roadmap.md](docs/roadmap.md)。
 
