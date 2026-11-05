@@ -161,6 +161,17 @@ import {itemLabel, packQty} from '../planner/items.js';
     trainer.log('世界 Boss：附近尚未看到 Boss，改点顶部“加入”，由游戏自己补给、赶路、参战并在结束后恢复原任务；助手等本轮结束');
     try {pill.click();} catch { /* The game's handler owns the join from here. */ }
   }
+  // The Vein Blessing's auto-join: the server's bossAutoJoin makes the game run
+  // its own join (supplies, walk, fight, the task back afterwards). This
+  // listener runs before the game's, so its sends pass as the game's own, not
+  // as a player taking over, and the helper waits for the round to end.
+  function gameAutoJoin() {
+    if(!trainer.player)return;
+    abortNativeBossJoin();pendingNativeJoin=null;
+    nativeHandoff={playerId:trainer.player.id,until:Date.now()+20*60000,endedAt:null};
+    trainer.boss.handOff('矿脉祝福：游戏自动参加本轮世界 Boss（补给、赶路、攻击、结束后恢复原任务）');
+    trainer.log('世界 Boss：矿脉祝福自动参加，由游戏补给、赶路、参战并在结束后恢复原任务；助手等本轮结束');
+  }
 
   function afterGameEvent(callback) {
     if(typeof MessageChannel!=='function')return setTimeout(callback,0);
@@ -616,6 +627,7 @@ import {itemLabel, packQty} from '../planner/items.js';
             trainer.restoreItemTarget(saved?.playerId===welcome.you.id?saved:null);
           }
           bossLoot.observe(frame);
+          if(Array.isArray(frame.m)&&frame.m.some(m=>m?.t==='bossAutoJoin'))gameAutoJoin();
           const errors=Array.isArray(frame.m)?frame.m.filter(m=>m.t==='error'):[];
           const context=errors.length&&trainer.player?{active:trainer.active,snapshotTick:trainer.snapshotTick,
             before:diagnosticState(pending?.before??trainer.player,pending?.intent),

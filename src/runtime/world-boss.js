@@ -95,6 +95,9 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
   }
   // The game's own "加入" takes this round (upstream): it supplies, walks,
   // attacks and restores the set-aside work by itself; the helper waits.
+  // The Vein Blessing (client 1.0.1196) makes the game join every Boss itself,
+  // unless switched off in its settings (autoBossOff).
+  const gameAutoJoins=p=>(p?.brews?.blessing??0)>(p?.lastTick??Infinity)&&p.autoBossOff===false;
   function handOff(reason='已交给游戏自己的加入流程'){
     recordResult(reason);
     if(run)ignored=run.round;
@@ -315,6 +318,12 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
     if(external||p.raidHeld)return wait('玩家正在参加世界 Boss，助手不接管也不收菜打断');
     joinWait=null;
     if(!fresh||!boss||ignored===round)return null;
+    // The Vein Blessing joins every Boss by itself (the game's own join, on its
+    // bossAutoJoin message, handed over by the page): one join, the game's.
+    if(gameAutoJoins(p)) {
+      policyReason='矿脉祝福已开启自动参加：由游戏参加每一轮世界 Boss，助手的参战时段与跳过概率不生效；在游戏设置里关闭“自动参加世界首领”可改由助手决定';
+      return null;
+    }
     // The player's time window and per-round skip chance (one draw per round).
     const verdict=policy.boss(key(boss),settings);
     policyReason=verdict==='outside'?`不在设定的参战时段（${settings.bossStart}–${settings.bossEnd}）`:
@@ -384,7 +393,7 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
     retrySkipped(){if(!skipped())return false;ignored=null;return true;},
     queueNativeJoin(){if(run?.stage==='attacking'){run.nativeJoinPending=true;run.attackSent=false;}},
     nativeJoinSent(){if(run?.stage==='attacking'){run.nativeJoinPending=false;run.attackSent=true;run.sentAt=now();}},
-    ownsRun:()=>!!run,handOff,
+    ownsRun:()=>!!run,handOff,gameAutoJoins,
     ownsQueue:p=>run?.expectedQueue&&!run.savedConfirmed?acceptSaved(p):ownQueue(p),
     ownsDeath:value=>lastDeath?.playerId===playerId&&lastDeath.tick===(typeof value==='number'?value:value?.tick),
     status:()=>({participation,name:boss?.name??run?.name??null,active:!!boss&&fresh&&

@@ -161,6 +161,20 @@ test('a best-quality task saved for the Boss may come back at another quality', 
   assert.equal(boss.ownsQueue(saved), true, 'native best banking changed the quality; the save is still ours');
 });
 
+test('the Vein Blessing joins every Boss itself: the helper starts no join of its own', () => {
+  const {boss, you} = setup();
+  rise(boss);
+  const blessed = {...you, route: {jobId: 1, siteId: 1}, brews: {blessing: you.lastTick + 100000}, autoBossOff: false};
+  assert.equal(boss.next(blessed), null, 'the game joins, not the helper');
+  assert.match(boss.status().policyReason, /矿脉祝福/);
+  assert.equal(boss.next({...blessed, autoBossOff: true})?.intent?.t, 'setAside', 'switched off in the game: the helper joins');
+  assert.equal(boss.next({...blessed, brews: {blessing: you.lastTick - 1}})?.intent?.t, 'setAside', 'blessing expired: the helper joins');
+  // The game's join (its bossAutoJoin) is handed over: the helper waits for the round.
+  boss.handOff('矿脉祝福：游戏自动参加本轮世界 Boss');
+  assert.equal(boss.status().phase, 'native');
+  assert.match(boss.next(blessed)?.reason ?? '', /已交给游戏自己的/);
+});
+
 test('a save that finds the route already gone (our own walk replaced it) goes on to the Boss', () => {
   const {boss, you, advance} = setup();
   rise(boss, 1000 + 100000);
