@@ -1,7 +1,8 @@
-import {autoUsableMaterial, pricePerEffect, rarityPower, usableQualities} from '../planner/quality.js';
+import {autoUsableMaterial, buyableItem, pricePerEffect, rarityPower, usableQualities} from '../planner/quality.js';
 import {action, waiting} from '../planner/result.js';
 import {POTIONS, foodEffects, foodHealing} from '../planner/supplies.js';
-import {ENHANCEMENT_MAX, coinReserve, inventoryBudget, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
+import {ENHANCEMENT_MAX, coinReserve, enhanceQuote, inventoryBudget, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
+import {expectedEnhancement} from '../planner/investment.js';
 import {goldToSeconds, maxPrice, pays, secondsToGold} from '../planner/gold.js';
 import {bankTripSeconds, dayTicks as dayTicksOf, playerQueued, distance, itemLabel, itemName, merchantPrice, minListPrice, netProceeds, plusOf, rarityOf, reachableQty, stockQty, tradableBase} from '../planner/items.js';
 import {MARKET_HISTORY_KEY, createMarketHistory} from './market-history.js';
@@ -387,7 +388,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   const tier=id=>rarityOf(data,id);
   const labelOf=id=>itemLabel(data,id);
   const variants=id=>usableQualities(data,id);
-  const purchasable=id=>valid(id)&&autoUsableMaterial(data,id)&&plusOf(data,id)<=ENHANCEMENT_MAX&&
+  const purchasable=id=>valid(id)&&buyableItem(data,id)&&plusOf(data,id)<=ENHANCEMENT_MAX&&
     tradable(planner.base(id))&&(id<data.plusScale||!!planner.equipmentStats(id));
   function configureProcurement(value={}) {
     // Old reserve/hourly preferences migrate to value-based purchasing.
@@ -493,8 +494,9 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     if(equipmentScan?.key!==scanKey)equipmentScan={key:scanKey,startedAt:now()};
     const candidates=ids.flatMap(id=>variants(id).flatMap(quality=>Array.from({length:ENHANCEMENT_MAX+1},(_,plus)=>quality+plus*data.plusScale)));
     scan(p,candidates);
+    // `row.qty` several at the unit price `row.gold` (a breeding plan's lower mounts).
     if(row&&row.gold<=purchaseAllowance(p,goal)) {
-      const result=buy(p,row.id,1,goal,'市场升级装备',`投资表首选：${row.label}，约 ${(row.paid/3600).toFixed(1)} 小时金币，`+
+      const result=buy(p,row.id,row.qty??1,goal,'市场升级装备',`投资表首选：${row.label}，约 ${(row.paid/3600).toFixed(1)} 小时金币，`+
         `使用期内省约 ${(row.saved/3600).toFixed(1)} 小时（效率 +${Math.round(row.gain*100)}%）`,row.gold);
       if(result?.intent?.t==='marketBuy')result.equipmentItemId=row.id;
       if(result)return result;
@@ -650,7 +652,11 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   // One market price per item: the whole market's 7-day average (price feed),
   // else the trades this helper watched over the week. Listings, bids and every
   // valuation (unitValue) read it.
-  const marketPrice=id=>feedRow(id)?.avg??history.tradePrice(id)??null;
+  // A week's average counts only on real turnover: at least about one trade a
+  // day (a handful of trades can say anything: a +2 Bronze pickaxe "averaged"
+  // 232M on three).
+  const MIN_WEEK_VOLUME=7;
+  const marketPrice=id=>{const row=feedRow(id);return (row?.vol>=MIN_WEEK_VOLUME?row.avg:null)??history.tradePrice(id)??null;};
   // Units the market takes a day: the feed's 7-day volume, else what was watched.
   const dailyTurnover=id=>{const v=feedRow(id)?.vol;return v>0?v/7:history.dailyVolume(id);};
   // Sell as a player does: one step under the cheapest competitor, never under
@@ -855,9 +861,9 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   function issued(before,intent,plan=null) {
     select(before);
     if(closed(before)&&['marketBuy','marketSell','marketCancel','marketDump'].includes(intent.t))return false;
-    if(intent.t==='marketBuy'&&!autoUsableMaterial(data,intent.itemId))return false;
+    if(intent.t==='marketBuy'&&!buyableItem(data,intent.itemId))return false;
     const equipmentSale=intent.t==='marketSell'&&plan?.equipmentSale;
-    if(['marketSell','marketDump'].includes(intent.t)&&saleProtectionReason(data,intent.itemId,!!equipmentSale))return false;
+    if(['marketSell','marketDump'].includes(intent.t)&&saleProtectionReason(data,intent.itemId,!!equipmentSale||!!plan?.tradeSale))return false;
     if(equipmentSale) {
       const row=reviewInventory(data,planner,before,equipmentSale.goal,equipmentSale.profession).items.find(i=>i.itemId===intent.itemId);
       const offer=equipmentOffer(before,intent.itemId,intent.qty,quotes.get(intent.itemId));
@@ -904,6 +910,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
       reviewSale:!!cancelled&&reviewOrderId===intent.orderId,
       before:{id:before.id,coins:before.coins,quantity:itemId?quantity(before,itemId):0},filled:0};
     if(plan?.procurement&&intent.t==='marketBuy') {
+      if(plan.trade){const tr=plan.trade;(state.trades??={})[tr.kind==='enhance'?`line:${tr.line}`:`id:${tr.id}`]={...tr,at:now()};}
       purchaseSpent();state.purchases.push({at:now(),cost:intent.price*intent.qty});
       if(!persist()){state.purchases.pop();state.attempt=null;return false;}
       return true;
@@ -967,6 +974,106 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     if(orders.some(o=>!attempt.baselineIds.includes(o.id)&&matching(o,attempt.intent)))return false;
     return !(attempt.intent.t==='marketBuy'&&quantity(p,attempt.intent.itemId)>(attempt.before?.quantity??0));
   }
+  // Trading desk: buy below the market price and resell, or buy, enhance and
+  // resell (enhancing runs beside any work). In the background, like selling:
+  // it never takes the character off its task (buys wait for a natural stop),
+  // ties up at most half the purchase allowance, and runs with 按收益采购 on.
+  // Every opportunity is judged at the one market price (marketPrice) and a
+  // resale as the sale rule sells: 95% of it after tax, a tenth of a day's
+  // turnover at a time. Legendary and protected items are never traded.
+  // A resale over 5x the full cost is no market a trade can count on (a 22-gold
+  // Bronze rod made +2 'selling' for 178M): it is shown, never traded.
+  const TRADE_MARGIN=.1,ENHANCE_MARGIN=.2,RESALE=.95,TRADE_SHARE=.5,ENHANCE_STEPS=10,ANOMALY=5;
+  const resaleNet=(id,qty=1)=>{const m=marketPrice(id);return m>0?netOf(Math.floor(m*RESALE),qty)/qty:0;};
+  const lineOf=id=>id%data.plusScale; // a piece's base and quality, any +N
+  let tradeScan={key:null,rows:[],anomalies:[]};
+  function tradeRows(p) {
+    if(!feed||now()-feed.at>=feedTtl)return [];
+    const key=JSON.stringify([feed.at,p.skills?.enhancing,p.masteries,p.house?.lectern,taxBp]);
+    if(tradeScan.key===key)return tradeScan.rows;
+    const rows=[],anomalies=[],shard=unitValue(p,data.shardId,1);
+    const keep=row=>((row.unit+row.cost)>ANOMALY*row.cost?anomalies:rows).push(row);
+    for(const [text,row]of Object.entries(feed.items)) {
+      const id=Number(text);
+      if(!(row.ask>0)||!(row.askQty>0)||!purchasable(id)||!autoUsableMaterial(data,id)||!saleable(p,id))continue;
+      const daily=dailyTurnover(id),unit=resaleNet(id)-row.ask;
+      if(daily>0&&unit>=row.ask*TRADE_MARGIN)
+        keep({kind:'flip',id,sellId:id,ask:row.ask,qty:Math.min(row.askQty,Math.max(1,Math.floor(daily*LIST_SHARE))),unit,cost:row.ask});
+      if(!planner.equipmentStats(id))continue;
+      const from=plusOf(data,id);
+      for(let k=from+1;k<=Math.min(ENHANCEMENT_MAX,from+ENHANCE_STEPS);k++) {
+        const target=lineOf(id)+k*data.plusScale;
+        if(!(dailyTurnover(target)>0)||!(marketPrice(target)>0))continue;
+        const e=expectedEnhancement(data,planner,p,id,k);
+        if(!Number.isFinite(e.gold))break;
+        const cost=row.ask+e.gold+e.shards*shard,gain=resaleNet(target)-cost;
+        if(gain>=cost*ENHANCE_MARGIN)keep({kind:'enhance',id,sellId:target,ask:row.ask,qty:1,unit:gain,cost,toPlus:k});
+      }
+    }
+    rows.sort((a,b)=>b.unit*b.qty-a.unit*a.qty);anomalies.sort((a,b)=>b.unit-a.unit);
+    tradeScan={key,rows:rows.slice(0,20),anomalies:anomalies.slice(0,10)};
+    return tradeScan.rows;
+  }
+  // Open trades (state.trades, keyed by the bought id for a resale, by the
+  // piece's line for an enhancement): what is held or listed of it is what is left.
+  const tradeHeld=(p,t)=>t.kind==='enhance'?Object.entries(p.bank).filter(([id,n])=>n>0&&lineOf(Number(id))===t.line)
+    .map(([id,n])=>({id:Number(id),n})).sort((a,b)=>plusOf(data,b.id)-plusOf(data,a.id)):
+    (p.bank[t.id]??0)>0?[{id:t.id,n:p.bank[t.id]}]:[];
+  const tradeListed=t=>orders.filter(o=>o.side==='sell'&&(t.kind==='enhance'?lineOf(o.itemId)===t.line:o.itemId===t.id)).reduce((n,o)=>n+o.qtyRemaining,0);
+  function trade(p,goal) {
+    const trades=state.trades??={};
+    for(const [key,t]of Object.entries(trades)) {
+      const left=tradeHeld(p,t).reduce((n,h)=>n+h.n,0)+tradeListed(t);
+      if(left<=0&&now()-t.at>600000){delete trades[key];persist();}
+    }
+    for(const t of Object.values(trades)) {
+      const held=tradeHeld(p,t)[0];
+      if(!held)continue;
+      // An enhancement goes on to its target (a failure restarts from +0; the
+      // expected cost counted it), one step at a time, beside the work.
+      if(t.kind==='enhance'&&plusOf(data,held.id)<t.toPlus) {
+        if(p.enhance)return null;
+        const quote=enhanceQuote(data,planner,p,held.id);
+        if(!(quote.chance>0)||p.coins-coinReserve(planner,p,goal)<quote.gold||quantity(p,data.shardId)<quote.shards){status='倒卖强化：金币或碎片不足，等待';continue;}
+        status=`倒卖强化 ${labelOf(held.id)} → +${t.toPlus}`;
+        return action({t:'enhance',itemId:held.id,toPlus:plusOf(data,held.id)+1,once:true},
+          `倒卖强化 · ${labelOf(held.id)} → +${plusOf(data,held.id)+1}`,`目标 +${t.toPlus} 后按市场价出售`);
+      }
+      // Resell at the sale rule's price, a tenth of a day's turnover at a time.
+      if(hasOrder(held.id)||!slots(p)||(cooldowns.get(held.id)??0)>now())continue;
+      const book=quote(held.id);
+      if(book.waiting)return wait('倒卖：查询卖盘');
+      if(book.fallback)continue;
+      const offer=held.id===planner.base(held.id)?(()=>{const l=listingQuote(p,book,held.id,merchantPrice(data,held.id));
+        return l?{price:l.price,qty:listSize(held.id,held.n)}:null;})():equipmentOffer(p,held.id,held.n,book);
+      if(!offer)continue;
+      const sale=atBank(p,{t:'marketSell',itemId:held.id,qty:Math.min(held.n,offer.qty),price:offer.price},
+        `倒卖出售 · ${labelOf(held.id)} × ${Math.min(held.n,offer.qty)}，单价 ${offer.price}`,false);
+      if(sale.intent)return {...sale,profitSale:true,tradeSale:true};
+    }
+    // A new trade: the best opportunity that fits the capital left, at a stop.
+    if(!procurement?.enabled||state.attempt||!natural(p)||p.enhance)return null;
+    const allowance=purchaseAllowance(p,goal),open=Object.values(trades).reduce((n,t)=>n+t.cost,0);
+    // At most half the allowance in open trades, a fifth in any one.
+    const room=Math.min(allowance*TRADE_SHARE-open,allowance*.2);
+    const row=tradeRows(p).find(r=>r.ask*r.qty<=room&&!trades[r.kind==='enhance'?`line:${lineOf(r.id)}`:`id:${r.id}`]&&
+      (r.kind!=='enhance'||quantity(p,data.shardId)>=expectedEnhancement(data,planner,p,r.id,r.toPlus).shards));
+    if(!row)return null;
+    // A resale lists no lower than 90% of the market price: buy only when no
+    // seller would be left under that after this purchase, or it never sells.
+    if(row.kind==='flip') {
+      const book=quote(row.id);
+      if(book.waiting)return wait('倒卖：核对实时卖盘');
+      if(book.fallback)return null;
+      const floor=Math.ceil(marketPrice(row.id)*FAIR),under=book.asks.filter(a=>a.price<floor).reduce((n,a)=>n+a.qty,0);
+      if(under>row.qty){status=`倒卖：${labelOf(row.id)} 低价卖单共 ${under}，买不完，转卖时会被压价，跳过`;return null;}
+    }
+    const result=buy(p,row.id,row.qty,goal,row.kind==='enhance'?'倒卖：买入后强化':'倒卖：低于市场价买入',
+      row.kind==='enhance'?`买入后强化到 +${row.toPlus}（期望花费含失败重来），按市场价卖出，预计每件赚约 ${Math.round(row.unit)} 金币`:
+        `市场价约 ${marketPrice(row.id)}，挂单卖出预计每件赚约 ${Math.round(row.unit)} 金币（已扣税）`,row.ask);
+    if(!result?.intent||result.intent.t!=='marketBuy')return null;
+    return {...result,trade:{kind:row.kind,id:row.id,line:lineOf(row.id),toPlus:row.toPlus??null,cost:row.cost*row.qty}};
+  }
   function next(p,goal=null,profession='magic') {
     select(p);
     if(closed(p)){status=closedReason(p);return null;}
@@ -1006,7 +1113,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
           order.side==='buy'||needed);
       }
     }
-    return deferredCancel;
+    return deferredCancel??trade(p,goal);
   }
   function setAutoSell(enabled) {
     salesEnabled=enabled===true;
@@ -1049,7 +1156,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   }
   // deepveinDebug(): the store's size and age, and each watched sale item at a glance.
   const historyReport=()=>({...history.summary(),watched:Object.fromEntries(watched.map(id=>[itemName(data,id),history.describe(id)]))});
-  return {runtime,receive,next,sale,purchase,restockPotion,restockIngredient,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setBuyback,setPriceFeed,unitValue,askPrice,closed,sells,saleable,priceFeedAge:()=>feed?now()-feed.at:null,
+  return {runtime,receive,next,sale,purchase,restockPotion,restockIngredient,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setBuyback,setPriceFeed,unitValue,askPrice,closed,sells,saleable,tradeRows,tradeAnomalies:()=>tradeScan.anomalies,priceFeedAge:()=>feed?now()-feed.at:null,
     averagePrice:history.averagePrice,dailyVolume:history.dailyVolume,priceTrend:history.priceTrend,historyReport,
     configureProcurement,equipmentPurchase,foodPurchase,buffFood,potionDose,marketBuyPrice,surplusValue,watchPurchases:scan,
     purchaseAllowance:(p,goal)=>{select(p);return purchaseAllowance(p,goal);}};

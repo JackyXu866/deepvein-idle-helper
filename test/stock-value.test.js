@@ -29,7 +29,7 @@ test('an item is worth the day\'s traded price, however much is held', () => {
   const market = createMarket(d, planner, {autoSell: false, now: () => clock});
   const p = player(planner, {bank: {10: 5000}}); // plain logs: the merchant pays 1
   market.receive({tick: p.lastTick, m: [{t: 'welcome', you: p, orders: []}]});
-  market.setPriceFeed({generatedAt: new Date(clock).toISOString(), items: {10: {lowestSell: 120, sellQty: 50, highestBuy: 20, buyQty: 10, avg7d: 110}}});
+  market.setPriceFeed({generatedAt: new Date(clock).toISOString(), items: {10: {lowestSell: 120, sellQty: 50, highestBuy: 20, buyQty: 10, avg7d: 110, vol7d: 7000}}});
   const value = market.unitValue(p, 10, 1);
   assert.ok(value > 90 && value <= 110, `logs at about the day's 110 after tax: ${value}`);
 });

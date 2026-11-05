@@ -65,7 +65,7 @@ test('thin trading or a tiny spread falls back to the bid', () => {
 test('without trades seen, the price feed\'s 7-day average is the market price', () => {
   const {market, p, item, d} = setup('list', {bids: [{price: 100, qty: 1000}], asks: [{price: 200, qty: 5}], trades: []});
   market.setPriceFeed({generatedAt: new Date(1_000_000).toISOString(),
-    items: {[item]: {lowestSell: 200, sellQty: 5, highestBuy: 100, buyQty: 1000, avg7d: 160}}}, 1_000_000);
+    items: {[item]: {lowestSell: 200, sellQty: 5, highestBuy: 100, buyQty: 1000, avg7d: 160, vol7d: 700}}}, 1_000_000);
   const atBank = {...p, x: d.banks[0].x, y: d.banks[0].y, bank: {[item]: 60}, route: null, path: null};
   const floor = Math.max(1, Math.floor(d.items[item].value * .4));
   const plan = market.sale(atBank, {intent: {t: 'marketDump', itemId: item, qty: 60, floor}, label: 'x', reason: 'y'});
