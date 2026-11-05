@@ -1,4 +1,5 @@
-import {LEGENDARY, autoUsableMaterial} from '../planner/quality.js';
+import {LEGENDARY, autoUsableMaterial, buyableItem} from '../planner/quality.js';
+import {HORSE_ID, VENDOR_MAX, horseVendor, horseVendorPrice, validBreed} from '../planner/mounts.js';
 import {reserveWaitingGoals, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
 import {HOUSE_ACTIONS, validHomePortal} from '../planner/housing.js';
 import {nextPerkCost} from '../planner/perks.js';
@@ -16,8 +17,10 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
   if(planner)planner.styleHint=style;
   // Legendary stock is the player's: never drunk, eaten, traded or dropped.
   // Enhancing worn legendary gear keeps it with the player, so it may run.
-  if(['drink','eat','chooseFood','marketBuy','marketSell','marketDump','dropItem'].includes(intent.t)&&
+  if(['drink','eat','chooseFood','marketSell','marketDump','dropItem'].includes(intent.t)&&
     !autoUsableMaterial(data,intent.itemId))return false;
+  // Legendary gear may be bought, to wear (quality.js buyableItem).
+  if(intent.t==='marketBuy'&&!buyableItem(data,intent.itemId))return false;
   if(intent.t==='foodMaxTier')return Number.isInteger(intent.tier)&&intent.tier>=0&&intent.tier<LEGENDARY;
   if(intent.t==='deposit'||intent.t==='depositItem') {
     if(p.route||p.path?.length||['walking','banking'].includes(p.activity)||p.enhance||
@@ -108,8 +111,13 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
       data.sites.some(s=>s.id===task.siteId&&s.jobIds.includes(job.id))&&task.onFull==='bank'&&task.rarity===0&&
       intent.fallback.onStorageFull===false&&level>=job.levelReq;
   }
-  if(intent.t==='vendorBuy')return intent.itemId===190&&Number.isInteger(intent.qty)&&
-    intent.qty>=1&&intent.qty<=100&&data.items[190]?.value>0;
+  // The merchant: sage seeds, and the common Horse from total level 150; at
+  // most 100 a time.
+  if(intent.t==='vendorBuy')return Object.keys(intent).length===3&&Number.isInteger(intent.qty)&&intent.qty>=1&&intent.qty<=VENDOR_MAX&&
+    (intent.itemId===190&&data.items[190]?.value>0||
+      intent.itemId===HORSE_ID&&!!planner&&horseVendor(data,planner,p)&&p.coins>=intent.qty*horseVendorPrice(data));
+  // Breeding at the storage counter: ten of one quality below legendary per breed.
+  if(intent.t==='breedMounts')return nearBank(data,p)&&!p.enhance&&validBreed(data,p,intent);
   if (['marketDepth','marketBook','marketBuy','marketSell'].includes(intent.t)) {
     const known=Number.isSafeInteger(intent.itemId)&&intent.itemId>0&&
       Object.hasOwn(data.items,baseId(data,intent.itemId));

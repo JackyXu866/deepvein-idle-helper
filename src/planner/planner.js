@@ -22,6 +22,7 @@ import {planGatheringSurplus} from './gathering-surplus.js';
 import {perkOverview} from './perks.js';
 import {chooseFallback} from './fallback.js';
 import {createInvestments, expectedEnhancement} from './investment.js';
+import {mountSupplyStep} from './mounts.js';
 import {slotsFor} from './gear.js';
 import {FORGE_LADDER, createCollectionMastery, forgePoints, forgeReached} from './collection.js';
 import {ENHANCE_PAGE, WORK_PAGE, hasEnhancePage, pageRanks} from './mastery-pages.js';
@@ -1182,7 +1183,7 @@ export function createPlanner(data) {
     // own upgrade step, a hoe step), so a row marked 值得，可做 could sit unbought.
     function gearStep() {
       if(goal.mastery)return null;
-      const slots=[...new Set([...gearSlots(professionSkill(profession)),...Object.keys(data.toolSkills)])];
+      const slots=[...new Set([...gearSlots(professionSkill(profession)),...Object.keys(data.toolSkills),'mount'])];
       for(const slot of slots) {
         const current=p.equipment[slot],best=api.ownedBest(p,profession,goal,slot);
         if(best==null)continue;
@@ -1190,9 +1191,17 @@ export function createPlanner(data) {
         result.reason=`已持有更好的 ${fullName(best)}，换下 ${current!=null?fullName(current):'空位'}：只需一趟仓库，${rarity(best)===LEGENDARY?'传说装备穿上仍归你':'不另外制作或购买'}`;
         return result;
       }
-      for(const row of (api.investmentOptions?.(p,profession,goal)??[]).filter(r=>r.cheapest&&r.source==='市场')) {
+      const picks=(api.investmentOptions?.(p,profession,goal)??[]).filter(r=>r.cheapest);
+      for(const row of picks.filter(r=>r.source==='市场'&&r.kind!=='acquireEnhance')) {
         const market=api.marketEquipment?.(p,goal,profession,{ids:[base(row.id)],row});
         if(market?.intent||market?.marketWaiting)return market;
+      }
+      // A mount the table picked to buy at the merchant, breed, or get and then
+      // enhance: its supply plan (mounts.js), one command at a time; a held
+      // one is enhanced by the enhancing step and put on above once it beats the worn one.
+      for(const row of picks.filter(r=>r.slot==='mount'&&r.source!=='已持有'&&(r.kind==='acquireEnhance'||r.source!=='市场'))) {
+        const step=mountSupplyStep(data,api,p,goal,profession,row.start??row.id,{label:row.label,bankAction,need:row.gold});
+        if(step?.intent||step?.marketWaiting)return step;
       }
       return null;
     }

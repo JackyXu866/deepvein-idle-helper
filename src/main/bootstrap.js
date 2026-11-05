@@ -128,7 +128,7 @@ import {itemLabel, packQty} from '../planner/items.js';
   }
   rejections=readRejections();
   const diagnosticIntent=intent=>Object.fromEntries(Object.entries(intent).filter(([key])=>
-    ['t','id','itemId','jobId','siteId','zoneId','qty','price','floor','orderId','x','y','limit','errand','onFull','worn','toPlus','once','shelf','at','count','raid','index','room','cell','slot','dir'].includes(key)));
+    ['t','id','itemId','jobId','siteId','zoneId','qty','price','floor','orderId','x','y','limit','errand','onFull','worn','toPlus','once','times','shelf','at','count','raid','index','room','cell','slot','dir'].includes(key)));
   function diagnosticState(p,intent) {
     if(!p)return null;
     const id=intent?.itemId;
@@ -138,7 +138,7 @@ import {itemLabel, packQty} from '../planner/items.js';
       item:id?{id,bank:p.bank[id]??0,pack:packQty(p,id),overflow:p.overflow?.[id]??0}:null};
   }
   const allowed=new Set([...readOnly,'setRoute','fight','walk','wear','equipFromBank','deposit',
-    'eatAt','eat','drink','chooseFood','foodMaxTier','carryFood','enhance','clearRoute','marketDump','depositItem','dropItem','withdraw','marketBuy','marketSell','marketCancel','vendorBuy','claimQuest','rerollQuest','goQuest','contract','buyPerk','masteryConfirm','masteryPage','setFallback','plantPref','plotChoice','unqueue',
+    'eatAt','eat','drink','chooseFood','foodMaxTier','carryFood','enhance','clearRoute','marketDump','depositItem','dropItem','withdraw','marketBuy','marketSell','marketCancel','vendorBuy','breedMounts','claimQuest','rerollQuest','goQuest','contract','buyPerk','masteryConfirm','masteryPage','setFallback','plantPref','plotChoice','unqueue',
     'setAside','skip','attackWorldBoss','leaveWorldBoss','startQueued','portal',...HOUSE_ACTIONS]);
   function rememberRequest(intent) {
     const list=recentRequests[readOnly.has(intent.t)?'queries':'actions'];

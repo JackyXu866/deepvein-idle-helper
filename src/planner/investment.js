@@ -4,6 +4,7 @@ import {canWear, professionSkill} from './professions.js';
 import {LEGENDARY, autoUsableMaterial, craftRecipe} from './quality.js';
 import {baseId, baseStride, heldIds, itemLabel, plusOf, rarityOf} from './items.js';
 import {goldToSeconds, incomePayback, payback, pays, secondsToGold} from './gold.js';
+import {isMount, mountSupply} from './mounts.js';
 import {harvestCrops} from './farming.js';
 import {COMBAT_SLOTS, USE_CAP_SECONDS, fitsSlot, shieldless, useSeconds as sharedUseSeconds} from './gear.js';
 export {USE_CAP_SECONDS} from './gear.js';
@@ -16,15 +17,21 @@ const FUNDING_RETRY_SECONDS=6*3600,CACHE_SECONDS=60;
 // A failed attempt resets it to +0, so step k costs (g + (1-s)·E_k)/s, where
 // E_k is the expected cost of rebuilding +k from +0 (client 1.0.1189 odds).
 export function expectedEnhancement(data,planner,p,itemId,toPlus) {
-  const base=itemId%data.plusScale,from=plusOf(data,itemId);
+  return enhancementLadder(data,planner,p,itemId,toPlus)[toPlus]??{gold:0,shards:0};
+}
+// The same expected cost to every +k from the item's +N up to `toMax`, in one
+// pass (index k; below the item's +N, nothing): what the table reads.
+export function enhancementLadder(data,planner,p,itemId,toMax=ENHANCEMENT_MAX) {
+  const base=itemId%data.plusScale,from=plusOf(data,itemId),out=[];
   let gold=0,shards=0,fromGold=0,fromShards=0;
-  for(let k=0;k<toPlus;k++) {
+  for(let k=0;k<toMax;k++) {
     const quote=enhanceQuote(data,planner,p,base+k*data.plusScale),s=quote.chance;
-    if(!(s>0))return {gold:Infinity,shards:Infinity};
+    if(!(s>0)){for(let j=Math.max(k,from)+1;j<=toMax;j++)out[j]={gold:Infinity,shards:Infinity};break;}
     gold+=(quote.gold+(1-s)*gold)/s;shards+=(quote.shards+(1-s)*shards)/s;
     if(k+1===from){fromGold=gold;fromShards=shards;}
+    if(k+1>from)out[k+1]={gold:gold-fromGold,shards:shards-fromShards};
   }
-  return {gold:gold-fromGold,shards:shards-fromShards};
+  return out;
 }
 
 export function createInvestments(data,planner) {
@@ -179,6 +186,12 @@ export function createInvestments(data,planner) {
   // price, as time), less the XP it earns in trained skills at their best rate.
   function acquire(p,id,coinRate) {
     if(planner.count(p,id)>0)return {gold:0,seconds:0,source:'已持有'};
+    // A mount: held lower mounts, the merchant's horse, the market, or bred
+    // from ten of the quality below, whichever is cheapest at each step (mounts.js).
+    if(isMount(data,id)&&!plusOf(data,id)) {
+      const supply=mountSupply(data,planner,p,id,1,coinRate);
+      return Number.isFinite(supply.gold)?{gold:supply.gold,seconds:supply.seconds,source:supply.source,supply}:null;
+    }
     const options=[];
     const original=data.jobs.find(j=>j.output.itemId===baseId(data,id)&&j.inputs.length&&!j.grow);
     const recipe=original&&id<data.plusScale&&(rarityOf(data,id)>0?craftRecipe(data,original,rarityOf(data,id)):original);
@@ -270,8 +283,9 @@ export function createInvestments(data,planner) {
       // piece; it goes back to +0, which the expected cost counts.
       if(current!=null&&plusOf(data,current)<ENHANCEMENT_MAX) {
         let best=null;
+        const ladder=enhancementLadder(data,planner,p,current);
         for(let to=plusOf(data,current)+1;to<=ENHANCEMENT_MAX;to++) {
-          const cost=expectedEnhancement(data,planner,p,current,to),target=current%data.plusScale+to*data.plusScale;
+          const cost=ladder[to],target=current%data.plusScale+to*data.plusScale;
           const after=worth(p,style,ctx,slot,target);
           if(!(after>floor)||!Number.isFinite(cost.gold))continue;
           const gold=cost.gold+cost.shards*shardValue,use=useSeconds(target);
@@ -284,15 +298,43 @@ export function createInvestments(data,planner) {
       }
       // A better copy of the same piece: a higher quality, or the same quality
       // at a higher +N on sale (only copies that beat the worn one survive).
+      // A mount's qualities run to legendary: bought or bred, it is worn
+      // (legendary stays the player's), never sold or used up.
+      const top=slot==='mount'?LEGENDARY:LEGENDARY-1,upTo=from=>Array.from({length:Math.max(0,top+1-from)},(_,i)=>from+i);
       if(current!=null) {
-        const tiers=Array.from({length:Math.max(0,LEGENDARY-rarityOf(data,current))},(_,i)=>rarityOf(data,current)+i);
-        const quality=bestQuality('quality',baseId(data,current),tiers);
+        const quality=bestQuality('quality',baseId(data,current),upTo(rarityOf(data,current)));
         if(quality)rows.push(quality);
       }
       // Another piece wearable now, in its quality with the best net saving.
       const others=data.gear.filter(g=>(current==null||g.itemId!==baseId(data,current))&&fits(g.itemId))
-        .map(g=>bestQuality('tier',g.itemId,[0,1,2,3])).filter(Boolean).sort((a,b)=>b.net-a.net).slice(0,2);
+        .map(g=>bestQuality('tier',g.itemId,upTo(0))).filter(Boolean).sort((a,b)=>b.net-a.net).slice(0,2);
       rows.push(...others);
+      // A mount to get and then enhance, as one option: a held copy (its
+      // highest +N), else +0 the cheapest way (bought, from the merchant, or
+      // bred: acquire), enhanced to the best +k by the expected cost. A
+      // legendary +0 (x5) is slower than an epic +5 (x6.1); +2 beats it.
+      // Enhanced in the bank, it is put on once it beats the worn one (ownedBest).
+      if(slot==='mount') {
+        const wornNow=new Set(Object.values(p.equipment).filter(Number.isFinite));
+        let best=null;
+        for(const g of data.gear.filter(g=>g.slot==='mount'&&fits(g.itemId)))for(const tier of upTo(0)) {
+          const plain=g.itemId+tier*data.rarityScale;
+          const held=heldIds(p).filter(id=>id%data.plusScale===plain&&!wornNow.has(id)).sort((a,b)=>b-a)[0];
+          const start=held??plain,cost=held!=null?{gold:0,seconds:0,source:'已持有'}:acquire(p,plain,coinRate);
+          if(!cost||plusOf(data,start)>=ENHANCEMENT_MAX)continue;
+          const ladder=enhancementLadder(data,planner,p,start);
+          for(let to=plusOf(data,start)+1;to<=ENHANCEMENT_MAX;to++) {
+            const step=ladder[to],target=plain+to*data.plusScale;
+            if(!Number.isFinite(step?.gold)||!(worth(p,style,ctx,slot,target)>floor))continue;
+            const enhanceGold=step.gold+step.shards*shardValue,gold=cost.gold+enhanceGold;
+            const row=priced('acquireEnhance',target,`${cost.source==='已持有'?'强化':`${cost.source} `}${itemLabel(data,start)} → +${to}`,
+              {gold,seconds:cost.seconds,source:cost.source},{start,toPlus:to,acquireGold:Math.round(cost.gold),
+                coins:Math.round(step.gold),shards:Math.ceil(step.shards),supply:cost.supply??null});
+            if(row&&(!best||row.net>best.net))best=row;
+          }
+        }
+        if(best)rows.push(best);
+      }
       if(owned!=null) {
         // Free and one bank trip: put on even when the formulas see no gain
         // (an amulet's luck), as the owned swap does.

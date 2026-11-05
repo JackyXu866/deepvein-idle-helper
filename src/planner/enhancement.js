@@ -126,6 +126,20 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
     const priority=slot==='weapon'?0:data.toolSkills[slot]===currentJob?.skill?1:data.toolSkills[slot]?2:3;
     options.push({itemId,slot,quote,priority,otherCoins,otherShards,net:row?.net??null,toPlus:row?.toPlus??ENHANCEMENT_BASELINE});
   }
+  // A held piece the table picked to enhance before wearing (a mount: a
+  // legendary +0 is slower than the worn epic +5 until +2). It is enhanced in
+  // the bank; the gear step puts it on once it beats the worn one.
+  for(const row of (rowsFor()??[]).filter(r=>r.kind==='acquireEnhance'&&r.source==='已持有'&&r.worth&&r.cheapest)) {
+    const itemId=row.start;
+    if(planner.count(p,itemId)<1||plusOf(data,itemId)>=row.toPlus||goal?.enhancement&&goal.enhancement.itemId!==itemId)continue;
+    const prior=goal?.enhancement,quote=enhanceQuote(data,planner,p,itemId);
+    const otherCoins=Math.max(0,(goal?.budget?.coins??0)-(prior?.itemId===itemId?prior.gold??0:0));
+    const otherShards=Math.max(0,(goal?.budget?.items?.[data.shardId]??0)-(prior?.itemId===itemId?prior.shards??0:0));
+    if(quote.gold>p.coins-otherCoins||quote.shards>planner.count(p,data.shardId)-otherShards) {
+      deferredReason=`${row.label} 值得做，金币或碎片还不够：等待筹资，保留换装和补给预算`;continue;
+    }
+    options.push({itemId,slot:null,quote,priority:4,otherCoins,otherShards,net:row.net,toPlus:row.toPlus});
+  }
   // The table's order (largest net saving first) when it decided; else by slot.
   options.sort((a,b)=>(a.net!=null&&b.net!=null?b.net-a.net:0)||a.priority-b.priority||a.quote.gold-b.quote.gold||a.itemId-b.itemId);
   const chosen=options[0];
@@ -134,7 +148,7 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
   const {itemId,slot,quote,otherCoins,otherShards}=chosen;
   const budget={coins:otherCoins+quote.gold,items:{...goal?.budget?.items,[data.shardId]:otherShards+quote.shards}};
   const enhancement={itemId,slot,toPlus:quote.toPlus,quote,gold:quote.gold,shards:quote.shards};
-  const label=`强化在用装备 · ${itemLabel(data,itemId%data.plusScale)} +${quote.toPlus}`;
+  const label=`${slot?'强化在用装备':'强化仓库装备（变强后换上）'} · ${itemLabel(data,itemId%data.plusScale)} +${quote.toPlus}`;
   const reason=`本次成功率 ${(quote.chance*100).toFixed(0)}%；消耗 ${quote.gold} 金币、${quote.shards} 碎片，获得 ${quote.xp} 强化经验；`+
     (quote.chance<1?'失败会回到 +0；':'')+
     `保留其它计划预算，按投资表强化到 +${chosen.toPlus}；逐级确认，失败回到 +0 后按投资表重新判断是否再试`;
@@ -142,5 +156,5 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
   if(p.coins<budget.coins)return {...result,needs:{itemId:data.coinId,quantity:budget.coins},reason:`准备强化金币：需要 ${budget.coins}，当前 ${p.coins}；${reason}`};
   if(planner.count(p,data.shardId)<budget.items[data.shardId])return {...result,
     needs:{itemId:data.shardId,quantity:budget.items[data.shardId]},reason:`准备强化碎片：需要 ${budget.items[data.shardId]}，当前 ${planner.count(p,data.shardId)}；${reason}`};
-  return {...result,intent:{t:'enhance',itemId,toPlus:quote.toPlus,once:true,worn:slot}};
+  return {...result,intent:{t:'enhance',itemId,toPlus:quote.toPlus,once:true,...(slot?{worn:slot}:{})}};
 }

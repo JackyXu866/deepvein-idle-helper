@@ -25,6 +25,10 @@ export const PAIR_TIERS=[3,2,1,0];
 export function autoUsableMaterial(data,itemId) {
   return rarityOf(data,itemId)<LEGENDARY;
 }
+// What the helper may buy: any usable quality, and a legendary piece of gear
+// to wear (worn, it stays the player's; it is never sold, eaten or used up).
+export const buyableItem=(data,itemId)=>autoUsableMaterial(data,itemId)||
+  data.gear.some(g=>g.itemId===baseId(data,itemId));
 
 // The qualities of one item the helper may use (legendary excluded).
 export const usableQualities=(data,id)=>qualityIds(data,id).filter(q=>autoUsableMaterial(data,q));

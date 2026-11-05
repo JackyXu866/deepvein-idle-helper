@@ -12,6 +12,7 @@ import {hotSkillAt, hotWindows, normalizeHotFollow} from './hot-follow.js';
 import {createWorldBoss} from './world-boss.js';
 import {fallbackKey, fallbackOwnership} from '../planner/fallback.js';
 import {baseId, distance, packQty, playerQueued, shelfQty, stockQty} from '../planner/items.js';
+import {BREED_COUNT, mountsOfQuality} from '../planner/mounts.js';
 
 // State-dependent refusals in the reviewed client sr() message table. Unknown
 // codes remain a stop, not an invitation to replay a command.
@@ -118,6 +119,9 @@ export function acknowledged(before, p, intent, data=null) {
     case 'clearRoute': return p.route===null&&!p.path?.length;
     case 'marketDump': return quantity(before,intent.itemId)-quantity(p,intent.itemId)>=intent.qty && p.coins>before.coins;
     case 'vendorBuy': return quantity(p,intent.itemId)-quantity(before,intent.itemId)>=intent.qty && p.coins<before.coins;
+    // Ten of the quality gone per breed, and one of the next quality more.
+    case 'breedMounts': return !!data&&mountsOfQuality(data,quantity,before,intent.itemId)-mountsOfQuality(data,quantity,p,intent.itemId)>=BREED_COUNT*intent.times&&
+      quantity(p,intent.itemId+data.rarityScale)-quantity(before,intent.itemId+data.rarityScale)>=intent.times;
     case 'claimQuest': return ['daily','weekly'].some(period=>{
       const stamp=period==='daily'?'day':'week';
       return before.quests?.[stamp]===p.quests?.[stamp]&&
@@ -488,7 +492,7 @@ export class Trainer {
             this.market.settled(this.player,this.pending.intent);
             if(this.pending.intent.t==='marketBuy')this.plan=null;
           }
-          if(this.pending.intent.t==='vendorBuy')this.plan=null;
+          if(['vendorBuy','breedMounts'].includes(this.pending.intent.t))this.plan=null;
           // Remember the fallback the helper set: any other one is the player's.
           if(this.pending.intent.t==='setFallback') {
             this.fallbackOwned={...this.fallbackOwned,[this.player.id]:fallbackKey(this.pending.intent.fallback?.task)};
@@ -916,7 +920,7 @@ export class Trainer {
           return this.pauseError('房屋操作结果仍未确认，已暂停以防重复花费；请核对房屋状态后继续');
         if(pending&&!code&&pending.intent.t==='dropItem')
           return this.pauseError('原地丢弃结果仍未确认，已暂停调度以防重复丢弃；游戏当前采集继续');
-        if(pending&&!code&&['enhance','marketDump','vendorBuy','eat','drink'].includes(pending.intent.t)&&
+        if(pending&&!code&&['enhance','marketDump','vendorBuy','breedMounts','eat','drink'].includes(pending.intent.t)&&
           (this.player.coins!==pending.before.coins||quantity(this.player,pending.intent.itemId)!==quantity(pending.before,pending.intent.itemId)||
             pending.intent.t==='eat'&&this.player.hp!==pending.before.hp))
           return this.pauseError('消耗型操作结果不明确，已暂停以防重复消耗');
