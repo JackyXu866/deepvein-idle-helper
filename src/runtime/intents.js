@@ -52,6 +52,12 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
   if(intent.t==='claimQuest')return typeof intent.id==='string'&&['daily','weekly'].some(period=>
     p.quests?.[period==='daily'?'day':'week']===Math.floor(p.lastTick/dayTicks(data)/(period==='daily'?1:7))&&
     p.quests?.[period]?.some(q=>q.id===intent.id&&!q.claimed&&Number.isInteger(q.goal)&&q.goal>0&&Number.isInteger(q.done)&&q.done>=q.goal));
+  // Server rule ($V): an open quest; a route under way is set aside into the
+  // queue, which then may hold one more than its slots.
+  if(intent.t==='goQuest')return typeof intent.id==='string'&&p.route?.questId!==intent.id&&!p.enhance&&
+    (p.queue?.length??0)<=(p.queueSlots??0)&&['daily','weekly'].some(period=>
+      p.quests?.[period==='daily'?'day':'week']===Math.floor(p.lastTick/dayTicks(data)/(period==='daily'?1:7))&&
+      p.quests?.[period]?.some(q=>q.id===intent.id&&!q.claimed&&Number.isInteger(q.done)&&q.done<q.goal));
   if(intent.t==='rerollQuest') {
     // Server rule: once per day, an unstarted and unclaimed daily.
     const day=Math.floor(p.lastTick/dayTicks(data));

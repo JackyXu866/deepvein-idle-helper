@@ -1877,7 +1877,7 @@ export function createPlanner(data) {
       return (mode==='business'?this.specialistChooseGoal:mode==='experience'?this.chooseGoal:
         this.growthChooseGoal??this.chooseGoal)(p,served,deferred,style,mainTrade,mainJobId,mainMonsterId);
     },
-    questRead:quests.read,questClaim:quests.claim,questChooseGoal:quests.chooseGoal,questCompleted:quests.completed,
+    questRead:quests.read,questClaim:quests.claim,questChooseGoal:quests.chooseGoal,questGo:quests.go,questCompleted:quests.completed,
     questReroll:quests.reroll,questOverview:quests.overview,
     perkOverview:p=>perkOverview(p),
     investmentOptions:(p,style,goal)=>investments.options(p,style,goal),fundingEnded:(p,goal)=>investments.fundingEnded(p,goal),

@@ -72,8 +72,10 @@ export function planConsumable(data,planner,p,goal,profession,plan,window=600) {
     report('blocked','药水未喝：当前有强化或等待中的高优先级任务');
     planner.watchPotions?.(p,[]);return null;
   }
-  if(playerQueued(p)) {
-    report('queue','药水未喝：玩家队列或搁置任务优先，等待队列完成');
+  // A queue waiting behind the work under way does not change that work:
+  // potions follow what is running. Only a paused queue with nothing running waits.
+  if(playerQueued(p)&&!(plan?.intent??p.route)) {
+    report('queue','药水未喝：队列已搁置，当前没有在做的工作');
     planner.watchPotions?.(p,[]);return null;
   }
   const next=plan?.intent;

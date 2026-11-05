@@ -142,7 +142,7 @@ import {itemLabel, packQty} from '../planner/items.js';
       item:id?{id,bank:p.bank[id]??0,pack:packQty(p,id),overflow:p.overflow?.[id]??0}:null};
   }
   const allowed=new Set([...readOnly,'setRoute','fight','walk','wear','equipFromBank','deposit',
-    'eatAt','eat','drink','chooseFood','foodMaxTier','carryFood','enhance','clearRoute','marketDump','depositItem','dropItem','withdraw','marketBuy','marketSell','marketCancel','vendorBuy','claimQuest','rerollQuest','buyPerk','masteryConfirm','masteryPage','setFallback','plantPref','plotChoice','unqueue',
+    'eatAt','eat','drink','chooseFood','foodMaxTier','carryFood','enhance','clearRoute','marketDump','depositItem','dropItem','withdraw','marketBuy','marketSell','marketCancel','vendorBuy','claimQuest','rerollQuest','goQuest','buyPerk','masteryConfirm','masteryPage','setFallback','plantPref','plotChoice','unqueue',
     'setAside','skip','attackWorldBoss','leaveWorldBoss','startQueued','portal',...HOUSE_ACTIONS]);
   function rememberRequest(intent) {
     const list=recentRequests[readOnly.has(intent.t)?'queries':'actions'];
@@ -3025,7 +3025,7 @@ import {itemLabel, packQty} from '../planner/items.js';
     }
     panel.querySelector('[data-mode-info]').textContent=modeInfo[trainer.mode];
     panel.querySelector('[data-training-policy]').textContent=trainer.mode==='assist'?
-      '不安排练级、装备、交易或采购任务；不采种、不解锁新作物。每日／每周任务照做，做完恢复你原来的工作；你有队列时不接手。玩家可继续编辑自己的队列，手动操作优先。':
+      '不安排练级、装备、交易或采购任务；不采种、不解锁新作物。每日／每周任务用游戏自带的去做任务完成：你当前的工作排到队列最前，任务完成后游戏接着做你的队列；只做材料已备齐的任务。药水按你正在做的工作喝。玩家可继续编辑自己的队列，手动操作优先。':
       `自动打造换装 · ${autoSell?'比价出售与必要采购':capacitySales?'仅满仓清理普通盈余和淘汰装备 · 必要采购':'不自动出售 · 必要采购'}。常规切换遵守背包／批次边界；世界 Boss 临时参与结束后继续原任务。`;
     for(const selector of ['[data-equipment-details]','[data-economy-details]','[data-market-details]','[data-buffs-details]'])
       panel.querySelector(selector).hidden=trainer.mode==='assist';

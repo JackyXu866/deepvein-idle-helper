@@ -46,24 +46,57 @@ test('补精通 does the daily before its collections', () => {
   assert.equal(t.issued.intent.jobId, 1);
 });
 
-test('assist mode does the daily, then restarts the player\'s own route', () => {
-  const own = {jobId: 7, siteId: 3, limit: 0, onFull: 'bank', phase: 'work'};
-  const {t, close} = setup('assist', own);
-  assert.equal(t.drives(), false, 'before a quest the player drives');
+// Live: the player had their own work and one more job queued; the dailies
+// were never started. The game's goQuest sets the work aside at the front of
+// the queue, runs the quest, then carries on with the queue.
+function assist(planner, extra = {}) {
+  const d = planner.data, now = 1e9, day = Math.floor(1e6 / (86400000 / d.tickMs));
+  const job = d.jobs.find(j => j.skill === 'woodcutting' && !j.inputs.length && j.levelReq <= 60);
+  const cook = d.jobs.find(j => j.skill === 'cooking' && j.inputs.length === 1 && j.levelReq <= 60);
+  const p = player(planner, {levels: {woodcutting: 80, cooking: 80, mining: 80}, lastTick: 1e6,
+    route: {zoneId: null, siteId: 46, jobId: 45, onFull: 'bank', limit: null, phase: 'toWork'},
+    queue: [{kind: 'job', siteId: 23, jobId: 8, onFull: 'bank', limit: null, rarity: 0}], queueSlots: 2, held: false,
+    quests: {day, week: Math.floor(day / 7), rerolled: day,
+      daily: [{id: 'g', kind: 'gather', jobId: job.id, goal: 30, done: 0, claimed: false, reward: {coins: 1, xp: 1, skill: 'woodcutting'}},
+        {id: 'c', kind: 'craft', jobId: cook.id, goal: 15, done: 0, claimed: false, reward: {coins: 1, xp: 1, skill: 'cooking'}}],
+      weekly: []}, ...extra});
+  const t = new Trainer(d, planner, () => {}, () => now);
+  Object.assign(t, {mode: 'assist', style: 'melee', active: true, compatible: true, player: p, autoFallback: false});
+  t.issue = next => { t.plan = next; t.issued = next; };
+  planner.harvestOnly = () => null;
+  return {t, p, job, cook};
+}
+
+test('assist mode starts a quest with the game\'s goQuest, beside the player\'s queue', () => {
+  const planner = makePlanner();
+  planner.trainedSkills = () => planner.data.skills;
+  const {t, p} = assist(planner);
+  const pick = planner.questGo(p, 'melee', {});
+  assert.ok(pick, 'a quest the game can run as it stands');
   t.advance();
-  assert.equal(t.goal?.quest?.period, 'daily');
-  assert.equal(t.drives(), true, 'while the quest runs the helper drives');
-  assert.equal(t.issued.intent.jobId, 26);
-  close();
-  t.advance();
-  assert.equal(t.goal, null);
-  assert.deepEqual([t.issued.intent.t, t.issued.intent.jobId, t.issued.intent.siteId], ['setRoute', 7, 3], 'the player\'s route is back');
-  assert.equal(t.assistResume, null, 'restarted once');
+  assert.equal(t.issued?.intent?.t, 'goQuest', JSON.stringify([t.issued, t.message]));
+  assert.equal(t.drives(), false, 'the player\'s work and queue stay theirs');
 });
 
-test('assist mode leaves a player\'s queue alone', () => {
-  const {t} = setup('assist');
-  t.player.queue = [{jobId: 7}];
-  t.advance();
-  assert.equal(t.goal, null);
+test('potions follow the work under way, whatever is queued behind it', () => {
+  const planner = makePlanner();
+  const {p} = assist(planner, {brews: {}});
+  planner.consumable(p, null, 'melee', null);
+  assert.notEqual(planner.consumableReason()?.key, 'queue', JSON.stringify(planner.consumableReason()));
+  planner.consumable({...p, route: null, held: true}, null, 'melee', null);
+  assert.equal(planner.consumableReason()?.key, 'queue', 'a paused queue with nothing running waits');
+});
+
+test('assist mode leaves a quest whose inputs are missing to the other modes', () => {
+  const planner = makePlanner();
+  planner.trainedSkills = () => planner.data.skills;
+  const {p, cook} = assist(planner);
+  p.quests.daily = p.quests.daily.filter(q => q.id === 'c');
+  p.bank = {...p.bank, [cook.inputs[0].itemId]: 14};
+  assert.equal(planner.questGo(p, 'melee', {}), null, '14 of 15 raw inputs');
+  p.bank[cook.inputs[0].itemId] = 15;
+  assert.equal(planner.questGo(p, 'melee', {})?.intent.id, 'c');
+  // Not while the player has paused their queue, nor while a quest runs.
+  assert.equal(planner.questGo({...p, held: true}, 'melee', {}), null);
+  assert.equal(planner.questGo({...p, route: {...p.route, questId: 'g'}}, 'melee', {}), null);
 });

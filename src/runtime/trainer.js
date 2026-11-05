@@ -37,10 +37,10 @@ export const TRADE_GATE_REFUSALS=new Set(['email-needed','email-changed']);
 // refusal disables the action for a while instead of pausing the helper.
 // Growth modes and their labels (the UI uses the same names).
 export const MODE_LABELS={balanced:'自主发展',experience:'经验优先',business:'主业经营',mastery:'补精通',assist:'只收菜＋蹭世界 Boss'};
-export const SOFT_ACTIONS=new Set(['rerollQuest','buyPerk','masteryConfirm','masteryPage','setFallback','plantPref','plotChoice']);
+export const SOFT_ACTIONS=new Set(['rerollQuest','goQuest','buyPerk','masteryConfirm','masteryPage','setFallback','plantPref','plotChoice']);
 // How long a refused or unconfirmed optional action rests: six hours, or one
 // switch cooldown for the mastery page.
-const softRest=(data,t)=>t==='masteryPage'?PAGE_COOLDOWN_TICKS*data.tickMs:6*3600000;
+const softRest=(data,t)=>t==='masteryPage'?PAGE_COOLDOWN_TICKS*data.tickMs:t==='goQuest'?600000:6*3600000;
 const restText=ms=>ms>=3600000?`${Math.round(ms/3600000)} 小时`:`${Math.round(ms/60000)} 分钟`;
 export const ROUTE_STOPS=new Set(['noMaterials','storageFull','unreachable','levelTooLow','noSuchSite']);
 // Bank, overflow and pack (shared definition in planner/items.js).
@@ -124,6 +124,7 @@ export function acknowledged(before, p, intent, data=null) {
         before.quests?.[period]?.some(q=>q.id===intent.id&&!q.claimed&&q.done>=q.goal)&&
         p.quests?.[period]?.some(q=>q.id===intent.id&&q.claimed===true);
     });
+    case 'goQuest': return p.route?.questId===intent.id;
     case 'rerollQuest': return before.quests?.day===p.quests?.day&&
       before.quests?.daily?.some(q=>q.id===intent.id)===true&&!p.quests?.daily?.some(q=>q.id===intent.id);
     case 'buyPerk': return (p.perks?.[intent.id]??0)>(before.perks?.[intent.id]??0);
@@ -144,7 +145,7 @@ export class Trainer {
     this.data=data; this.planner=planner; this.send=send; this.now=now;
     this.active=false; this.player=null; this.received=0; this.goal=null;
     this.pending=null; this.recentDeposit=null; this.served={}; this.deferred={}; this.questDeferred={}; this.waitingGoals={}; this.blockedReasons={}; this.sequence=0;
-    this.softRefused={}; this.assistResume=null;
+    this.softRefused={};
     // Native fallback activity: on/off, the one the helper set per player, last check.
     this.autoFallback=true; this.fallbackOwned={}; this.fallbackCheckedAt=0;
     // The last error pause (shown on the overview) and whether this copy runs in the Worker.
@@ -222,7 +223,6 @@ export class Trainer {
   // A changed style, mode or main trade starts planning from scratch.
   resetPlans() {
     this.goal=null;this.plan=null;this.served={};this.deferred={};this.questDeferred={};this.waitingGoals={};this.blockedReasons={};
-    this.assistResume=null;
   }
   setMode(mode) {
     if(!Object.hasOwn(MODE_LABELS,mode)||mode===this.mode)return;
@@ -436,9 +436,9 @@ export class Trainer {
       gained,remaining:Math.max(0,g.quantity-gained),completed};
   }
   // The helper drives the character: every mode but assist, and assist while it
-  // runs an item target or a mandatory quest.
+  // runs an item target (its quests are run by the game, beside the player's queue).
   drives() {
-    return this.mode!=='assist'||!!(this.itemTarget&&this.itemTarget.status!=='completed')||!!this.goal?.quest;
+    return this.mode!=='assist'||!!(this.itemTarget&&this.itemTarget.status!=='completed');
   }
   manualAction(intent) {
     this.boss?.manualAction(intent,this.player);
@@ -651,7 +651,7 @@ export class Trainer {
     this.resolution=null;this.progress=null;this.stallCheck=null;this.failures=[];this.bankedLoad=false;
     this.startedAt=this.now(); this.awaitInitial=true;
     this.syncAfter=this.snapshotSequence;
-    this.nextSync=0; this.nextAction=0; this.log(this.mode==='assist'?'已开始辅助收菜、世界 Boss 与每日／每周任务；任务做完后恢复你原来的工作，保留你的队列':
+    this.nextSync=0; this.nextAction=0; this.log(this.mode==='assist'?'已开始辅助收菜、世界 Boss 与每日／每周任务；任务由游戏执行，完成后接着做你的队列':
       this.mode==='mastery'?'已开始补精通：先做每日／每周任务，再按每点金币从最划算的开始，强化记录在后台同时进行；跳过传说品质与种植目标':`已开始收益规划 + ${PROFESSIONS[this.style]}训练`);
   }
   checkCommand(reason,code=null) {
@@ -867,8 +867,9 @@ export class Trainer {
     if(now-this.goalSince<=(this.goal.horizon??600)*1000)return false;
     this.questDeferred[this.goal.quest.key]=now+120000;return true;
   }
-  // 补精通 and assist: is a quest the goal now? Takes one over at a task
-  // boundary (the growth modes pick it inside their own goal loop).
+  // 补精通: is a quest the goal now? Takes one over at a task boundary (the
+  // growth modes pick it inside their own goal loop; assist hands it to the
+  // game's goQuest).
   questTurn(p) {
     const now=this.now(),boundary=this.bankedLoad||this.planner.taskBoundary?.(p);
     if(this.goal?.quest&&boundary&&this.questOver(p,now))this.goal=null;
@@ -876,13 +877,9 @@ export class Trainer {
     if(!boundary||playerQueued(p)||p.route?.errand)return false;
     const quest=this.planner.questChooseGoal?.(p,this.goal,this.style,this.questDeferred);
     if(!quest)return false;
-    // Assist mode hands the character back afterwards: remember the player's route.
-    if(this.mode==='assist'&&!this.assistResume&&p.route&&!p.route.fallback&&p.route.questId==null)
-      this.assistResume=resumeIntent(p,p.route);
     this.goal=quest;this.goalSince=now;this.log(quest.reason);return true;
   }
-  // One goal to its next command: a 补精通 collection, or a quest taken over in
-  // 补精通 or assist mode.
+  // One goal to its next command: a 补精通 collection, or a quest it took over.
   runGoal(p,goal) {
     let plan=this.planner.plan(p,goal,this.style,this.bankedLoad);
     if(goal.quest&&(plan.blocked||plan.deferUntilTick)) {
@@ -1099,11 +1096,13 @@ export class Trainer {
     const reroll=softReady('rerollQuest')&&this.planner.questReroll?.(p,this.style);
     if(reroll?.intent)return this.issue(reroll);
     if(this.mode==='assist') {
-      // Quests too, like every mode; the player's own route is restarted after them.
-      if(this.questTurn(p))return this.runGoal(p,this.goal);
-      if(this.assistResume) {
-        const intent=this.assistResume;this.assistResume=null;
-        return this.issue({intent,label:'任务已做完，恢复你原来的工作',reason:'每日／每周任务做完或暂缓，回到接手前的路线'});
+      // Quests too, like every mode, run by the game's goQuest so the player's
+      // work and queue carry on after it (quests.js go). A fight first gets the
+      // food settings that keep legendary food safe.
+      const quest=softReady('goQuest')&&this.planner.questGo?.(p,this.style,this.questDeferred);
+      if(quest) {
+        const food=quest.goal.quest.kind==='kill'?this.combatFoodPlan(p):null;
+        return this.issue(food??quest);
       }
       this.plan=this.planner.harvestOnly?.(p)??null;
       if(this.plan?.intent)return this.issue(this.plan);
