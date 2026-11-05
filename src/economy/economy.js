@@ -2,7 +2,7 @@ import {professionSkill} from '../planner/professions.js';
 import {finishTaskReason} from '../planner/crafting.js';
 import {secondsToGold} from '../planner/gold.js';
 import {action} from '../planner/result.js';
-import {enhanceQuote, inventoryBudget, planCoins, reviewInventory, setEnhancementBudget} from '../planner/inventory.js';
+import {dropEnhancementGold, inventoryBudget, reviewInventory} from '../planner/inventory.js';
 import {planEnhancement} from '../planner/enhancement.js';
 import {pageStep} from '../planner/mastery-pages.js';
 import {bankTripSeconds, nearestBank, packCapacity, packQty, packUsed} from '../planner/items.js';
@@ -58,13 +58,6 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
   // Coins to keep for the best worthwhile enhancement step (gold as time,
   // planner/investment.js): the plan's own coins plus that step's gold, never
   // the budget that already holds it. The enhancement itself runs in planEnhancement.
-  function investmentBudget(p,goal,style='magic') {
-    if(p.enhance)return null;
-    const row=(planner.investmentOptions?.(p,style,goal)??[]).find(r=>r.kind==='enhance'&&r.cheapest);
-    if(!row)return null;
-    const quote=enhanceQuote(data,planner,p,row.current);
-    return {coins:planCoins(goal)+quote.gold,enhancement:{itemId:row.current,gold:quote.gold,shards:quote.shards}};
-  }
   function maintenance(p,goal,style='magic',mode='balanced',mainTrade='auto',mainJobId=null,mainMonsterId=null) {
     if(mode!=='business'){mainJobId=null;mainMonsterId=null;}
     if(p.id!==lastPlayer||style!==lastStyle||mode!==lastMode||mainTrade!==lastMain||mainJobId!==lastJob||mainMonsterId!==lastMonster){lastGoal=null;investmentGoal=null;gearDeferredUntil=0;recovery=null;lastPlayer=p.id;lastStyle=style;lastMode=mode;lastMain=mainTrade;lastJob=mainJobId;lastMonster=mainMonsterId;}
@@ -138,24 +131,17 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
     if(enhancement?.intent&&!page)return enhancement;
     if(p.route?.errand&&!overflow)return null;
     if(!overflow&&p.coins>=capacity.coins&&finishTaskReason(data,p))return null;
-    if(!overflow&&!upgrading&&!goal?.temporary&&!goal?.developmentFiller&&!goal?.itemTarget&&!goal?.mastery&&planner.professionUpgrade&&p.lastTick>=gearDeferredUntil&&
+    // Assist mode arranges no gear: its quests use what is worn.
+    if(!overflow&&!upgrading&&mode!=='assist'&&!goal?.temporary&&!goal?.developmentFiller&&!goal?.itemTarget&&!goal?.mastery&&planner.professionUpgrade&&p.lastTick>=gearDeferredUntil&&
       (!goal?.development||goal.skill===professionSkill(style))&&
       (mode!=='business'||goal?.mainSkill===professionSkill(style))) {
       const gearPlan=planner.professionUpgrade(p,style,investmentGoal,{growth:goal?!!goal.growth:mode==='balanced',stage:goal?.stage});
       investmentGoal=gearPlan?.investmentGoal??null;
       if(gearPlan?.blocked||gearPlan?.deferUntilTick) {
         gearDeferredUntil=gearPlan.deferUntilTick??p.lastTick+Math.ceil(300000/data.tickMs);
-      } else if(gearPlan) {
-        if(goal?.enhancement&&investmentGoal?.upgrade?.slot===planner.equipmentStats(goal.enhancement.itemId)?.slot)
-          setEnhancementBudget(goal,null);
-        return {...gearPlan,priorityGear:true};
-      }
+      } else if(gearPlan)return {...gearPlan,priorityGear:true};
     }
-    if(goal) {
-      const funding=upgrading||goal.enhancementProject||goal.temporary||goal.developmentFiller||goal.itemTarget||goal.mastery?null:investmentBudget(p,goal,style);
-      if(funding)setEnhancementBudget(goal,funding.enhancement);
-      else if(goal.enhancement&&!goal.enhancementProject)setEnhancementBudget(goal,null);
-    }
+    dropEnhancementGold(goal);
     const inspected=reviewInventory(data,planner,p,protection,style),reserve=inspected.budget;
     const {capacitySale,profitItems,profitSale,rows}=saleRows(goal,inspected,capacity);
     const saleFlags=capacitySale?{capacitySale:true}:profitSale?{profitSale:true}:{};
@@ -225,6 +211,6 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
     if(value) ({lastGoal,lastPlayer,lastStyle,lastMode,lastMain,lastJob,lastMonster,investmentGoal,gearDeferredUntil,recovery}=value);
     return {lastGoal,lastPlayer,lastStyle,lastMode,lastMain,lastJob,lastMonster,investmentGoal,gearDeferredUntil,recovery};
   }
-  return {runtime,maintenance,budget,review,investmentBudget,setAutoSell:enabled=>{autoSell=enabled===true;},
+  return {runtime,maintenance,budget,review,setAutoSell:enabled=>{autoSell=enabled===true;},
     setCapacitySales:enabled=>{capacitySales=enabled===true;},setSellCrafted:enabled=>{sellCrafted=enabled===true;}};
 }

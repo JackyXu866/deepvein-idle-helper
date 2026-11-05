@@ -2,7 +2,6 @@ import {matchesProfessionWeapon, professionSkill, starterWeapon} from './profess
 import {PAIR_TIERS, autoUsableMaterial, craftRecipe, qualityWorth, setsAt} from './quality.js';
 import {combatEstimate, workEstimate} from './estimates.js';
 import {goldToSeconds} from './gold.js';
-import {setEnhancementBudget} from './inventory.js';
 import {harvestCrops} from './farming.js';
 import {combatSafe, combatStats, workInputs} from './rates.js';
 import {buffKey, combatSupplies} from './supplies.js';
@@ -395,11 +394,6 @@ export function createStrategy(data, planner) {
     const coins=note?best.rate.coins:planner.incomeRows?.(p,style).find(r=>r.key===key)?.coins??0;
     const goal={...best,reason:`${note?note+'；':''}滚动 ${horizon/60} 分钟：采购／自备后的总经验约 ${(best.rate.xp*60).toFixed(0)}/分，`+
       `收益约 ${Math.round(coins*3600).toLocaleString()} 金币/时（金币效率表口径，含出售产物）；已计供料与旅行`};
-    const investment=planner.investmentBudget?.(p,goal,style);
-    if (investment) {
-      setEnhancementBudget(goal,investment.enhancement);
-      if (p.coins<investment.coins) goal.reason=`先补足已核算回本的投资 ${investment.coins} 金币；${goal.reason}`;
-    }
     return goal;
   }
   return {chooseGoal,candidates,routeEstimate,estimateWork,combatOptions,calibratedCombat,byFormula,setMeasurements,efficiencyRuntime,supplyCost,horizon,rateSource,

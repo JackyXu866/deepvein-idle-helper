@@ -136,13 +136,14 @@ export function planCoins(goal) {
   if(goal.enhancement&&budget.enhancementGold==null)return 0;
   return Math.max(0,(budget.coins??0)-(budget.enhancementGold??0));
 }
-// The plan's own coins plus this enhancement's gold (none: the step is dropped).
-export function setEnhancementBudget(goal,enhancement) {
-  const own=planCoins(goal);
-  goal.budget??={coins:0,items:{}};
-  goal.budget.coins=own+(enhancement?.gold??0);
-  goal.budget.enhancementGold=enhancement?.gold??0;
-  if(enhancement)goal.enhancement=enhancement;else delete goal.enhancement;
+// A task's cash budget is its own: an improvement it cannot afford is funded by
+// its own goal (investment.js fundingGoal), never carried by whatever task runs.
+// Older builds added an enhancement's gold to every task's budget; a saved
+// goal that still holds it is brought back to its own coins.
+export function dropEnhancementGold(goal) {
+  if(!goal?.enhancement||goal.enhancementProject)return;
+  if(goal.budget){goal.budget.coins=planCoins(goal);delete goal.budget.enhancementGold;}
+  delete goal.enhancement;
 }
 
 export function inventoryBudget(data, planner, p, goal=null,consuming=false) {

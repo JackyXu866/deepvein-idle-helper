@@ -21,16 +21,21 @@ function setup() {
   return {planner, d, p, goal, economy: createEconomy(d, planner, {})};
 }
 
-test('the cash budget holds the enhancement gold once, however often maintenance runs', () => {
-  const {p, goal, economy} = setup();
-  economy.maintenance(p, goal, 'melee', 'balanced');
-  assert.ok(goal.enhancement?.gold > 0, 'an enhancement is budgeted');
-  const once = goal.budget.coins;
-  assert.equal(once, 500 + goal.enhancement.gold);
-  for (let i = 0; i < 5; i++) economy.maintenance(p, goal, 'melee', 'balanced');
-  assert.equal(goal.budget.coins, once);
+// A task's cash budget is its own. An enhancement worth doing but not yet
+// affordable is funded by its own goal (fundingGoal); it used to ride on
+// every task's budget (live: a one-minute cooking daily behind 1,920,000 of
+// gold work), and once grew on every maintenance pass (1,024,020,000 live).
+test('a task never carries an enhancement\'s gold; its own funding goal earns it', () => {
+  for (const mode of ['balanced', 'assist']) {
+    const {p, goal, economy} = setup();
+    const quest = {...goal, development: false, quest: {key: 'daily:x', id: 'x', period: 'daily'}};
+    for (const g of [goal, quest]) {
+      for (let i = 0; i < 3; i++) economy.maintenance(p, g, 'melee', mode);
+      assert.equal(g.budget.coins, 500, mode);
+      assert.equal(g.enhancement, undefined, mode);
+    }
+  }
 });
-
 test('a plan short of cash earns it on the gold-rate job with its sales, not at a coin stall', () => {
   const {planner, d, p} = setup();
   const ore = d.jobs.filter(j => j.skill === 'mining' && j.levelReq <= 55 && !j.inputs.length).sort((a, b) => b.levelReq - a.levelReq)[0];
@@ -65,12 +70,13 @@ test('the gold rate is the gold table\'s top row from the first table on', () =>
   assert.equal(rate, planner.incomeRows(p, 'melee').find(r => r.goldRate).coins);
 });
 
-test('a budget already inflated by the old repeat is brought back to the plan\'s own coins', () => {
+test('a saved budget still holding an enhancement\'s gold is brought back to the plan\'s own coins', () => {
   const {p, goal, economy} = setup();
+  Object.assign(goal, {enhancement: {itemId: p.equipment.weapon, gold: 1000}, budget: {coins: 1500, enhancementGold: 1000, items: {}}});
   economy.maintenance(p, goal, 'melee', 'balanced');
-  const gold = goal.enhancement.gold;
-  goal.budget.coins = 1_024_020_000; // saved by an older build
-  delete goal.budget.enhancementGold;
+  assert.deepEqual([goal.budget.coins, goal.enhancement], [500, undefined]);
+  // Saved by a build that did not record the share (1,024,020,000 live): its own part is unknown, taken as none.
+  Object.assign(goal, {enhancement: {itemId: p.equipment.weapon, gold: 1000}, budget: {coins: 1_024_020_000, items: {}}});
   economy.maintenance(p, goal, 'melee', 'balanced');
-  assert.ok(goal.budget.coins <= 500 + gold, `${goal.budget.coins}`);
+  assert.equal(goal.budget.coins, 0);
 });

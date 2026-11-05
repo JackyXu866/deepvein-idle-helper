@@ -13,7 +13,6 @@ const MARKET_HOOKS={marketSale:'sale',marketPurchase:'purchase',marketOpportunit
 
 export function wirePlanner(planner,market,economy,potionRestock) {
   planner.maintenance=(...args)=>economy().maintenance(...args);
-  planner.investmentBudget=(...args)=>economy().investmentBudget(...args);
   for(const [name,method]of Object.entries(MARKET_HOOKS))planner[name]=(...args)=>market[method](...args);
   planner.restockPotion=(...args)=>potionRestock()?market.restockPotion(...args):null;
   planner.restockIngredient=(...args)=>potionRestock()?market.restockIngredient(...args):null;
