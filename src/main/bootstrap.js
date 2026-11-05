@@ -3025,9 +3025,9 @@ import {itemLabel, packQty} from '../planner/items.js';
     }
     panel.querySelector('[data-mode-info]').textContent=modeInfo[trainer.mode];
     panel.querySelector('[data-training-policy]').textContent=trainer.mode==='assist'?
-      '不安排练级、装备、交易或采购任务；不采种、不解锁新作物。玩家可继续编辑自己的队列，手动操作优先。':
+      '不安排练级、装备、交易或采购任务；不采种、不解锁新作物。每日／每周任务照做，做完恢复你原来的工作；你有队列时不接手。玩家可继续编辑自己的队列，手动操作优先。':
       `自动打造换装 · ${autoSell?'比价出售与必要采购':capacitySales?'仅满仓清理普通盈余和淘汰装备 · 必要采购':'不自动出售 · 必要采购'}。常规切换遵守背包／批次边界；世界 Boss 临时参与结束后继续原任务。`;
-    for(const selector of ['[data-equipment-details]','[data-economy-details]','[data-market-details]','[data-buffs-details]','[data-quests-details]'])
+    for(const selector of ['[data-equipment-details]','[data-economy-details]','[data-market-details]','[data-buffs-details]'])
       panel.querySelector(selector).hidden=trainer.mode==='assist';
     panel.querySelector('[data-more-details]').hidden=trainer.mode==='assist';
     const suppliesAssist=panel.querySelector('[data-supplies-assist]');
@@ -3055,7 +3055,7 @@ import {itemLabel, packQty} from '../planner/items.js';
       `目标：${NAMES[trainer.goal.skill]} · ${trainer.goal.reason??`目标 ${trainer.goal.target} 级`}` :
       trainer.mode==='balanced'?'比较库存、供料、解锁与收入，选择下一项发展计划':
       trainer.mode==='experience'?'比较当前可执行路线的总经验效率，选择下一批工作':
-      trainer.mode==='assist'?'等待合批收菜或世界 Boss；玩家自行安排原队列':
+      trainer.mode==='assist'?'等待合批收菜、世界 Boss 或每日／每周任务；其余时间玩家自行安排原队列':
       trainer.mainTrade!=='auto'?`指定主业：${mainTradeName}${selectedMainJob?` · ${selectedMainJob.name}`:selectedMainMonster?` · ${selectedMainMonster.name}`:''}；准备本业工作和必要供料`:'比较持续收入与市场需求，自动选择主业和必要供料';
     panel.querySelector('[data-activity]').textContent=`当前：${activity}`;
     panel.querySelector('[data-growth]').textContent=growth?

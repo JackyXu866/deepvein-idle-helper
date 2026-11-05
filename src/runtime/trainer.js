@@ -144,7 +144,7 @@ export class Trainer {
     this.data=data; this.planner=planner; this.send=send; this.now=now;
     this.active=false; this.player=null; this.received=0; this.goal=null;
     this.pending=null; this.recentDeposit=null; this.served={}; this.deferred={}; this.questDeferred={}; this.waitingGoals={}; this.blockedReasons={}; this.sequence=0;
-    this.softRefused={};
+    this.softRefused={}; this.assistResume=null;
     // Native fallback activity: on/off, the one the helper set per player, last check.
     this.autoFallback=true; this.fallbackOwned={}; this.fallbackCheckedAt=0;
     // The last error pause (shown on the overview) and whether this copy runs in the Worker.
@@ -222,6 +222,7 @@ export class Trainer {
   // A changed style, mode or main trade starts planning from scratch.
   resetPlans() {
     this.goal=null;this.plan=null;this.served={};this.deferred={};this.questDeferred={};this.waitingGoals={};this.blockedReasons={};
+    this.assistResume=null;
   }
   setMode(mode) {
     if(!Object.hasOwn(MODE_LABELS,mode)||mode===this.mode)return;
@@ -434,9 +435,14 @@ export class Trainer {
     return {...g,name:itemName(this.data,g.itemId),mode:this.mode,
       gained,remaining:Math.max(0,g.quantity-gained),completed};
   }
+  // The helper drives the character: every mode but assist, and assist while it
+  // runs an item target or a mandatory quest.
+  drives() {
+    return this.mode!=='assist'||!!(this.itemTarget&&this.itemTarget.status!=='completed')||!!this.goal?.quest;
+  }
   manualAction(intent) {
     this.boss?.manualAction(intent,this.player);
-    if(this.mode!=='assist'||this.itemTarget&&this.itemTarget.status!=='completed')return this.pause('检测到手动操作，已暂停调度');
+    if(this.drives())return this.pause('检测到手动操作，已暂停调度');
     this.pending=null;this.resolution=null;this.plan=null;
     this.syncAfter=this.snapshotSequence;this.nextSync=0;this.nextAction=this.now()+1500;
     this.log('已让行手动操作；队列由你安排，继续监看收菜与世界 Boss');
@@ -633,7 +639,7 @@ export class Trainer {
   start(preservePreparation=false) {
     if (!this.player||!this.compatible) return this.log('尚未取得兼容的角色状态，请刷新游戏后重试');
     const p=this.player,blocking=p.queue?.length||p.held||p.raidHeld;
-    if ((this.mode!=='assist'||this.itemTarget&&this.itemTarget.status!=='completed')&&blocking&&!this.boss.ownsQueue(p)) {
+    if (this.drives()&&blocking&&!this.boss.ownsQueue(p)) {
       this.queueBlocked=true;
       return this.log(p.queue?.length?`游戏队列里还有 ${p.queue.length} 项：${this.queueSummary()}。为免打乱你的队列，请先在游戏里继续或清除，或点“清空游戏队列”，再开始自动调度`:
         '游戏队列已空，但仍处于搁置状态（游戏不会自动开始）。请在游戏里点继续，或点“清空游戏队列”解除搁置，再开始自动调度');
@@ -645,8 +651,8 @@ export class Trainer {
     this.resolution=null;this.progress=null;this.stallCheck=null;this.failures=[];this.bankedLoad=false;
     this.startedAt=this.now(); this.awaitInitial=true;
     this.syncAfter=this.snapshotSequence;
-    this.nextSync=0; this.nextAction=0; this.log(this.mode==='assist'?'已开始辅助收菜与世界 Boss；保留你的原任务和队列':
-      this.mode==='mastery'?'已开始补精通：按每点金币从最划算的开始，强化记录在后台同时进行；跳过传说品质与种植任务':`已开始收益规划 + ${PROFESSIONS[this.style]}训练`);
+    this.nextSync=0; this.nextAction=0; this.log(this.mode==='assist'?'已开始辅助收菜、世界 Boss 与每日／每周任务；任务做完后恢复你原来的工作，保留你的队列':
+      this.mode==='mastery'?'已开始补精通：先做每日／每周任务，再按每点金币从最划算的开始，强化记录在后台同时进行；跳过传说品质与种植目标':`已开始收益规划 + ${PROFESSIONS[this.style]}训练`);
   }
   checkCommand(reason,code=null) {
     if(this.resolution)return;
@@ -836,6 +842,7 @@ export class Trainer {
   // goal stays until the server's collection count reaches it.
   runMastery(p) {
     if(p.route?.errand){this.message='完成本次收获补种后继续补精通';return;}
+    if(this.questTurn(p))return this.runGoal(p,this.goal);
     if(this.goal?.mastery&&this.planner.masterySkipped(this.goal)) {
       this.log('补精通跳过种植与传说项，继续本轮下一项');this.goal=null;
     }
@@ -850,16 +857,49 @@ export class Trainer {
       if(forge?.intent)return this.issue(forge);
       this.plan=null;this.message=this.planner.masteryStatus(p,this.style);return;
     }
+    this.runGoal(p,goal);
+  }
+  // Mandatory quests, one rule in every mode: dailies, then weeklies, chosen by
+  // questChooseGoal at a task boundary. A quest goal ends when done, or past its
+  // horizon (then set aside two minutes so the others get a turn).
+  questOver(p,now=this.now()) {
+    if(this.planner.questCompleted(p,this.goal))return true;
+    if(now-this.goalSince<=(this.goal.horizon??600)*1000)return false;
+    this.questDeferred[this.goal.quest.key]=now+120000;return true;
+  }
+  // 补精通 and assist: is a quest the goal now? Takes one over at a task
+  // boundary (the growth modes pick it inside their own goal loop).
+  questTurn(p) {
+    const now=this.now(),boundary=this.bankedLoad||this.planner.taskBoundary?.(p);
+    if(this.goal?.quest&&boundary&&this.questOver(p,now))this.goal=null;
+    if(this.goal?.quest)return true;
+    if(!boundary||playerQueued(p)||p.route?.errand)return false;
+    const quest=this.planner.questChooseGoal?.(p,this.goal,this.style,this.questDeferred);
+    if(!quest)return false;
+    // Assist mode hands the character back afterwards: remember the player's route.
+    if(this.mode==='assist'&&!this.assistResume&&p.route&&!p.route.fallback&&p.route.questId==null)
+      this.assistResume=resumeIntent(p,p.route);
+    this.goal=quest;this.goalSince=now;this.log(quest.reason);return true;
+  }
+  // One goal to its next command: a 补精通 collection, or a quest taken over in
+  // 补精通 or assist mode.
+  runGoal(p,goal) {
     let plan=this.planner.plan(p,goal,this.style,this.bankedLoad);
+    if(goal.quest&&(plan.blocked||plan.deferUntilTick)) {
+      const now=this.now();
+      this.questDeferred[goal.quest.key]=plan.deferUntilTick?
+        now+Math.max(1000,(plan.deferUntilTick-p.lastTick)*this.data.tickMs):now+120000;
+      this.log(plan.reason);this.goal=null;this.plan=null;return;
+    }
     const market=this.market?.next(p,goal,this.style);
     if(market?.intent)return this.issue(market);
     const maintenance=this.planner.maintenance?.(p,goal,this.style,this.mode,this.mainTrade,this.mainJobId,this.mainMonsterId);
     if(maintenance?.intent)return this.issue(maintenance);
     if(maintenance?.marketWaiting||maintenance?.capacityLimited){this.plan=maintenance;this.message=maintenance.reason??maintenance.label;return;}
     // Forge levels cheaper per point than this collection: enhanced beside the work.
-    const forge=this.planner.masteryForge?.(p,this.style,goal);
+    const forge=goal.mastery?this.planner.masteryForge?.(p,this.style,goal):null;
     if(forge?.intent)return this.issue(forge);
-    if(Object.values(p.overflow??{}).some(n=>n>0))return this.pause('补精通等待仓库空间；本轮顺序已保留，请整理后继续');
+    if(Object.values(p.overflow??{}).some(n=>n>0))return this.pause('等待仓库空间；当前目标已保留，请整理后继续');
     const housing=this.planner.housingPlan?.(p,goal,this.style,this.mode,this.bankedLoad);
     if(housing){this.plan=housing;if(housing.intent)return this.issue(housing);this.message=housing.reason;return;}
     if(this.watchProgress(p))return;
@@ -964,7 +1004,7 @@ export class Trainer {
         this.log('已取得新状态，保留目标和备料进度，重新规划可执行步骤');
       }
     }
-    if((this.mode!=='assist'||this.itemTarget&&this.itemTarget.status!=='completed')&&this.compatible&&!this.awaitInitial&&(ready||this.snapshotSequence>this.syncAfter)) {
+    if(this.drives()&&this.compatible&&!this.awaitInitial&&(ready||this.snapshotSequence>this.syncAfter)) {
       const query=this.market?.query(this.player);
       if(query&&!(query.t==='resync'&&this.lastSync===now)) {
         if(query.t==='resync')this.lastSync=now;
@@ -984,7 +1024,7 @@ export class Trainer {
       this.plan={intent:null,label:'等待本次强化结果',reason:'强化进行中，完成后继续原任务'};
       this.message=this.plan.reason;return;
     }
-    if((this.mode!=='assist'||this.itemTarget&&this.itemTarget.status!=='completed')&&(playerQueued(p))) {
+    if(this.drives()&&(playerQueued(p))) {
       this.consume(p,reserveWaitingGoals(this.goal,this.waitingGoals),this.style,{intent:null});
       return this.pause('检测到玩家队列或搁置任务，保留原队列并暂停成长调度');
     }
@@ -1038,24 +1078,17 @@ export class Trainer {
   // Connection freshness, acknowledgements and Boss protocol stay on the page.
   advance() {
     const p=this.player,now=this.now();
+    for (const [key,until] of Object.entries(this.questDeferred)) if (until<=now) delete this.questDeferred[key];
     const currentJob=this.data.jobs.find(job=>job.id===p.route?.jobId);
-    if(this.mode!=='assist'&&this.goal&&!p.held&&!p.raidHeld&&!p.queue?.length&&
+    if(this.drives()&&this.goal&&!p.held&&!p.raidHeld&&!p.queue?.length&&
       currentJob?.inputs.length&&!currentJob.grow&&(p.workRarity??p.route.rarity??0)===LEGENDARY)
       return this.issue({intent:{t:'clearRoute'},label:'停止旧传说制作并保留材料',
         reason:'恢复的制作任务仍会消耗传说材料，先停止，再按普通至史诗材料重新规划'});
-    if(this.mode!=='assist'&&this.goal&&p.route?.zoneId!=null&&!p.held&&!p.raidHeld&&!p.queue?.length&&this.combatFoodPlan(p))
+    if(this.drives()&&this.goal&&p.route?.zoneId!=null&&!p.held&&!p.raidHeld&&!p.queue?.length&&this.combatFoodPlan(p))
       return this.issue({intent:{t:'clearRoute'},label:'先停止战斗并保护传说食物',
         reason:'原生自动进食设置允许消耗传说食物，确认安全设置后继续当前成长目标'});
     if(this.mode==='balanced')this.planner.observeDevelopment?.(p,this.goal,this.style);
     if(this.runItemTarget(p)) {
-      return;
-    }
-    if(this.mode==='assist') {
-      this.plan=this.planner.harvestOnly?.(p)??null;
-      if(this.plan?.intent)return this.issue(this.plan);
-      const consumable=this.consume(p,reserveWaitingGoals(this.goal,this.waitingGoals),this.style,this.plan);
-      if(consumable?.intent)return this.issue(consumable);
-      this.message=this.plan?.reason??'监看作物与世界 Boss；继续你的原任务和队列';
       return;
     }
     const hotPreview=this.hotFollowStatus(p);
@@ -1065,6 +1098,20 @@ export class Trainer {
     const softReady=t=>!((this.softRefused[t]??0)>this.now());
     const reroll=softReady('rerollQuest')&&this.planner.questReroll?.(p,this.style);
     if(reroll?.intent)return this.issue(reroll);
+    if(this.mode==='assist') {
+      // Quests too, like every mode; the player's own route is restarted after them.
+      if(this.questTurn(p))return this.runGoal(p,this.goal);
+      if(this.assistResume) {
+        const intent=this.assistResume;this.assistResume=null;
+        return this.issue({intent,label:'任务已做完，恢复你原来的工作',reason:'每日／每周任务做完或暂缓，回到接手前的路线'});
+      }
+      this.plan=this.planner.harvestOnly?.(p)??null;
+      if(this.plan?.intent)return this.issue(this.plan);
+      const consumable=this.consume(p,reserveWaitingGoals(this.goal,this.waitingGoals),this.style,this.plan);
+      if(consumable?.intent)return this.issue(consumable);
+      this.message=this.plan?.reason??'监看作物与世界 Boss；继续你的原任务和队列';
+      return;
+    }
     // Quest points are left to the player: pocket space and small speed perks
     // cannot be valued reliably enough to spend them automatically.
     const fallback=softReady('setFallback')&&this.fallbackUpkeep(p);
@@ -1116,7 +1163,6 @@ export class Trainer {
       this.potionBrew=null;
     if(this.potionBrew){this.message='正在自制药水，完成后继续原任务';return;}
     for (const [skill,until] of Object.entries(this.deferred)) if (until<=now) delete this.deferred[skill];
-    for (const [key,until] of Object.entries(this.questDeferred)) if (until<=now) delete this.questDeferred[key];
     if(this.goal?.development&&!this.goal.craftPreparation&&!equipmentProject(this.goal)&&
       (this.bankedLoad||this.planner.taskBoundary?.(p))) {
       const resumed=this.planner.resumeDevelopment?.(p,this.deferred,this.goal);
@@ -1129,9 +1175,9 @@ export class Trainer {
     const hotSelected=this.hotOverride(p);
     const hotStatus=this.hotFollowStatus(p);
     const hotActive=hotPreview.active||hotSelected||hotStatus.active||!!this.goal?.hot;
-    const goalTimeout=this.goal?.development||this.goal?.funding?Infinity:this.goal?.quest?(this.goal.horizon??600)*1000:600000;
+    const goalTimeout=this.goal?.development||this.goal?.funding||this.goal?.quest?Infinity:600000;
     if (this.goal && !this.goal.hot && !equipmentProject(this.goal) && (this.bankedLoad||!this.planner.taskBoundary||this.planner.taskBoundary(p)) &&
-      ((this.goal.quest?this.planner.questCompleted(p,this.goal):
+      ((this.goal.quest?this.questOver(p,now):
         this.goal.funding?p.coins>=this.goal.funding.gold||p.lastTick>=this.goal.funding.until:
         this.planner.level(p.skills[this.goal.skill])>=this.goal.target) || now-this.goalSince>goalTimeout&&!this.goal.craftPreparation ||
         this.goal.specialization&&!p.route&&p.skills[this.goal.skill]>this.goal.startedXp ||
@@ -1139,7 +1185,6 @@ export class Trainer {
       this.served[this.goal.skill]=++this.sequence;
       // A funding stretch that ended short sets that improvement aside for a while.
       if(this.goal.funding)this.planner.fundingEnded?.(p,this.goal);
-      if(this.goal.quest&&now-this.goalSince>goalTimeout)this.questDeferred[this.goal.quest.key]=now+120000;
       // Allow other skills a turn after a long ingredient-gathering slice.
       if (now-this.goalSince>600000&&!this.goal.rate&&this.goal.fixedRecipeId==null&&this.goal.fixedMonsterId==null)
         this.deferred[this.goal.skill]=now+120000;
