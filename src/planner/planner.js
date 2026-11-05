@@ -1451,14 +1451,19 @@ export function createPlanner(data) {
         }
       }
     } else if(goal.quest) {
-      const quest=api.questRead(p).find(q=>q.key===goal.quest.key);
-      if(!quest||quest.claimed||quest.remaining<=0)return wait('任务已完成或已刷新，重新安排成长');
+      // A town order is not on the quest board: what is left is the pieces
+      // not yet held, made in common quality (the order asks for that item).
+      const o=goal.order,orderJob=o&&jobs.find(j=>j.id===goal.quest.jobId);
+      const quest=o?{kind:goal.quest.kind,jobId:goal.quest.jobId,
+        remaining:orderJob?Math.ceil(Math.max(0,o.qty-count(p,o.itemId))/Math.max(1,orderJob.output.qty)):0}:
+        api.questRead(p).find(q=>q.key===goal.quest.key);
+      if(!quest||quest.claimed||quest.remaining<=0)return wait(o?'城镇订单的物品已备齐，等待上交':'任务已完成或已刷新，重新安排成长');
       const job=jobs.find(j=>j.id===quest.jobId);
       if(quest.kind!=='kill'&&!job)return blocked('任务配方尚未核对，先继续成长');
       // Progress counts any quality. When the common recipe cannot be made from
       // stock now, held matched quality sets finish it first, rarest first; with
       // commons in stock, those are used and the rare materials kept.
-      const sets=job&&questQualitySets(p,job,quest.remaining,profession);
+      const sets=!o&&job&&questQualitySets(p,job,quest.remaining,profession);
       result=quest.kind==='kill'?fight(style):sets?batch(sets.recipe,Math.min(quest.remaining,sets.n)):batch(job,quest.remaining);
       if(sets)result.reason=`任务计入任何品质：普通配方暂缺原料，先用已有的 ${RARITY_NAMES[sets.recipe.rarity]}配对做 ${Math.min(quest.remaining,sets.n)} 次；${result.reason||result.label}`;
     } else result=train(goal.skill,goal.target);

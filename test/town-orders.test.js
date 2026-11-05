@@ -58,6 +58,10 @@ test('held pieces are handed in at the counter, banked first when carried', () =
   const o = orders[1];
   const goal = {skill: 'crafting', recipeId: o.jobId, batch: 0, order: {slot: o.slot, day: DAY, itemId: o.itemId, qty: o.qty, coins: o.coins},
     quest: {key: `order:${DAY}:${o.slot}`, period: 'order', jobId: o.jobId}, budget: {coins: 0, items: {[o.itemId]: o.qty}}};
+  // With none held, the pieces are made: an order is not looked up on the
+  // quest board (it used to wait there forever, leaving the account idle).
+  const making = planner.plan(p, structuredClone(goal), 'melee');
+  assert.ok(making.intent && !making.blocked, JSON.stringify([making.label, making.reason]));
   const banked = {...p, bank: {...p.bank, [o.itemId]: o.qty}};
   assert.deepEqual(planner.plan(banked, goal, 'melee').intent, {t: 'contract', slot: o.slot});
   const carried = {...p, bank: {...p.bank, [o.itemId]: 2}, pack: [{itemId: o.itemId, qty: o.qty - 2}]};
