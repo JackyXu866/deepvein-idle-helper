@@ -63,7 +63,8 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
   if(p.enhance)return {intent:null,label:'等待本次强化结果',reason:'已有强化进行中，确认结果后再规划'};
   const lv=planner.levels(p),combatSkill=professionSkill(style);
   // A hoe counts since client 1.0.1202 (extra crops); the investment table values it.
-  const relevant=g=>!!g&&g.slot!=='mount'&&fitsSlot(g,g.slot,combatSkill,style)&&
+  // A mount only by the investment table (its walking share), never by stats alone.
+  const relevant=g=>!!g&&(g.slot!=='mount'||!!rowsFor())&&fitsSlot(g,g.slot,combatSkill,style)&&
     (g.slot!=='shield'||!shieldless(style));
   const recipe=id=>data.jobs.find(j=>j.output.itemId===planner.base(id));
   // Wearable now or at the very next level.

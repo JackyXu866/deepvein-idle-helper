@@ -2,7 +2,7 @@ import {ENHANCEMENT_MAX, enhanceQuote} from './inventory.js';
 import {formulaWork, luckGold} from './rates.js';
 import {canWear, professionSkill} from './professions.js';
 import {LEGENDARY, autoUsableMaterial, craftRecipe} from './quality.js';
-import {baseId, heldIds, itemLabel, plusOf, rarityOf} from './items.js';
+import {baseId, baseStride, heldIds, itemLabel, plusOf, rarityOf} from './items.js';
 import {goldToSeconds, incomePayback, payback, secondsToGold} from './gold.js';
 import {harvestCrops} from './farming.js';
 import {COMBAT_SLOTS, USE_CAP_SECONDS, fitsSlot, shieldless, useSeconds as sharedUseSeconds} from './gear.js';
@@ -36,7 +36,7 @@ export function createInvestments(data,planner) {
   function measured() {
     return Object.entries(planner.perkUsage??{}).filter(([,m])=>m?.seconds>0).map(([key,m])=>{
       const id=Number(key.split(':')[1]),combat=key.startsWith('combat:');
-      return {id,combat,skill:combat?'combat':data.jobs.find(j=>j.id===id)?.skill,seconds:m.seconds};
+      return {id,combat,skill:combat?'combat':data.jobs.find(j=>j.id===id)?.skill,seconds:m.seconds,travel:m.travelSeconds??0};
     }).filter(r=>r.skill).sort((a,b)=>b.seconds-a.seconds);
   }
   // What each slot is used for: the monster fought, or the job its tool
@@ -74,6 +74,14 @@ export function createInvestments(data,planner) {
     }
     return {gold,xp};
   }
+  // A mount speeds every walk: the share of the account's measured time spent
+  // walking (telemetry travelSeconds), at the mount's stride against the worn
+  // one's. Relative: the worn mount is 1; a faster one cuts the walking part.
+  function mountRate(p,id) {
+    const work=measured(),total=work.reduce((n,r)=>n+r.seconds,0),walking=total>0?work.reduce((n,r)=>n+r.travel,0)/total:0;
+    const stride=mount=>baseStride(data,{...p,equipment:{...p.equipment,mount}});
+    return 1/((1-walking)+walking*stride(p.equipment?.mount??null)/stride(id));
+  }
   // XP per second with `slot` holding `id`, by the game formulas on both sides
   // of a swap (a measurement only exists for the current equipment). Combat
   // counts the food each kill costs, so defence is worth something. A hoe:
@@ -84,6 +92,7 @@ export function createInvestments(data,planner) {
     const equipment={...p.equipment,[slot]:id},toolSkill=data.toolSkills[slot];
     let value=0;
     if(slot==='hoe')value=farmRates(p,id).gold;
+    else if(slot==='mount')value=mountRate(p,id);
     else if(toolSkill) {
       const job=ctx.jobFor(toolSkill);
       if(job){const e=formulaWork(data,planner,p,job,lvOf(p),equipment);value=e.xp/e.seconds;}
@@ -127,7 +136,8 @@ export function createInvestments(data,planner) {
     return result;
   }
   // An amulet's luck works in everything the account does; a hoe in all of it too.
-  const usedShare=(slot,share)=>slot==='hoe'||slot==='amulet'?1:share(data.toolSkills[slot]??'combat');
+  // So do a mount (its rate already weighs the walking share) and a hoe.
+  const usedShare=(slot,share)=>slot==='hoe'||slot==='amulet'||slot==='mount'?1:share(data.toolSkills[slot]??'combat');
   const gearRate=(p,style,goal,slot,id)=>worth(p,style,contexts(p,style),slot,id);
   const gearXpRate=(p,style,goal,slot,id)=>rate(p,style,contexts(p,style),slot,id);
   const fitsFor=(p,style,ctx,slot)=>{
@@ -189,7 +199,7 @@ export function createInvestments(data,planner) {
   function slotsFor(p,style) {
     const twoHanded=shieldless(style,planner.equipmentStats(p.equipment.weapon));
     return [...COMBAT_SLOTS.filter(s=>s!=='shield'||!twoHanded),
-      ...Object.keys(data.toolSkills).filter(s=>planner.trainedSkills(style).includes(data.toolSkills[s]))];
+      ...Object.keys(data.toolSkills).filter(s=>planner.trainedSkills(style).includes(data.toolSkills[s])),'mount'];
   }
   // Every worthwhile way to improve each worn piece, on the same terms.
   function compute(p,style,goal) {
@@ -201,7 +211,6 @@ export function createInvestments(data,planner) {
       // extra gold (incomePayback); every other piece in time saved. An empty
       // slot is improved by filling it, on the same terms.
       const hoe=slot==='hoe',settle=hoe?incomePayback:payback;
-      if(slot==='mount')continue;
       // Used until outgrown, within 30 days of the account's time in that work
       // (the fields grow whatever is done, so a hoe counts all of it).
       const used=usedShare(slot,share);
@@ -290,7 +299,7 @@ export function createInvestments(data,planner) {
   // profession does not use or no gain.
   function savingOf(p,style,slot,id) {
     const current=p.equipment?.[slot]??null;
-    if(current==null||slot==='mount'||!slotsFor(p,style).includes(slot))return 0;
+    if(current==null||!slotsFor(p,style).includes(slot))return 0;
     const ctx=contexts(p,style),coinRate=planner.coinRate?.(p)??0,share=shareOf(p,style);
     const hoe=slot==='hoe',settle=hoe?incomePayback:payback,used=usedShare(slot,share);
     const useSkill=data.toolSkills[slot]??ctx.skill;

@@ -31,3 +31,18 @@ test('an amulet is worth the rarer drops its luck brings, in the work the accoun
   assert.ok(row && row.gain > 0 && row.saved > 0, JSON.stringify(row));
   assert.equal(row.worth, true, 'cheap luck pays back');
 });
+
+// A mount speeds every walk (bank trips, travel between sites): it is rated by
+// the measured share of time spent walking, at its stride against the worn one.
+test('a mount is worth the walking it saves, by the measured walking share', () => {
+  const rows = walking => {
+    const planner = makePlanner();
+    planner.coinRate = () => 1000;
+    planner.perkUsage = {'job:45': {seconds: 3600, travelSeconds: walking * 3600}};
+    const p = player(planner, {levels: {enhancing: 47, smithing: 87}, coins: 1e9, equipment: {mount: 53328}});
+    return planner.investmentOptions(p, 'melee', null).filter(r => r.slot === 'mount');
+  };
+  const walk = rows(.25).find(r => r.kind === 'enhance');
+  assert.ok(walk && walk.gain > 0, 'enhancing the mount speeds the walking quarter of the time');
+  assert.ok(!rows(0).some(r => r.gain > 0), 'no walking: a faster mount saves nothing');
+});

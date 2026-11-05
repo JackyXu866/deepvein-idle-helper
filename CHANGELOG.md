@@ -2,6 +2,10 @@
 
 版本号由本 fork（[JackyXu866/deepvein-idle-helper](https://github.com/JackyXu866/deepvein-idle-helper)，分支 `modular-rewrite`）维护；v0.8.8 及更早的版本来自上游 [ljyoukong-cpu/deepvein-idle-helper](https://github.com/ljyoukong-cpu/deepvein-idle-helper)。
 
+## v0.13.1 — 2026-11-05
+
+- **投资表考虑坐骑**：以前投资表跳过坐骑栏。坐骑加快所有走路（存仓往返、换地点），现在按实测的走路时间占比估价：换上更快的坐骑，走路那部分时间按步幅比例变短。强化坐骑（品质倍率 ×1/1.5/2.25/3.5/5，每级 +15%）和市场上买更好的坐骑都和其他装备一样比较回本，值得的强化由强化步骤执行。没有走路实测时坐骑不显示收益。坐骑繁殖（10 只同品质合成 1 只高一级）暂未加入：目前没有哪种品质够 10 只。
+
 ## v0.13.0 — 2026-11-05
 
 - **价格统一按实际能卖的钱算**：以前“一件东西值多少”有两处错：
