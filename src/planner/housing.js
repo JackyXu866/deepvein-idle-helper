@@ -3,7 +3,8 @@ import {autoUsableMaterial} from './quality.js';
 import {action as step} from './result.js';
 import {combinedBudget, reviewInventory, saleProtectionReason} from './inventory.js';
 import {COAL_ID, baseId, itemLabel, playerQueued, plusOf, rarityOf} from './items.js';
-import {goldToSeconds, payback} from './gold.js';
+import {goldToSeconds, payback, pays} from './gold.js';
+import {expectedEnhancement} from './investment.js';
 import {USE_CAP_SECONDS} from './gear.js';
 import {qualityGain} from './rates.js';
 
@@ -167,7 +168,6 @@ export function createHousing(data,planner) {
     const rareGains=new Map(),rareGain=room=>{
       if(!rareGains.has(room.id))rareGains.set(room.id,coinRate>0?qualityGain(data,planner,p,work,rules.bonusPerLevel*room.rate)/coinRate:0);
       return rareGains.get(room.id);};
-    const rolling=trained.filter(s=>['mining','fishing','woodcutting','thieving',combat].includes(s)).length;
     // The lectern serves enhancing: an enhancement project, or a worthwhile
     // enhancement step on the investment table (it once read a cash budget
     // that no longer carries enhancements).
@@ -176,10 +176,14 @@ export function createHousing(data,planner) {
       (planner.investmentOptions?.(p,style,goal)??[]).some(r=>r.kind==='enhance'&&r.worth);
     const current=room=>room.bonus.skill===skill||skill===combat&&room.bonus.kind==='combatXp'||
       room.id==='lectern'&&enhances()||room.bonus.kind==='rareChance'&&rareGain(room)>0;
-    // Share of the time a room serves, and what one more level gains: speed
-    // rooms the time they save (diminishing), the shrine its drops' gold.
-    const shareOf=room=>mode==='business'&&current(room)?1:room.bonus.kind==='rareChance'?
-      rolling/Math.max(1,trained.length):1/Math.max(1,trained.length);
+    // Share of the time a room serves (the account's measured share in its
+    // skill, as the investment table counts it), and what one more level gains:
+    // speed rooms the time they save (diminishing), the shrine its drops' gold.
+    const timeShare=planner.timeShare?.(p,style),even=1/Math.max(1,trained.length);
+    const shareIn=skill=>timeShare?timeShare(skill===combat?'combat':skill):even;
+    const shareOf=room=>mode==='business'&&current(room)?1:
+      room.bonus.kind==='rareChance'?['mining','fishing','woodcutting','thieving',combat].filter(s=>trained.includes(s)).reduce((n,s)=>n+shareIn(s),0):
+      room.bonus.kind==='combatXp'?shareIn(combat):room.bonus.skill?(['melee','ranged','magic'].includes(room.bonus.skill)&&room.bonus.skill!==combat?0:shareIn(room.bonus.skill)):even;
     const gainOf=(room,level)=>room.bonus.kind==='rareChance'?rareGain(room):
       rules.bonusPerLevel*room.rate/(1+rules.bonusPerLevel*room.rate*level);
     // A timer belongs to one facility, not the whole home. Maintain other
@@ -235,6 +239,16 @@ export function createHousing(data,planner) {
       if(room.id==='storeroom') {
         const worth=1000*1.5**(p.bankSlotsBought??0)/(level%2?1:2);
         if(!(cost<=worth)){if(hold)continue;review.push(`${roomName(room.id)}：材料约 ${Math.ceil(cost)} 金币，超过一格仓位的价值 ${Math.floor(worth)}，暂缓投料`);continue;}
+      } else if(room.id==='lectern') {
+        // The lectern raises enhance success: one more level is worth what it
+        // takes off the expected cost (failures included) of the enhancements
+        // the investment table finds worth doing.
+        const raised={...p,house:{...p.house,lectern:level+1}},lowered={...p,house:{...p.house,lectern:level}};
+        const steps=(planner.investmentOptions?.(p,style,goal)??[]).filter(r=>r.kind==='enhance'&&r.worth);
+        const savedGold=steps.reduce((n,r)=>n+Math.max(0,expectedEnhancement(data,planner,lowered,r.current,r.toPlus).gold-
+          expectedEnhancement(data,planner,raised,r.current,r.toPlus).gold),0);
+        const paid=goldToSeconds(cost,coinRate),saved=goldToSeconds(savedGold,coinRate);
+        if(!pays(saved,paid)){if(hold)continue;review.push(`${roomName(room.id)}：材料约 ${Math.ceil(cost)} 金币，下一级只让值得做的强化省约 ${Math.floor(savedGold)} 金币，暂缓投料`);continue;}
       } else {
         // Shared payback rule (investment.js): materials' sale value, as time at
         // the gold rate, against the time the faster facility saves in that week.

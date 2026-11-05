@@ -3,7 +3,7 @@ import {formulaWork, luckGold} from './rates.js';
 import {canWear, professionSkill} from './professions.js';
 import {LEGENDARY, autoUsableMaterial, craftRecipe} from './quality.js';
 import {baseId, baseStride, heldIds, itemLabel, plusOf, rarityOf} from './items.js';
-import {goldToSeconds, incomePayback, payback, secondsToGold} from './gold.js';
+import {goldToSeconds, incomePayback, payback, pays, secondsToGold} from './gold.js';
 import {harvestCrops} from './farming.js';
 import {COMBAT_SLOTS, USE_CAP_SECONDS, fitsSlot, shieldless, useSeconds as sharedUseSeconds} from './gear.js';
 export {USE_CAP_SECONDS} from './gear.js';
@@ -95,7 +95,8 @@ export function createInvestments(data,planner) {
     else if(slot==='mount')value=mountRate(p,id);
     else if(toolSkill) {
       const job=ctx.jobFor(toolSkill);
-      if(job){const e=formulaWork(data,planner,p,job,lvOf(p),equipment);value=e.xp/e.seconds;}
+      // Per action with its walking (bank trips): a faster tool shortens only the work.
+      if(job){const e=formulaWork(data,planner,p,job,lvOf(p),equipment);value=e.xp/(e.seconds+(planner.walkPerAction?.(p,job)??0));}
     } else if(ctx.monster) {
       // Every piece is rated with the food the worn gear's fight uses.
       ctx.food??=planner.byFormula(()=>planner.combatFood?.(p,style,ctx.monster.id)??0);
@@ -112,28 +113,43 @@ export function createInvestments(data,planner) {
       .filter(r=>r.work.monster||r.work.job);
     return rows.length?rows:ctx.monster?[{share:1,work:{monster:ctx.monster}}]:[];
   }
-  // What a piece is worth per second of use, the one index the whole table
-  // compares: its rate (XP/s; a hoe's gold), times (1 + the time its luck
-  // buys): the gold the rarer qualities add (rates.js luckGold), at the gold
-  // rate. A tool's quality luck works in its job; an amulet's luck in all the
-  // account's work, its defence only in fights (so its index is relative).
-  function worth(p,style,ctx,slot,id) {
-    const key=`worth:${slot}:${id}`;
+  // What a piece gives, in two parts: `speed`, its rate (XP/s; a hoe's gold;
+  // an amulet's defence relative to none, weighted by the fight share), and
+  // `luck`, the gold per second its luck adds in rarer qualities (rates.js
+  // luckGold): a tool's in its job, an amulet's across the account's work.
+  function parts(p,style,ctx,slot,id) {
+    const key=`parts:${slot}:${id}`;
     if(ctx.rates.has(key))return ctx.rates.get(key);
-    const coinRate=planner.coinRate?.(p)??0,equipment={...p.equipment,[slot]:id};
-    const luck=work=>coinRate>0&&work?Math.max(0,luckGold(data,planner,p,{...work,equipment,profession:style}))/coinRate:0;
+    const equipment={...p.equipment,[slot]:id};
+    const luck=work=>work?Math.max(0,luckGold(data,planner,p,{...work,equipment,profession:style})):0;
     const value=rate(p,style,ctx,slot,id);
-    let result=value;
+    let result={speed:value,luck:0};
     if(slot==='amulet') {
       const none=rate(p,style,ctx,slot,null),fight=shareOf(p,style)('combat');
-      const lift=luckWorks(ctx).reduce((n,r)=>n+r.share*luck(r.work),0);
-      result=(none>0?1+fight*(value/none-1):1)*(1+lift);
+      result={speed:none>0?1+fight*(value/none-1):1,luck:luckWorks(ctx).reduce((n,r)=>n+r.share*luck(r.work),0)};
     } else if(data.toolSkills[slot]&&slot!=='hoe') {
       const job=ctx.jobFor(data.toolSkills[slot]);
-      result=value*(1+(job?luck({job}):0));
+      result={speed:value,luck:job?luck({job}):0};
     }
     ctx.rates.set(key,result);
     return result;
+  }
+  // The one index the whole table ranks pieces by: speed x (1 + luck's gold as
+  // time at the gold rate).
+  function worth(p,style,ctx,slot,id) {
+    const coinRate=planner.coinRate?.(p)??0,{speed,luck}=parts(p,style,ctx,slot,id);
+    return speed*(1+(coinRate>0?luck/coinRate:0));
+  }
+  // What wearing `id` instead of `current` repays over `use` seconds: the time
+  // its speed saves (payback, or a hoe's extra gold) plus, in full, the extra
+  // gold its luck brings, as time at the gold rate. (Folding luck into the
+  // speed ratio undervalued it: a gain L counted as L/(1+L).)
+  function settleGear(p,style,ctx,slot,current,id,{gold=0,seconds=0},use) {
+    const coinRate=planner.coinRate?.(p)??0,settle=slot==='hoe'?incomePayback:payback;
+    const a=parts(p,style,ctx,slot,current),b=parts(p,style,ctx,slot,id);
+    const r=settle({gold,seconds,coinRate,before:a.speed,after:b.speed,useSeconds:use});
+    const luck=coinRate>0&&b.luck>a.luck?(b.luck-a.luck)*use/coinRate:0;
+    return luck?{...r,saved:r.saved+luck,net:r.net+luck,worth:pays(r.saved+luck,r.paid)}:r;
   }
   // An amulet's luck works in everything the account does; a hoe in all of it too.
   // So do a mount (its rate already weighs the walking share) and a hoe.
@@ -210,7 +226,7 @@ export function createInvestments(data,planner) {
       // A hoe is used until outgrown at the fields' farming XP, and repays in
       // extra gold (incomePayback); every other piece in time saved. An empty
       // slot is improved by filling it, on the same terms.
-      const hoe=slot==='hoe',settle=hoe?incomePayback:payback;
+      const hoe=slot==='hoe';
       // Used until outgrown, within 30 days of the account's time in that work
       // (the fields grow whatever is done, so a hoe counts all of it).
       const used=usedShare(slot,share);
@@ -230,7 +246,7 @@ export function createInvestments(data,planner) {
         if(!cost)return null;
         const after=worth(p,style,ctx,slot,id);
         if(!(after>before))return null;
-        const use=useSeconds(id),result=settle({gold:cost.gold,seconds:cost.seconds,coinRate,before,after,useSeconds:use});
+        const use=useSeconds(id),result=settleGear(p,style,ctx,slot,current,id,cost,use);
         return {slot,kind,id,label,current,source:cost.source??null,gold:Math.round(cost.gold),seconds:cost.seconds,
           gain:after/before-1,useSeconds:use,...result,...extra};
       };
@@ -259,7 +275,7 @@ export function createInvestments(data,planner) {
           const after=worth(p,style,ctx,slot,target);
           if(!(after>floor)||!Number.isFinite(cost.gold))continue;
           const gold=cost.gold+cost.shards*shardValue,use=useSeconds(target);
-          const result=settle({gold,coinRate,before,after,useSeconds:use});
+          const result=settleGear(p,style,ctx,slot,current,target,{gold},use);
           if(!best||result.net>best.net)best={slot,kind:'enhance',id:target,current,toPlus:to,source:null,
             label:`强化 ${itemLabel(data,current)} → +${to}`,gold:Math.round(gold),coins:Math.round(cost.gold),shards:Math.ceil(cost.shards),
             seconds:0,gain:after/before-1,useSeconds:use,...result};
@@ -301,12 +317,12 @@ export function createInvestments(data,planner) {
     const current=p.equipment?.[slot]??null;
     if(current==null||!slotsFor(p,style).includes(slot))return 0;
     const ctx=contexts(p,style),coinRate=planner.coinRate?.(p)??0,share=shareOf(p,style);
-    const hoe=slot==='hoe',settle=hoe?incomePayback:payback,used=usedShare(slot,share);
+    const hoe=slot==='hoe',used=usedShare(slot,share);
     const useSkill=data.toolSkills[slot]??ctx.skill;
     const before=worth(p,style,ctx,slot,current),after=worth(p,style,ctx,slot,id);
     if(!(before>0)||!(after>before))return 0;
     const use=Math.min(sharedUseSeconds(data,planner,p,id,slot,hoe?farmRates(p,id).xp:rate(p,style,ctx,slot,id),useSkill),USE_CAP_SECONDS*used);
-    return settle({gold:0,coinRate,before,after,useSeconds:use}).saved;
+    return settleGear(p,style,ctx,slot,current,id,{},use).saved;
   }
   // The cheapest way to get `id` (held, made or bought), as gold at the gold rate.
   function acquireGold(p,id) {
@@ -365,5 +381,5 @@ export function createInvestments(data,planner) {
     if(value){cache=value.cache??null;fundingDeferred=value.fundingDeferred??{};}
     return {cache,fundingDeferred};
   }
-  return {options,fundingGoal,fundingEnded,runtime,gearRate,gearXpRate,ownedBest,earningGoal,savingOf,acquireGold};
+  return {options,fundingGoal,fundingEnded,runtime,gearRate,gearXpRate,shareOf,ownedBest,earningGoal,savingOf,acquireGold};
 }

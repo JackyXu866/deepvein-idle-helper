@@ -2,6 +2,14 @@
 
 版本号由本 fork（[JackyXu866/deepvein-idle-helper](https://github.com/JackyXu866/deepvein-idle-helper)，分支 `modular-rewrite`）维护；v0.8.8 及更早的版本来自上游 [ljyoukong-cpu/deepvein-idle-helper](https://github.com/ljyoukong-cpu/deepvein-idle-helper)。
 
+## v0.13.4 — 2026-11-05
+
+- **装备和房屋按赚到的钱算准**：
+  - 护符、工具品质的幸运：多带来的稀有品质金币按使用期全额计入；以前把它当成速度比例折算，少算了约三分之一。
+  - 工具提速只缩短干活时间，存仓走路不变；以前把走路也算成被加速，高估了工具。
+  - 房屋设施按你实际花在对应技能上的时间占比估价（和投资表同一套实测占比），不再按“练的技能数平均分”：常练技能的设施更值，不练的技能的设施不再烧材料。
+  - 讲台按它让值得做的强化（含失败重来）少花多少金币来估价，不再当作速度设施。
+
 ## v0.13.3 — 2026-11-05
 
 - **金币账算对**：

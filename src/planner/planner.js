@@ -1795,7 +1795,7 @@ export function createPlanner(data) {
   api.enhancementTraining=createEnhancementTraining(data,api);
   const strategy=createStrategy(data,api);
   api.crafting=createCrafting(data,api);
-  Object.assign(api,{inputCost:createInputCost(data,api),chooseGoal:strategy.chooseGoal,routeEstimate:strategy.routeEstimate,ownedGold:strategy.ownedGold,combatOptions:strategy.combatOptions,
+  Object.assign(api,{inputCost:createInputCost(data,api),chooseGoal:strategy.chooseGoal,routeEstimate:strategy.routeEstimate,ownedGold:strategy.ownedGold,walkPerAction,combatOptions:strategy.combatOptions,
     candidates:strategy.candidates,estimateWork:strategy.estimateWork,setMeasurements:strategy.setMeasurements,byFormula:strategy.byFormula,rateSource:strategy.rateSource,routeMeasurement:strategy.routeMeasurement,
     gearScore,combatRate,combatFood,combatChoice,dropSeconds,bonusSource,bonusSeconds,batchRating,stageRating,incomeRows,coinRate,stageSupply,stageCraftCount,questQualitySets,recipeRatings:()=>recipeRatings,
     // What one unit would sell for, net of tax: the market's sale layers, else the merchant.
@@ -1854,7 +1854,9 @@ export function createPlanner(data) {
     perkOverview:p=>perkOverview(p),
     investmentOptions:(p,style,goal)=>investments.options(p,style,goal),fundingEnded:(p,goal)=>investments.fundingEnded(p,goal),
     // One gear rating for the table and every gear decision (investment.js).
-    gearRate:(p,style,goal,slot,id)=>investments.gearRate(p,style,goal,slot,id),gearXpRate:(p,style,goal,slot,id)=>investments.gearXpRate(p,style,goal,slot,id),
+    gearRate:(p,style,goal,slot,id)=>investments.gearRate(p,style,goal,slot,id),
+    // The share of the account's time each skill takes ('combat' for fights), measured.
+    timeShare:(p,style)=>investments.shareOf(p,style),gearXpRate:(p,style,goal,slot,id)=>investments.gearXpRate(p,style,goal,slot,id),
     ownedBest:(p,style,goal,slot)=>investments.ownedBest(p,style,goal,slot),
     gearSaving:(p,style,slot,id)=>investments.savingOf(p,style,slot,id),
     gearAcquire:(p,id)=>investments.acquireGold(p,id),
