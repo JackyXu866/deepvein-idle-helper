@@ -75,7 +75,8 @@ npm run build
 npm test
 ```
 
-- 代码结构、一次决策怎么走、共享规则在哪个文件：见 [docs/architecture.md](docs/architecture.md)。每条规则只写一处，新功能直接用它。
+- 代码结构、一次决策怎么走、共享规则在哪个文件：见 [docs/architecture.md](docs/architecture.md)。
+- **必须共用模块**：每条规则、每个决定只在一个模块里实现，所有功能都调用它，不另写一份，否则面板显示和实际行为、或两个功能之间就会出现不一致。缺的情况加进共享模块，新的共享规则登记到 architecture.md。
 - 发布：`npm version <版本> --no-git-tag-version`，在 [CHANGELOG.md](CHANGELOG.md) 顶部加一节，构建并确认测试全过，提交、打 `v<版本>` 标签，把分支和标签推到 fork。发布地址只在 `scripts/build.mjs` 的 `REPO`、`BRANCH` 设一次。
 - 待办见 [docs/roadmap.md](docs/roadmap.md)。
 

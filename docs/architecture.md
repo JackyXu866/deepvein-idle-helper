@@ -36,9 +36,19 @@ The game's own client code is never committed. `src/engine/` extracts the game's
    Boss rounds are checked before ordinary waits.
 4. `intents.js` validates the command, the page sends it, and the trainer waits for the snapshot that proves it happened.
 
+## Unified modules (required)
+
+Every rule and every decision lives in exactly one module, and every feature that needs it calls that module. This is not a style preference: two copies of a rule drift apart, and then the panel says one thing while the helper does another, or two features act differently on the same case.
+
+- **Reuse first.** Before writing logic, look it up in the registry below. If the rule is there, call it, even when the call is less convenient than a local shortcut.
+- **Extend, don't fork.** When a feature needs a case the shared rule lacks, add the case to the shared module so every caller gets it. Never add a second rule or a special case beside it.
+- **New shared rules go in the registry.** A rule used by more than one feature gets its own home and a line below.
+- **Shown = done.** The panel, the reasons and the logs read the same function the action uses, never a re-computation of it.
+- **Test the agreement.** A change to a shared rule gets a test, and where a panel shows a decision, a test that what is shown is what is done.
+
 ## Shared rules and where they live
 
-Each rule exists once; anything that needs it calls it.
+The registry: each rule exists here once; anything that needs it calls it.
 
 - **Gold as time**: one gold rate, `planner.coinRate` (the top lasting row of `incomeRows`). `planner/gold.js` has the conversions and the payback test, `pays` (saved ≥ 1.2 × paid).
 - **Make or buy**: `planner/input-cost.js` (`decide`, `producer`, `unitSeconds`, `make`). It prices inputs as time, credits XP in trained skills, and counts held stock at `planner.stockValue`.
@@ -53,7 +63,7 @@ Each rule exists once; anything that needs it calls it.
 
 ## Conventions
 
-- **One system per decision**: one rule and one acting path per decision. What the panel shows is what the helper does. Don't add a second rule for a special case; extend the shared one.
+- Unified modules, above, come before everything else here.
 - Code comments say why, not what. Match the surrounding style: compact JS, Chinese text for anything the player sees.
 - The game's client code is read from a local copy only, never committed.
 - Changelog entries go in `CHANGELOG.md` only. Releases are described in the README's 开发 section.
