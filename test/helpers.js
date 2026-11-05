@@ -28,3 +28,13 @@ export function makePlanner() {
   planner.data ??= d;
   return planner;
 }
+
+// Collections for a test that looks at a few of them: every other collection
+// (each quality) counts as finished, since unstarted ones are targets too.
+export function onlyCollections(d, given) {
+  const done = {}, bases = new Set();
+  for (const j of d.jobs) { bases.add(j.output.itemId); if (j.bonus) bases.add(j.bonus.itemId); }
+  for (const m of d.monsters) { bases.add(m.drop); if (m.bonus) bases.add(m.bonus.itemId); }
+  for (const b of bases) for (let r = 0; r < 5; r++) done[b + r * d.rarityScale] = 1e7;
+  return {...done, ...given};
+}

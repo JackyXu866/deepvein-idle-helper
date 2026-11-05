@@ -9,11 +9,15 @@ export const PLANNING_STORAGE_KEYS=['deepvein-market-v1',ENHANCEMENT_TRAINING_KE
 const MARKET_HOOKS={marketSale:'sale',marketPurchase:'purchase',marketOpportunity:'opportunity',
   watchMarket:'watch',marketEquipment:'equipmentPurchase',marketFood:'foodPurchase',marketBuffFood:'buffFood',
   potionDose:'potionDose',marketAllowance:'purchaseAllowance',marketBuyPrice:'marketBuyPrice',
-  marketSurplusValue:'surplusValue',watchPurchases:'watchPurchases',marketUnitValue:'unitValue',marketAsk:'askPrice',marketClosed:'closed',stockSold:'sells'};
+  marketSurplusValue:'surplusValue',watchPurchases:'watchPurchases',marketUnitValue:'unitValue',marketAsk:'askPrice',marketClosed:'closed'};
 
 export function wirePlanner(planner,market,economy,potionRestock) {
   planner.maintenance=(...args)=>economy().maintenance(...args);
   for(const [name,method]of Object.entries(MARKET_HOOKS))planner[name]=(...args)=>market[method](...args);
+  // Whether the helper sells this stock, by every everyday sale rule (everyday
+  // selling, or crafted surplus): then using it gives up its sale value
+  // (planner.stockValue), so a bar the helper would sell is never free to use.
+  planner.stockSold=(p,id)=>market.sells(p,id)||(economy().craftedSale?.(id)??false)&&market.saleable(p,id);
   planner.restockPotion=(...args)=>potionRestock()?market.restockPotion(...args):null;
   planner.restockIngredient=(...args)=>potionRestock()?market.restockIngredient(...args):null;
   planner.potionStatus=(...args)=>potionRestock()?market.potionStatus(...args):

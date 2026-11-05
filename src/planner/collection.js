@@ -22,7 +22,9 @@ export const forgeReached=(p,tier,rarity,plus)=>((p.forgeLog?.[tier*5+rarity]??0
 // Legendary is the player's; crops are left to the farming rules (v0.8.4).
 export const skipMastery=(data,base,rarity=0)=>rarity>=LEGENDARY||data.jobs.some(j=>j.grow&&j.output.itemId===base);
 
-// Every collection's next tier (items already started), with its points.
+// Every collection's next tier, with its points. The first item of a
+// collection pays too (client rP: tier 0 at count 1), so collections not yet
+// started count: a rare tool never made is 10 points for one craft.
 export function masteryCandidates(data,p) {
   if(!p?.collections)return [];
   const bases=new Set();
@@ -37,7 +39,7 @@ export function masteryCandidates(data,p) {
       base>=700&&base<=710)continue;
     for(const rarity of [...PAIR_TIERS].reverse()) {
       const itemId=base+rarity*data.rarityScale,count=p.collections[itemId]??0;
-      if(!Number.isSafeInteger(count)||count<=0)continue;
+      if(!Number.isSafeInteger(count)||count<0)continue;
       const step=MASTERY_STEPS.findIndex(n=>n>count);if(step<0)continue;
       const target=MASTERY_STEPS[step],previous=MASTERY_STEPS[step-1]??0,frac=(count-previous)/(target-previous);
       const points=MASTERY_REWARDS[step]*MASTERY_QUALITY[rarity];

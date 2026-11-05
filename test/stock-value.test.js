@@ -19,6 +19,25 @@ test('stock the helper never sells is free to use; sold stock costs its sale val
   assert.equal(planner.stockValue(p, 15, 1), 500);
 });
 
+// Live: 出售制作产出 listed 1,000 rare meteoric bars while 补精通 valued the same
+// bars at nothing (everyday selling off). One rule now: stock any sale rule
+// sells costs its sale value to use.
+test('crafted surplus the helper sells costs its sale value, with everyday selling off', async () => {
+  const {wirePlanner} = await import('../src/economy/wiring.js');
+  const {createEconomy} = await import('../src/economy/economy.js');
+  const planner = makePlanner(), d = planner.data, R = d.rarityScale;
+  const market = createMarket(d, planner, {autoSell: false, now: () => 1_000_000});
+  let economy = createEconomy(d, planner, {sellCrafted: true});
+  wirePlanner(planner, market, () => economy, () => true);
+  const p = player(planner, {});
+  market.receive({tick: p.lastTick, m: [{t: 'welcome', you: p, orders: []}]});
+  const bar = 44, ore = 8;
+  assert.equal(planner.stockSold(p, bar + 2 * R), true, 'a rare bar is crafted surplus');
+  assert.equal(planner.stockSold(p, ore), false, 'gathered ore is not');
+  economy = createEconomy(d, planner, {sellCrafted: false});
+  assert.equal(planner.stockSold(p, bar + 2 * R), false, '出售制作产出 off');
+});
+
 test('a leveling stage crafts from quality stock that would never be sold, however dear it sells', () => {
   for (const sold of [true, false]) {
     const planner = makePlanner(), d = planner.data;

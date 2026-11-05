@@ -4,7 +4,7 @@ import {rarityFactor, shrineBonus} from '../src/planner/rarity.js';
 import {combatDrops, workEstimate} from '../src/planner/estimates.js';
 import {qualityGain, workInputs} from '../src/planner/rates.js';
 import {createMasteryPlan} from '../src/planner/mastery-plan.js';
-import {makePlanner, player} from './helpers.js';
+import {makePlanner, onlyCollections, player} from './helpers.js';
 
 const close = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} vs ${b}`);
 const AMULET = -1;
@@ -79,7 +79,7 @@ test('补精通 spends points only on what finishes its next collections sooner'
   const job = d.jobs.find(j => j.skill === 'mining' && !j.inputs.length && j.levelReq <= 1 && j.output.itemId !== d.coinId);
   const ore = job.output.itemId;
   // Rare and epic ore collections started: their next tiers are the cheapest points.
-  const p = player(planner, {levels: {mining: 30}, collections: {[ore]: 50, [ore + 2 * R]: 3, [ore + 3 * R]: 1}});
+  const p = player(planner, {levels: {mining: 30}, collections: onlyCollections(d, {[ore]: 50, [ore + 2 * R]: 3, [ore + 3 * R]: 1})});
   planner.coinRate = () => 50;
   const targets = planner.masteryTargets(p, 'melee');
   assert.ok(targets.some(t => t.itemId === ore + 2 * R), 'the rare ore collection is a target');

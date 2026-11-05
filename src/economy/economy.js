@@ -5,6 +5,7 @@ import {action} from '../planner/result.js';
 import {dropEnhancementGold, inventoryBudget, reviewInventory} from '../planner/inventory.js';
 import {planEnhancement} from '../planner/enhancement.js';
 import {pageStep} from '../planner/mastery-pages.js';
+import {marketQuality} from '../planner/quality.js';
 import {bankTripSeconds, nearestBank, packCapacity, packQty, packUsed} from '../planner/items.js';
 
 // Items made by crafting skills (cooking, smithing, fletching, crafting).
@@ -211,6 +212,9 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
     if(value) ({lastGoal,lastPlayer,lastStyle,lastMode,lastMain,lastJob,lastMonster,investmentGoal,gearDeferredUntil,recovery}=value);
     return {lastGoal,lastPlayer,lastStyle,lastMode,lastMain,lastJob,lastMonster,investmentGoal,gearDeferredUntil,recovery};
   }
-  return {runtime,maintenance,budget,review,setAutoSell:enabled=>{autoSell=enabled===true;},
+  // Crafted surplus is sold with 出售制作产出 on (saleRows): common pieces, and
+  // the quality ones sold on the market (marketQuality: bars and the like).
+  const craftedSale=id=>sellCrafted===true&&craftedIds.has(planner.base(id))&&(id===planner.base(id)||marketQuality(data,id));
+  return {runtime,maintenance,budget,review,craftedSale,setAutoSell:enabled=>{autoSell=enabled===true;},
     setCapacitySales:enabled=>{capacitySales=enabled===true;},setSellCrafted:enabled=>{sellCrafted=enabled===true;}};
 }

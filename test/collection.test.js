@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {makePlanner, player} from './helpers.js';
+import {makePlanner, onlyCollections, player} from './helpers.js';
 import {masteryCandidates} from '../src/planner/collection.js';
 
 const IRON = 3, IRON_BAR = 41, COPPER = 1, ROUGH_GEM = 100;
@@ -10,13 +10,13 @@ function setup(collections, extra = {}) {
   const planner = makePlanner(), d = planner.data;
   planner.watchMarket = () => {};
   planner.coinRate = () => 10; // time is priced at the gold rate
-  const p = player(planner, {hp: 100, activity: 'idle', path: null, collections, ...extra});
+  const p = player(planner, {hp: 100, activity: 'idle', path: null, collections: onlyCollections(d, collections), ...extra});
   return {planner, d, p, R: d.rarityScale};
 }
 
 test('candidates: every started collection\'s next tier with its points (quality multiplies them)', () => {
   const {d, p, R} = setup({});
-  p.collections = {[IRON]: 9, [COPPER]: 50, [IRON_BAR + R]: 4, [IRON_BAR]: 2};
+  p.collections = onlyCollections(d, {[IRON]: 9, [COPPER]: 50, [IRON_BAR + R]: 4, [IRON_BAR]: 2});
   const list = masteryCandidates(d, p);
   assert.deepEqual(list.map(c => c.itemId).sort((a, b) => a - b), [COPPER, IRON, IRON_BAR, IRON_BAR + R].sort((a, b) => a - b));
   const of = id => list.find(c => c.itemId === id);
@@ -29,7 +29,7 @@ test('candidates: every started collection\'s next tier with its points (quality
 test('legendary qualities and planted crops are skipped; seeds are not', () => {
   const {d, p, R} = setup({});
   const crop = d.jobs.find(j => j.grow).output.itemId, seed = idOf(d, 'Potato seed');
-  p.collections = {[IRON + 4 * R]: 5, [crop]: 5, [seed]: 5};
+  p.collections = onlyCollections(d, {[IRON + 4 * R]: 5, [crop]: 5, [seed]: 5});
   assert.deepEqual(masteryCandidates(d, p).map(c => c.itemId), [seed]);
 });
 
@@ -78,7 +78,7 @@ test('a worn piece is forged before an idle copy: its stronger stats save time, 
   const {planner, d, p} = setup({[COPPER]: 50}, {coins: 50_000_000});
   const blade = d.gear.find(g => g.slot === 'weapon' && d.items[g.itemId].name.startsWith('Cobalt blade')).itemId;
   Object.assign(p, player(planner, {levels: {melee: 62, defence: 60, hitpoints: 62}, hp: 600, coins: 50_000_000, activity: 'idle', path: null,
-    equipment: {weapon: blade}, collections: {[COPPER]: 50}}));
+    equipment: {weapon: blade}, collections: onlyCollections(d, {[COPPER]: 50})}));
   p.bank = {...p.bank, [blade]: 1, [d.shardId]: 5000};
   p.forgeLog = {};
   planner.stockSold = () => false;
@@ -115,7 +115,7 @@ test('a held quality input is used for the target, pass after pass (no bar-by-ba
   const hoe = hoeJob.output.itemId;
   const bank = Object.fromEntries(hoeJob.inputs.map(i => [i.itemId + (d.items[i.itemId] && i.itemId !== d.coinId ? R : 0), 318]));
   Object.assign(p, player(planner, {levels: {smithing: 85, mining: 85, woodcutting: 85, fletching: 85, crafting: 85}, hp: 100, activity: 'idle', path: null,
-    bank: {...bank, ...Object.fromEntries(hoeJob.inputs.map(i => [i.itemId, 318]))}, collections: {[hoe + R]: 9}}));
+    bank: {...bank, ...Object.fromEntries(hoeJob.inputs.map(i => [i.itemId, 318]))}, collections: onlyCollections(d, {[hoe + R]: 9})}));
   const goal = planner.masteryChooseGoal(p, 'melee');
   assert.equal(goal.mastery.itemId, hoe + R);
   // Short of the quality inputs first: the supply step records what it gets.
@@ -135,7 +135,7 @@ test('a held quality input is used for the target, pass after pass (no bar-by-ba
 test('an uncommon bar waits on gathering for uncommon ore instead of using common ore', () => {
   const {planner, d, p, R} = setup({});
   Object.assign(p, player(planner, {levels: {mining: 20, smithing: 20}, hp: 100, activity: 'idle', path: null,
-    bank: {[IRON]: 500, [IRON + R]: 1}, collections: {[IRON_BAR + R]: 4}}));
+    bank: {[IRON]: 500, [IRON + R]: 1}, collections: onlyCollections(d, {[IRON_BAR + R]: 4})}));
   const goal = planner.masteryChooseGoal(p, 'melee');
   assert.equal(goal.mastery.itemId, IRON_BAR + R);
   const plan = planner.plan(p, goal, 'melee');
@@ -154,7 +154,7 @@ test('rough gems compare every unlocked source: the gem stall beats iron once th
   const mine = setup({}), stall = setup({});
   for (const [s, thieving] of [[mine, 1], [stall, 60]])
     Object.assign(s.p, player(s.planner, {levels: {mining: 20, thieving}, hp: 100, activity: 'idle', path: null,
-      collections: {[ROUGH_GEM]: 7}}));
+      collections: onlyCollections(s.d, {[ROUGH_GEM]: 7})}));
   const pick = s => s.d.jobs.find(j => j.id === s.planner.plan(s.p, s.planner.masteryChooseGoal(s.p, 'melee'), 'melee').intent?.jobId);
   assert.equal(pick(mine)?.name, 'Iron');
   assert.equal(pick(stall)?.name, 'Gem stall');

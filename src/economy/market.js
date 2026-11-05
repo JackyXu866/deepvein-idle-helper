@@ -691,10 +691,14 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   // Whether the helper ever sells this stock: everyday selling on, the market
   // open to the character, and not a protected item. Stock it never sells
   // costs nothing to use (planner.stockValue).
-  function sells(p,id) {
+  // Could this stock be sold at all (market open, tradable, not protected)?
+  // On the market, which also sells quality bars, gear and potions.
+  function saleable(p,id) {
     select(p);
-    return salesEnabled&&!closed(p)&&tradable(planner.base(id))&&!saleProtectionReason(data,id);
+    return !closed(p)&&tradable(planner.base(id))&&!saleProtectionReason(data,id,true);
   }
+  // Everyday selling sells it (crafted surplus: economy.craftedSale).
+  const sells=(p,id)=>salesEnabled&&saleable(p,id);
   function listedQuantity(p,itemId) {
     select(p);
     return ordersKnown?orders.filter(o=>o.itemId===itemId&&o.side==='sell')
@@ -1049,7 +1053,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   }
   // deepveinDebug(): the store's size and age, and each watched sale item at a glance.
   const historyReport=()=>({...history.summary(),watched:Object.fromEntries(watched.map(id=>[itemName(data,id),history.describe(id)]))});
-  return {runtime,receive,next,sale,purchase,restockPotion,restockIngredient,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setBuyback,setPriceFeed,unitValue,askPrice,closed,sells,priceFeedAge:()=>feed?now()-feed.at:null,
+  return {runtime,receive,next,sale,purchase,restockPotion,restockIngredient,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setBuyback,setPriceFeed,unitValue,askPrice,closed,sells,saleable,priceFeedAge:()=>feed?now()-feed.at:null,
     averagePrice:history.averagePrice,dailyVolume:history.dailyVolume,priceTrend:history.priceTrend,historyReport,
     configureProcurement,equipmentPurchase,foodPurchase,buffFood,potionDose,marketBuyPrice,surplusValue,watchPurchases:scan,
     purchaseAllowance:(p,goal)=>{select(p);return purchaseAllowance(p,goal);}};
