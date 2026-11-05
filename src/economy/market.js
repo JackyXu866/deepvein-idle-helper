@@ -1023,7 +1023,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
       if(state){state.tradeGateUntil=now()+gateMs;state.attempt=null;status=closedReason({});persist();}
       return;
     }
-    const known=['not-at-bank','price-changed','not-tradable','too-many-orders','cannot-afford',
+    const known=['too-fast','not-at-bank','price-changed','not-tradable','too-many-orders','cannot-afford',
       'below-floor','nothing-to-sell','no-such-order','storage-full','bank-full','pack-full',
       'nothing-to-deposit','nothing-to-withdraw','nothing-to-eat','cannot-enhance','cannot-fight',
       'cannot-set-route','cannot-wield','cannot-equip','level-too-low','market-price-step'];

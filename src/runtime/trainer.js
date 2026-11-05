@@ -26,6 +26,10 @@ export const GUILD_REFUSALS=new Set(['guild-name','guild-tag','guild-name-taken'
   'guild-already-in','guild-not-in','guild-no-such-player','guild-full','guild-rank','guild-not-invited',
   'guild-leader-cannot-leave','guild-self','guild-not-material','guild-not-tradable','guild-bank-full','guild-short','guild-room-full']);
 export function isGuildRefusal(code) {return GUILD_REFUSALS.has(code);}
+// Rate limits ('too-fast', 'chat-too-fast', 'buy-donate-too-fast', ...): the
+// server dropped a request for coming too quickly; nothing happened.
+export const isRateRefusal=code=>typeof code==='string'&&/(^|-)too-fast$/.test(code);
+const RATE_REST_MS=10000;
 // The account may not trade (no verified email, or a recent email change):
 // the market counts as closed (market.closed), never a pause.
 export const TRADE_GATE_REFUSALS=new Set(['email-needed','email-changed']);
@@ -547,6 +551,16 @@ export class Trainer {
         }
         if(isGuildRefusal(message.code)) {
           this.log(`公会提示：${message.code==='guild-already-in'?'相关角色已在公会中':message.code}；不影响自动练级`);
+          continue;
+        }
+        if(isRateRefusal(message.code)) {
+          // The server is throttling the connection (too many requests, from the
+          // helper or anything else on it): nothing was done, so slow down, sync
+          // and plan again; never a pause.
+          if(this.pending&&MARKET_ACTIONS.has(this.pending.intent.t))this.market?.rejected(message.code);
+          this.pending=null;this.resolution=null;this.plan=null;
+          this.syncAfter=this.snapshotSequence;this.nextSync=this.now()+RATE_REST_MS;this.nextAction=this.now()+RATE_REST_MS;
+          this.log(`服务器要求放慢（${message.code}）；${RATE_REST_MS/1000} 秒后同步再继续，不暂停`);
           continue;
         }
         const deposit=this.pending??this.recentDeposit;

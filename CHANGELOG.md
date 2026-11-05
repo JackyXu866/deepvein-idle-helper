@@ -2,6 +2,11 @@
 
 版本号由本 fork（[JackyXu866/deepvein-idle-helper](https://github.com/JackyXu866/deepvein-idle-helper)，分支 `modular-rewrite`）维护；v0.8.8 及更早的版本来自上游 [ljyoukong-cpu/deepvein-idle-helper](https://github.com/ljyoukong-cpu/deepvein-idle-helper)。
 
+## v0.10.1 — 2026-11-04
+
+- **服务器限流不再暂停助手**：同一连接上请求太快时，服务器会回 `too-fast`（以及 `chat-too-fast` 等）。以前这算未知错误，助手直接暂停，即使请求不是它发的（比如在游戏里连续查看别人的装备）。现在一律当作限流：被丢掉的那条指令不算执行，助手停 10 秒，同步后重新规划再继续；进行中的市场操作也一并清掉，冷却后重新比价。
+- 删掉上游的独立版“世界 Boss 与种菜助手”脚本；新增 `docs/architecture.md`（代码结构、共享模块登记表、每个文件的用途），`docs/roadmap.md` 只保留未完成的事项。
+
 ## v0.10.0 — 2026-11-04
 
 本 fork 的第一个版本：模块化重写（未单独发布的 v0.9.0 开发版）以来的全部改动。

@@ -28,6 +28,21 @@ test('a drop while stopped keeps the reason it stopped', () => {
   assert.equal(t.awaitingWelcome, true);
 });
 
+test('a rate limit (too-fast) slows the helper down instead of pausing it', async () => {
+  const {isRateRefusal} = await import('../src/runtime/trainer.js');
+  assert.equal(isRateRefusal('too-fast'), true);
+  assert.equal(isRateRefusal('chat-too-fast'), true);
+  assert.equal(isRateRefusal('not-at-bank'), false);
+  const t = setup(true);
+  t.snapshotTick = 100;
+  t.pending = {intent: {t: 'setRoute', jobId: 1, siteId: 1}, label: '采矿', sentAt: 5e9, before: t.player};
+  t.receive({tick: 101, m: [{t: 'error', code: 'too-fast'}]});
+  assert.equal(t.active, true, 'still running');
+  assert.equal(t.pausedError ?? null, null);
+  assert.equal(t.pending, null, 'the dropped command is planned again');
+  assert.ok(t.nextAction >= 5e9 + 10000, 'after a short rest');
+});
+
 test('a refused connection still says why', () => {
   const t = setup(true);
   t.connectionLost('角色已在别处登录，已取消自动恢复');
