@@ -32,7 +32,9 @@ export function masteryCandidates(data,p) {
   for(const base of bases) {
     // Single-entry companions and appearances have no next step once found.
     if(!data.items[base]||base===data.coinId||base===data.shardId||skipMastery(data,base)||
-      base>=280&&base<293||base>=316&&base<323||base>=400&&base<=410)continue;
+      base>=280&&base<293||base>=316&&base<323||base>=400&&base<=410||
+      // Fireworks and their powder earn no collection points (client $P).
+      base>=700&&base<=710)continue;
     for(const rarity of [...PAIR_TIERS].reverse()) {
       const itemId=base+rarity*data.rarityScale,count=p.collections[itemId]??0;
       if(!Number.isSafeInteger(count)||count<=0)continue;

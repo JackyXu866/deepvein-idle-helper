@@ -66,7 +66,9 @@ export function validateGameData(data) {
 }
 
 export function extractGameTables(source, parse, baseline) {
-  if(typeof source!=='string'||source.length>6000000)throw new Error('公开数据大小异常');
+  // A sanity bound, not a tight one: the client grew past 6 MB in 1.0.12xx
+  // and every refresh was refused until this was raised.
+  if(typeof source!=='string'||source.length>16000000)throw new Error('公开数据大小异常');
   const ast=parse(source,{ecmaVersion:'latest',sourceType:'module'});
   const declarations=new Map(),functions=new Map();
   for(const statement of ast.body) {
@@ -83,7 +85,12 @@ export function extractGameTables(source, parse, baseline) {
       if(trail.includes(node.name))throw new Error('循环数据声明');
       return literal(declarations.get(node.name),scope,[...trail,node.name]);
     }
-    if(node.type==='ArrayExpression')return node.elements.map(n=>literal(n,scope,trail));
+    if(node.type==='ArrayExpression')return node.elements.flatMap(n=>n?.type==='SpreadElement'?spread(n.argument,scope,trail):[literal(n,scope,trail)]);
+    // A property of a literal value (an element bound by a static map below).
+    if(node.type==='MemberExpression'&&!node.computed&&node.property.type==='Identifier') {
+      const object=literal(node.object,scope,trail);
+      if(object&&typeof object==='object'&&Object.hasOwn(object,node.property.name))return object[node.property.name];
+    }
     if(node.type==='ObjectExpression')return Object.fromEntries(node.properties.map(p=>{
       if(p.type!=='Property'||p.computed||p.kind!=='init'||p.method)throw new Error('非静态属性');
       const key=p.key.name??p.key.value;
@@ -108,6 +115,21 @@ export function extractGameTables(source, parse, baseline) {
         keys(result).length===3&&['itemId','chanceAtReq','safeAtLevel'].every(k=>keys(result).includes(k)))
         return literal(result,{[fn.params[0].name]:literal(node.arguments[0],scope,trail)},[...trail,node.callee.name]);
     }
+    throw new Error('公开表包含未知表达式，保留已核对数据');
+  }
+  // `...list` or `...list.map(x=>({...}))` inside a table (client 1.0.1196
+  // appends the fireworks this way): the list is a literal array and the map a
+  // single-parameter arrow returning a literal built from its element. Nothing
+  // is executed; anything else is refused like any unknown expression.
+  function spread(node,scope,trail) {
+    if(node.type==='CallExpression'&&node.callee.type==='MemberExpression'&&!node.callee.computed&&
+      node.callee.property.name==='map'&&node.arguments.length===1) {
+      const fn=node.arguments[0],list=literal(node.callee.object,scope,trail);
+      if(Array.isArray(list)&&fn.type==='ArrowFunctionExpression'&&fn.params.length===1&&fn.params[0].type==='Identifier'&&
+        fn.body.type!=='BlockStatement')return list.map(value=>literal(fn.body,{...scope,[fn.params[0].name]:value},trail));
+    }
+    const list=literal(node,scope,trail);
+    if(Array.isArray(list))return list;
     throw new Error('公开表包含未知表达式，保留已核对数据');
   }
   function one(required,array=true,exact=false) {

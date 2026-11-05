@@ -1,8 +1,10 @@
 {
-  "client": "index-DAY9oe71.js",
-  "sha256": "c61c0f23060ecb43ebc22d6e2e1742b16c265383a1dc1b2860357b341047aeb5",
-  "captured": "2026-10-15",
-  "compatibleClients": [],
+  "client": "index-CZTesadh.js",
+  "sha256": "5b1234190b980ab6ad057b60429ea2c9cfde570e3d7f447ddbfe06dbf1a0f830",
+  "captured": "2026-11-05",
+  "compatibleClients": [
+    "index-CZTesadh.js"
+  ],
   "protocol": 3,
   "skills": [
     "mining",
@@ -113,6 +115,25 @@
         "itemId": 100,
         "chance": 0.001
       }
+    },
+    {
+      "id": 344,
+      "name": "Pure coal",
+      "skill": "mining",
+      "group": "Ore",
+      "levelReq": 40,
+      "baseTicks": 8,
+      "xp": 14,
+      "inputs": [],
+      "output": {
+        "itemId": 5,
+        "qty": 1
+      },
+      "bonus": {
+        "itemId": 100,
+        "chance": 0.001
+      },
+      "plain": true
     },
     {
       "id": 6,
@@ -1704,6 +1725,425 @@
         "itemId": 70,
         "chanceAtReq": 0.3,
         "safeAtLevel": 115
+      }
+    },
+    {
+      "id": 69,
+      "name": "Potato stew",
+      "skill": "cooking",
+      "group": "Stews",
+      "levelReq": 15,
+      "baseTicks": 4,
+      "xp": 6,
+      "inputs": [
+        {
+          "itemId": 61,
+          "qty": 1
+        },
+        {
+          "itemId": 170,
+          "qty": 1
+        },
+        {
+          "itemId": 78,
+          "qty": 2
+        }
+      ],
+      "output": {
+        "itemId": 71,
+        "qty": 1
+      }
+    },
+    {
+      "id": 70,
+      "name": "Glowcap stew",
+      "skill": "cooking",
+      "group": "Stews",
+      "levelReq": 30,
+      "baseTicks": 4,
+      "xp": 14,
+      "inputs": [
+        {
+          "itemId": 62,
+          "qty": 1
+        },
+        {
+          "itemId": 171,
+          "qty": 1
+        },
+        {
+          "itemId": 78,
+          "qty": 2
+        }
+      ],
+      "output": {
+        "itemId": 72,
+        "qty": 1
+      }
+    },
+    {
+      "id": 71,
+      "name": "Turnip stew",
+      "skill": "cooking",
+      "group": "Stews",
+      "levelReq": 42,
+      "baseTicks": 4,
+      "xp": 17,
+      "inputs": [
+        {
+          "itemId": 63,
+          "qty": 1
+        },
+        {
+          "itemId": 172,
+          "qty": 1
+        },
+        {
+          "itemId": 78,
+          "qty": 2
+        }
+      ],
+      "output": {
+        "itemId": 73,
+        "qty": 1
+      }
+    },
+    {
+      "id": 72,
+      "name": "Bitterroot stew",
+      "skill": "cooking",
+      "group": "Stews",
+      "levelReq": 55,
+      "baseTicks": 4,
+      "xp": 25,
+      "inputs": [
+        {
+          "itemId": 64,
+          "qty": 1
+        },
+        {
+          "itemId": 173,
+          "qty": 1
+        },
+        {
+          "itemId": 78,
+          "qty": 2
+        }
+      ],
+      "output": {
+        "itemId": 74,
+        "qty": 1
+      }
+    },
+    {
+      "id": 73,
+      "name": "Voidmelon stew",
+      "skill": "cooking",
+      "group": "Stews",
+      "levelReq": 70,
+      "baseTicks": 4,
+      "xp": 42,
+      "inputs": [
+        {
+          "itemId": 65,
+          "qty": 1
+        },
+        {
+          "itemId": 174,
+          "qty": 1
+        },
+        {
+          "itemId": 78,
+          "qty": 2
+        }
+      ],
+      "output": {
+        "itemId": 75,
+        "qty": 1
+      }
+    },
+    {
+      "id": 74,
+      "name": "Ember stew",
+      "skill": "cooking",
+      "group": "Stews",
+      "levelReq": 92,
+      "baseTicks": 4,
+      "xp": 91,
+      "inputs": [
+        {
+          "itemId": 66,
+          "qty": 1
+        },
+        {
+          "itemId": 175,
+          "qty": 1
+        },
+        {
+          "itemId": 78,
+          "qty": 2
+        }
+      ],
+      "output": {
+        "itemId": 76,
+        "qty": 1
+      }
+    },
+    {
+      "id": 75,
+      "name": "Fire stew",
+      "skill": "cooking",
+      "group": "Stews",
+      "levelReq": 99,
+      "baseTicks": 4,
+      "xp": 103,
+      "inputs": [
+        {
+          "itemId": 67,
+          "qty": 1
+        },
+        {
+          "itemId": 175,
+          "qty": 1
+        },
+        {
+          "itemId": 78,
+          "qty": 2
+        }
+      ],
+      "output": {
+        "itemId": 77,
+        "qty": 1
+      }
+    },
+    {
+      "id": 76,
+      "name": "Salted shrimp",
+      "skill": "cooking",
+      "group": "Salted fish",
+      "levelReq": 6,
+      "baseTicks": 4,
+      "xp": 5,
+      "inputs": [
+        {
+          "itemId": 60,
+          "qty": 1
+        },
+        {
+          "itemId": 78,
+          "qty": 1
+        }
+      ],
+      "output": {
+        "itemId": 45,
+        "qty": 1
+      }
+    },
+    {
+      "id": 77,
+      "name": "Salted sardine",
+      "skill": "cooking",
+      "group": "Salted fish",
+      "levelReq": 10,
+      "baseTicks": 4,
+      "xp": 6,
+      "inputs": [
+        {
+          "itemId": 61,
+          "qty": 1
+        },
+        {
+          "itemId": 78,
+          "qty": 1
+        }
+      ],
+      "output": {
+        "itemId": 46,
+        "qty": 1
+      }
+    },
+    {
+      "id": 78,
+      "name": "Salted trout",
+      "skill": "cooking",
+      "group": "Salted fish",
+      "levelReq": 25,
+      "baseTicks": 4,
+      "xp": 11,
+      "inputs": [
+        {
+          "itemId": 62,
+          "qty": 1
+        },
+        {
+          "itemId": 78,
+          "qty": 1
+        }
+      ],
+      "output": {
+        "itemId": 47,
+        "qty": 1
+      }
+    },
+    {
+      "id": 79,
+      "name": "Salted salmon",
+      "skill": "cooking",
+      "group": "Salted fish",
+      "levelReq": 35,
+      "baseTicks": 4,
+      "xp": 15,
+      "inputs": [
+        {
+          "itemId": 63,
+          "qty": 1
+        },
+        {
+          "itemId": 78,
+          "qty": 1
+        }
+      ],
+      "output": {
+        "itemId": 48,
+        "qty": 1
+      }
+    },
+    {
+      "id": 80,
+      "name": "Salted tuna",
+      "skill": "cooking",
+      "group": "Salted fish",
+      "levelReq": 50,
+      "baseTicks": 4,
+      "xp": 24,
+      "inputs": [
+        {
+          "itemId": 64,
+          "qty": 1
+        },
+        {
+          "itemId": 78,
+          "qty": 1
+        }
+      ],
+      "output": {
+        "itemId": 49,
+        "qty": 1
+      }
+    },
+    {
+      "id": 81,
+      "name": "Salted lobster",
+      "skill": "cooking",
+      "group": "Salted fish",
+      "levelReq": 65,
+      "baseTicks": 4,
+      "xp": 40,
+      "inputs": [
+        {
+          "itemId": 65,
+          "qty": 1
+        },
+        {
+          "itemId": 78,
+          "qty": 1
+        }
+      ],
+      "output": {
+        "itemId": 50,
+        "qty": 1
+      }
+    },
+    {
+      "id": 82,
+      "name": "Salted swordfish",
+      "skill": "cooking",
+      "group": "Salted fish",
+      "levelReq": 80,
+      "baseTicks": 4,
+      "xp": 65,
+      "inputs": [
+        {
+          "itemId": 66,
+          "qty": 1
+        },
+        {
+          "itemId": 78,
+          "qty": 1
+        }
+      ],
+      "output": {
+        "itemId": 51,
+        "qty": 1
+      }
+    },
+    {
+      "id": 83,
+      "name": "Salted shark",
+      "skill": "cooking",
+      "group": "Salted fish",
+      "levelReq": 95,
+      "baseTicks": 4,
+      "xp": 101,
+      "inputs": [
+        {
+          "itemId": 67,
+          "qty": 1
+        },
+        {
+          "itemId": 78,
+          "qty": 1
+        }
+      ],
+      "output": {
+        "itemId": 52,
+        "qty": 1
+      }
+    },
+    {
+      "id": 84,
+      "name": "Packed lunch",
+      "skill": "cooking",
+      "group": "Lunches",
+      "levelReq": 75,
+      "baseTicks": 4,
+      "xp": 56,
+      "inputs": [
+        {
+          "itemId": 66,
+          "qty": 2
+        },
+        {
+          "itemId": 53,
+          "qty": 1
+        }
+      ],
+      "output": {
+        "itemId": 54,
+        "qty": 1
+      }
+    },
+    {
+      "id": 85,
+      "name": "Hearty lunch",
+      "skill": "cooking",
+      "group": "Lunches",
+      "levelReq": 90,
+      "baseTicks": 4,
+      "xp": 88,
+      "inputs": [
+        {
+          "itemId": 67,
+          "qty": 2
+        },
+        {
+          "itemId": 53,
+          "qty": 1
+        }
+      ],
+      "output": {
+        "itemId": 55,
+        "qty": 1
       }
     },
     {
@@ -4231,6 +4671,129 @@
         "itemId": 327,
         "qty": 1
       }
+    },
+    {
+      "id": 420,
+      "name": "Cobalt rocket",
+      "skill": "crafting",
+      "group": "Fireworks",
+      "levelReq": 20,
+      "baseTicks": 6,
+      "xp": 58,
+      "inputs": [
+        {
+          "itemId": 7,
+          "qty": 25
+        },
+        {
+          "itemId": 700,
+          "qty": 1
+        }
+      ],
+      "output": {
+        "itemId": 701,
+        "qty": 1
+      }
+    },
+    {
+      "id": 421,
+      "name": "Void rain",
+      "skill": "crafting",
+      "group": "Fireworks",
+      "levelReq": 45,
+      "baseTicks": 6,
+      "xp": 156,
+      "inputs": [
+        {
+          "itemId": 208,
+          "qty": 20
+        },
+        {
+          "itemId": 700,
+          "qty": 1
+        }
+      ],
+      "output": {
+        "itemId": 702,
+        "qty": 1
+      }
+    },
+    {
+      "id": 422,
+      "name": "Golden arrow rain",
+      "skill": "crafting",
+      "group": "Fireworks",
+      "levelReq": 55,
+      "baseTicks": 6,
+      "xp": 221,
+      "inputs": [
+        {
+          "itemId": 302,
+          "qty": 25
+        },
+        {
+          "itemId": 700,
+          "qty": 1
+        }
+      ],
+      "output": {
+        "itemId": 703,
+        "qty": 1
+      }
+    },
+    {
+      "id": 423,
+      "name": "Jewel crown",
+      "skill": "crafting",
+      "group": "Fireworks",
+      "levelReq": 70,
+      "baseTicks": 7,
+      "xp": 380,
+      "inputs": [
+        {
+          "itemId": 100,
+          "qty": 5
+        },
+        {
+          "itemId": 40,
+          "qty": 10
+        },
+        {
+          "itemId": 700,
+          "qty": 2
+        }
+      ],
+      "output": {
+        "itemId": 704,
+        "qty": 1
+      }
+    },
+    {
+      "id": 424,
+      "name": "Dragon egg",
+      "skill": "crafting",
+      "group": "Fireworks",
+      "levelReq": 85,
+      "baseTicks": 7,
+      "xp": 618,
+      "inputs": [
+        {
+          "itemId": 251,
+          "qty": 3
+        },
+        {
+          "itemId": 8,
+          "qty": 10
+        },
+        {
+          "itemId": 700,
+          "qty": 3
+        }
+      ],
+      "output": {
+        "itemId": 705,
+        "qty": 1
+      }
     }
   ],
   "gear": [
@@ -5403,7 +5966,8 @@
       "defence": 18,
       "luck": 1.5,
       "levelReq": 95,
-      "needs": "none"
+      "needs": "none",
+      "totalLevel": 750
     },
     {
       "itemId": 304,
@@ -5785,6 +6349,80 @@
       "stackable": false,
       "value": 1527
     },
+    "45": {
+      "id": 45,
+      "name": "Salted shrimp",
+      "stackable": false,
+      "value": 9,
+      "heals": 3
+    },
+    "46": {
+      "id": 46,
+      "name": "Salted sardine",
+      "stackable": false,
+      "value": 15,
+      "heals": 4
+    },
+    "47": {
+      "id": 47,
+      "name": "Salted trout",
+      "stackable": false,
+      "value": 44,
+      "heals": 8
+    },
+    "48": {
+      "id": 48,
+      "name": "Salted salmon",
+      "stackable": false,
+      "value": 82,
+      "heals": 10
+    },
+    "49": {
+      "id": 49,
+      "name": "Salted tuna",
+      "stackable": false,
+      "value": 150,
+      "heals": 13
+    },
+    "50": {
+      "id": 50,
+      "name": "Salted lobster",
+      "stackable": false,
+      "value": 290,
+      "heals": 18
+    },
+    "51": {
+      "id": 51,
+      "name": "Salted swordfish",
+      "stackable": false,
+      "value": 550,
+      "heals": 22
+    },
+    "52": {
+      "id": 52,
+      "name": "Salted shark",
+      "stackable": false,
+      "value": 1280,
+      "heals": 29
+    },
+    "53": {
+      "id": 53,
+      "name": "Spice",
+      "stackable": true,
+      "value": 0
+    },
+    "54": {
+      "id": 54,
+      "name": "Packed lunch",
+      "stackable": false,
+      "value": 1100
+    },
+    "55": {
+      "id": 55,
+      "name": "Hearty lunch",
+      "stackable": false,
+      "value": 2560
+    },
     "60": {
       "id": 60,
       "name": "Cooked shrimp",
@@ -5844,6 +6482,61 @@
     "70": {
       "id": 70,
       "name": "Burnt food",
+      "stackable": true,
+      "value": 0
+    },
+    "71": {
+      "id": 71,
+      "name": "Potato stew",
+      "stackable": false,
+      "value": 122,
+      "heals": 5
+    },
+    "72": {
+      "id": 72,
+      "name": "Glowcap stew",
+      "stackable": false,
+      "value": 166,
+      "heals": 8
+    },
+    "73": {
+      "id": 73,
+      "name": "Turnip stew",
+      "stackable": false,
+      "value": 237,
+      "heals": 11
+    },
+    "74": {
+      "id": 74,
+      "name": "Bitterroot stew",
+      "stackable": false,
+      "value": 370,
+      "heals": 14
+    },
+    "75": {
+      "id": 75,
+      "name": "Voidmelon stew",
+      "stackable": false,
+      "value": 650,
+      "heals": 19
+    },
+    "76": {
+      "id": 76,
+      "name": "Ember stew",
+      "stackable": false,
+      "value": 1170,
+      "heals": 24
+    },
+    "77": {
+      "id": 77,
+      "name": "Fire stew",
+      "stackable": false,
+      "value": 1900,
+      "heals": 31
+    },
+    "78": {
+      "id": 78,
+      "name": "Salt",
       "stackable": true,
       "value": 0
     },
@@ -7448,6 +8141,60 @@
       "name": "Star fairy",
       "stackable": false,
       "value": 0
+    },
+    "700": {
+      "id": 700,
+      "name": "Firework powder",
+      "stackable": true,
+      "value": 0
+    },
+    "701": {
+      "id": 701,
+      "name": "Cobalt rocket",
+      "stackable": true,
+      "value": 0
+    },
+    "702": {
+      "id": 702,
+      "name": "Void rain",
+      "stackable": true,
+      "value": 0
+    },
+    "703": {
+      "id": 703,
+      "name": "Golden arrow rain",
+      "stackable": true,
+      "value": 0
+    },
+    "704": {
+      "id": 704,
+      "name": "Jewel crown",
+      "stackable": true,
+      "value": 0
+    },
+    "705": {
+      "id": 705,
+      "name": "Dragon egg",
+      "stackable": true,
+      "value": 0
+    },
+    "760": {
+      "id": 760,
+      "name": "Singles' Day box",
+      "stackable": true,
+      "value": 25
+    },
+    "761": {
+      "id": 761,
+      "name": "Jade Pixiu",
+      "stackable": false,
+      "value": 0
+    },
+    "762": {
+      "id": 762,
+      "name": "Community gift box",
+      "stackable": true,
+      "value": 25
     }
   },
   "toolSkills": {
@@ -8000,7 +8747,12 @@
         287,
         288,
         300,
-        279
+        279,
+        420,
+        421,
+        422,
+        423,
+        424
       ]
     },
     {
@@ -8196,7 +8948,12 @@
         287,
         288,
         300,
-        279
+        279,
+        420,
+        421,
+        422,
+        423,
+        424
       ]
     },
     {
@@ -8697,6 +9454,15 @@
         210,
         211,
         212
+      ]
+    },
+    {
+      "id": 395,
+      "x": 200,
+      "y": 41,
+      "kind": "rock",
+      "jobIds": [
+        344
       ]
     }
   ],
