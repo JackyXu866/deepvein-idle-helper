@@ -1,9 +1,9 @@
 {
-  "client": "index-CZTesadh.js",
-  "sha256": "5b1234190b980ab6ad057b60429ea2c9cfde570e3d7f447ddbfe06dbf1a0f830",
-  "captured": "2026-11-05",
+  "client": "index-BqokRC4i.js",
+  "sha256": "13f144ed0a9a34f3f844e4f1c5b490a34590d37a57775522cceecf2c9716d932",
+  "captured": "2026-11-06",
   "compatibleClients": [
-    "index-CZTesadh.js"
+    "index-BqokRC4i.js"
   ],
   "protocol": 3,
   "skills": [
@@ -1322,6 +1322,121 @@
       ],
       "output": {
         "itemId": 384,
+        "qty": 1
+      }
+    },
+    {
+      "id": 600,
+      "name": "Bronze flask",
+      "skill": "crafting",
+      "group": "Flasks",
+      "levelReq": 1,
+      "baseTicks": 6,
+      "xp": 33,
+      "inputs": [
+        {
+          "itemId": 40,
+          "qty": 2
+        },
+        {
+          "itemId": 180,
+          "qty": 1
+        }
+      ],
+      "output": {
+        "itemId": 770,
+        "qty": 1
+      }
+    },
+    {
+      "id": 601,
+      "name": "Iron flask",
+      "skill": "crafting",
+      "group": "Flasks",
+      "levelReq": 15,
+      "baseTicks": 6,
+      "xp": 43,
+      "inputs": [
+        {
+          "itemId": 41,
+          "qty": 2
+        },
+        {
+          "itemId": 180,
+          "qty": 1
+        }
+      ],
+      "output": {
+        "itemId": 771,
+        "qty": 1
+      }
+    },
+    {
+      "id": 602,
+      "name": "Steel flask",
+      "skill": "crafting",
+      "group": "Flasks",
+      "levelReq": 30,
+      "baseTicks": 6,
+      "xp": 99,
+      "inputs": [
+        {
+          "itemId": 42,
+          "qty": 2
+        },
+        {
+          "itemId": 180,
+          "qty": 1
+        }
+      ],
+      "output": {
+        "itemId": 772,
+        "qty": 1
+      }
+    },
+    {
+      "id": 603,
+      "name": "Cobalt flask",
+      "skill": "crafting",
+      "group": "Flasks",
+      "levelReq": 60,
+      "baseTicks": 6,
+      "xp": 256,
+      "inputs": [
+        {
+          "itemId": 43,
+          "qty": 2
+        },
+        {
+          "itemId": 180,
+          "qty": 1
+        }
+      ],
+      "output": {
+        "itemId": 773,
+        "qty": 1
+      }
+    },
+    {
+      "id": 604,
+      "name": "Meteoric flask",
+      "skill": "crafting",
+      "group": "Flasks",
+      "levelReq": 85,
+      "baseTicks": 6,
+      "xp": 568,
+      "inputs": [
+        {
+          "itemId": 44,
+          "qty": 2
+        },
+        {
+          "itemId": 180,
+          "qty": 1
+        }
+      ],
+      "output": {
+        "itemId": 774,
         "qty": 1
       }
     },
@@ -5048,6 +5163,81 @@
       "bonus": 0.5
     },
     {
+      "itemId": 770,
+      "slot": "flask",
+      "bonus": 0.2
+    },
+    {
+      "itemId": 771,
+      "slot": "flask",
+      "bonus": 0.45
+    },
+    {
+      "itemId": 772,
+      "slot": "flask",
+      "bonus": 0.7
+    },
+    {
+      "itemId": 773,
+      "slot": "flask",
+      "bonus": 0.95
+    },
+    {
+      "itemId": 774,
+      "slot": "flask",
+      "bonus": 1.2
+    },
+    {
+      "itemId": 698,
+      "slot": "pickaxe",
+      "bonus": 0.65
+    },
+    {
+      "itemId": 699,
+      "slot": "hammer",
+      "bonus": 0.65
+    },
+    {
+      "itemId": 572,
+      "slot": "rod",
+      "bonus": 0.65
+    },
+    {
+      "itemId": 573,
+      "slot": "pan",
+      "bonus": 0.65
+    },
+    {
+      "itemId": 575,
+      "slot": "axe",
+      "bonus": 0.65
+    },
+    {
+      "itemId": 576,
+      "slot": "knife",
+      "bonus": 0.65
+    },
+    {
+      "itemId": 711,
+      "slot": "hoe",
+      "bonus": 0.65
+    },
+    {
+      "itemId": 712,
+      "slot": "mortar",
+      "bonus": 0.65
+    },
+    {
+      "itemId": 718,
+      "slot": "gloves",
+      "bonus": 0.65
+    },
+    {
+      "itemId": 719,
+      "slot": "needle",
+      "bonus": 0.65
+    },
+    {
       "itemId": 328,
       "slot": "mount",
       "bonus": 0.12
@@ -8076,6 +8266,18 @@
       "stackable": true,
       "value": 25
     },
+    "398": {
+      "id": 398,
+      "name": "Cinder Imp",
+      "stackable": false,
+      "value": 0
+    },
+    "399": {
+      "id": 399,
+      "name": "Moon Jelly",
+      "stackable": false,
+      "value": 0
+    },
     "400": {
       "id": 400,
       "name": "Pebble golem",
@@ -8142,6 +8344,138 @@
       "stackable": false,
       "value": 0
     },
+    "572": {
+      "id": 572,
+      "name": "Tideforged rod",
+      "stackable": false,
+      "value": 3294
+    },
+    "573": {
+      "id": 573,
+      "name": "Tideforged pan",
+      "stackable": false,
+      "value": 2514
+    },
+    "574": {
+      "id": 574,
+      "name": "Puffcap",
+      "stackable": false,
+      "value": 0
+    },
+    "575": {
+      "id": 575,
+      "name": "Sporeforged axe",
+      "stackable": false,
+      "value": 4499
+    },
+    "576": {
+      "id": 576,
+      "name": "Sporeforged knife",
+      "stackable": false,
+      "value": 2514
+    },
+    "664": {
+      "id": 664,
+      "name": "Heartforger gloves",
+      "stackable": false,
+      "value": 0
+    },
+    "684": {
+      "id": 684,
+      "name": "Embers",
+      "stackable": true,
+      "value": 0
+    },
+    "685": {
+      "id": 685,
+      "name": "Wreck coins",
+      "stackable": true,
+      "value": 0
+    },
+    "686": {
+      "id": 686,
+      "name": "Spores",
+      "stackable": true,
+      "value": 0
+    },
+    "687": {
+      "id": 687,
+      "name": "Cooling draught",
+      "stackable": true,
+      "value": 0
+    },
+    "688": {
+      "id": 688,
+      "name": "Abyssal Pearl",
+      "stackable": true,
+      "value": 2000
+    },
+    "689": {
+      "id": 689,
+      "name": "Living Heartwood",
+      "stackable": true,
+      "value": 2000
+    },
+    "690": {
+      "id": 690,
+      "name": "Forge coke",
+      "stackable": true,
+      "value": 0
+    },
+    "691": {
+      "id": 691,
+      "name": "Kraken's Arm",
+      "stackable": false,
+      "value": 0
+    },
+    "692": {
+      "id": 692,
+      "name": "Colony in a Jar",
+      "stackable": false,
+      "value": 0
+    },
+    "693": {
+      "id": 693,
+      "name": "Forge bread",
+      "stackable": true,
+      "value": 0
+    },
+    "694": {
+      "id": 694,
+      "name": "Chum",
+      "stackable": true,
+      "value": 0
+    },
+    "695": {
+      "id": 695,
+      "name": "Lampwood",
+      "stackable": true,
+      "value": 0
+    },
+    "696": {
+      "id": 696,
+      "name": "Heart in Glass",
+      "stackable": false,
+      "value": 0
+    },
+    "697": {
+      "id": 697,
+      "name": "Heart Core",
+      "stackable": true,
+      "value": 2000
+    },
+    "698": {
+      "id": 698,
+      "name": "Heartforged pickaxe",
+      "stackable": false,
+      "value": 4499
+    },
+    "699": {
+      "id": 699,
+      "name": "Heartforged hammer",
+      "stackable": false,
+      "value": 4499
+    },
     "700": {
       "id": 700,
       "name": "Firework powder",
@@ -8178,6 +8512,306 @@
       "stackable": true,
       "value": 0
     },
+    "706": {
+      "id": 706,
+      "name": "Blooms",
+      "stackable": true,
+      "value": 0
+    },
+    "707": {
+      "id": 707,
+      "name": "Living Seed",
+      "stackable": true,
+      "value": 2000
+    },
+    "708": {
+      "id": 708,
+      "name": "Blight in a Pot",
+      "stackable": false,
+      "value": 0
+    },
+    "709": {
+      "id": 709,
+      "name": "Smudge herbs",
+      "stackable": true,
+      "value": 0
+    },
+    "710": {
+      "id": 710,
+      "name": "Sproutling",
+      "stackable": false,
+      "value": 0
+    },
+    "711": {
+      "id": 711,
+      "name": "Bloomforged hoe",
+      "stackable": false,
+      "value": 4074
+    },
+    "712": {
+      "id": 712,
+      "name": "Bloomforged mortar",
+      "stackable": false,
+      "value": 4499
+    },
+    "713": {
+      "id": 713,
+      "name": "Honours",
+      "stackable": true,
+      "value": 0
+    },
+    "714": {
+      "id": 714,
+      "name": "Keystone",
+      "stackable": true,
+      "value": 2000
+    },
+    "715": {
+      "id": 715,
+      "name": "Model Keep",
+      "stackable": false,
+      "value": 0
+    },
+    "716": {
+      "id": 716,
+      "name": "Beacon pitch",
+      "stackable": true,
+      "value": 0
+    },
+    "717": {
+      "id": 717,
+      "name": "Little Ram",
+      "stackable": false,
+      "value": 0
+    },
+    "718": {
+      "id": 718,
+      "name": "Wardenforged gloves",
+      "stackable": false,
+      "value": 455000
+    },
+    "719": {
+      "id": 719,
+      "name": "Wardenforged needle",
+      "stackable": false,
+      "value": 2514
+    },
+    "720": {
+      "id": 720,
+      "name": "Heartforger's Lantern",
+      "stackable": false,
+      "value": 2000
+    },
+    "721": {
+      "id": 721,
+      "name": "Cinderheart Tongs",
+      "stackable": false,
+      "value": 2000
+    },
+    "722": {
+      "id": 722,
+      "name": "Kraken's Tideglass Float",
+      "stackable": false,
+      "value": 2000
+    },
+    "723": {
+      "id": 723,
+      "name": "Brinehorn Flask",
+      "stackable": false,
+      "value": 2000
+    },
+    "724": {
+      "id": 724,
+      "name": "Sporecap Felling Wedge",
+      "stackable": false,
+      "value": 2000
+    },
+    "725": {
+      "id": 725,
+      "name": "Colony Quill-jig",
+      "stackable": false,
+      "value": 2000
+    },
+    "726": {
+      "id": 726,
+      "name": "Blightroot Seed Satchel",
+      "stackable": false,
+      "value": 2000
+    },
+    "727": {
+      "id": 727,
+      "name": "Blight-glass Alembic",
+      "stackable": false,
+      "value": 2000
+    },
+    "728": {
+      "id": 728,
+      "name": "Cutpurse's Satchel",
+      "stackable": false,
+      "value": 2000
+    },
+    "729": {
+      "id": 729,
+      "name": "Armourer's Awl",
+      "stackable": false,
+      "value": 2000
+    },
+    "730": {
+      "id": 730,
+      "name": "Raidstone Whetstone",
+      "stackable": false,
+      "value": 0
+    },
+    "731": {
+      "id": 731,
+      "name": "Heart Core shard",
+      "stackable": true,
+      "value": 20
+    },
+    "732": {
+      "id": 732,
+      "name": "Pearl fragment",
+      "stackable": true,
+      "value": 20
+    },
+    "733": {
+      "id": 733,
+      "name": "Heartwood splinter",
+      "stackable": true,
+      "value": 20
+    },
+    "734": {
+      "id": 734,
+      "name": "Seed husk",
+      "stackable": true,
+      "value": 20
+    },
+    "735": {
+      "id": 735,
+      "name": "Keystone chip",
+      "stackable": true,
+      "value": 20
+    },
+    "736": {
+      "id": 736,
+      "name": "Heartcinder",
+      "stackable": true,
+      "value": 2500
+    },
+    "737": {
+      "id": 737,
+      "name": "Kraken ink",
+      "stackable": true,
+      "value": 2500
+    },
+    "738": {
+      "id": 738,
+      "name": "Amberheart",
+      "stackable": true,
+      "value": 2500
+    },
+    "739": {
+      "id": 739,
+      "name": "Blightseed",
+      "stackable": true,
+      "value": 2500
+    },
+    "740": {
+      "id": 740,
+      "name": "Siege banner",
+      "stackable": true,
+      "value": 2500
+    },
+    "741": {
+      "id": 741,
+      "name": "Furnace cap",
+      "stackable": false,
+      "value": 0
+    },
+    "742": {
+      "id": 742,
+      "name": "Furnace apron",
+      "stackable": false,
+      "value": 0
+    },
+    "743": {
+      "id": 743,
+      "name": "Furnace leggings",
+      "stackable": false,
+      "value": 0
+    },
+    "744": {
+      "id": 744,
+      "name": "Tidewater hat",
+      "stackable": false,
+      "value": 0
+    },
+    "745": {
+      "id": 745,
+      "name": "Tidewater smock",
+      "stackable": false,
+      "value": 0
+    },
+    "746": {
+      "id": 746,
+      "name": "Tidewater waders",
+      "stackable": false,
+      "value": 0
+    },
+    "747": {
+      "id": 747,
+      "name": "Mossbark hood",
+      "stackable": false,
+      "value": 0
+    },
+    "748": {
+      "id": 748,
+      "name": "Mossbark vest",
+      "stackable": false,
+      "value": 0
+    },
+    "749": {
+      "id": 749,
+      "name": "Mossbark breeches",
+      "stackable": false,
+      "value": 0
+    },
+    "750": {
+      "id": 750,
+      "name": "Blightward hat",
+      "stackable": false,
+      "value": 0
+    },
+    "751": {
+      "id": 751,
+      "name": "Blightward coat",
+      "stackable": false,
+      "value": 0
+    },
+    "752": {
+      "id": 752,
+      "name": "Blightward trousers",
+      "stackable": false,
+      "value": 0
+    },
+    "753": {
+      "id": 753,
+      "name": "Sapper's hood",
+      "stackable": false,
+      "value": 0
+    },
+    "754": {
+      "id": 754,
+      "name": "Sapper's coat",
+      "stackable": false,
+      "value": 0
+    },
+    "755": {
+      "id": 755,
+      "name": "Sapper's breeches",
+      "stackable": false,
+      "value": 0
+    },
     "760": {
       "id": 760,
       "name": "Singles' Day box",
@@ -8195,6 +8829,78 @@
       "name": "Community gift box",
       "stackable": true,
       "value": 25
+    },
+    "763": {
+      "id": 763,
+      "name": "???",
+      "stackable": false,
+      "value": 0
+    },
+    "764": {
+      "id": 764,
+      "name": "Enhance essence",
+      "stackable": true,
+      "value": 1
+    },
+    "770": {
+      "id": 770,
+      "name": "Bronze flask",
+      "stackable": false,
+      "value": 2534
+    },
+    "771": {
+      "id": 771,
+      "name": "Iron flask",
+      "stackable": false,
+      "value": 2559
+    },
+    "772": {
+      "id": 772,
+      "name": "Steel flask",
+      "stackable": false,
+      "value": 2851
+    },
+    "773": {
+      "id": 773,
+      "name": "Cobalt flask",
+      "stackable": false,
+      "value": 3940
+    },
+    "774": {
+      "id": 774,
+      "name": "Meteoric flask",
+      "stackable": false,
+      "value": 5966
+    },
+    "775": {
+      "id": 775,
+      "name": "Clean essence",
+      "stackable": true,
+      "value": 1
+    },
+    "776": {
+      "id": 776,
+      "name": "Philosopher's piece",
+      "stackable": true,
+      "value": 50
+    },
+    "777": {
+      "id": 777,
+      "name": "Philosopher's Stone",
+      "stackable": false,
+      "value": 0
+    },
+    "778": {
+      "id": 778,
+      "name": "Boss essence",
+      "stackable": true,
+      "value": 1
+    },
+    "779": {
+      "id": 779,
+      "name": "House essence",
+      "stackable": true,
+      "value": 1
     }
   },
   "toolSkills": {
@@ -8632,6 +9338,11 @@
         330,
         331,
         332,
+        600,
+        601,
+        602,
+        603,
+        604,
         333,
         334,
         335,
@@ -8833,6 +9544,11 @@
         330,
         331,
         332,
+        600,
+        601,
+        602,
+        603,
+        604,
         333,
         334,
         335,
@@ -10364,6 +11080,15 @@
       },
       "feeds": "wood",
       "rate": 0.5
+    },
+    {
+      "id": "lab",
+      "name": "The alchemy lab",
+      "bonus": {
+        "kind": "alchemyYield"
+      },
+      "feeds": "stone",
+      "rate": 5
     }
   ],
   "houseRules": {

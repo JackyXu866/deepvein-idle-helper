@@ -1,7 +1,8 @@
 // Name-independent fingerprints for the engine entry points in the minified
 // client. Each direct fingerprint must match exactly one top-level unit; it
 // uses only parameter counts, string literals, property names and small AST
-// shapes. Verified against client 1.0.1187 (dvi-lab reference) and 1.0.1189.
+// shapes. Verified against client 1.0.1187 (dvi-lab reference), 1.0.1189,
+// index-CZTesadh and index-BqokRC4i (skill bosses, alchemy).
 
 const has = (set, xs) => xs.every(x => set.has(x));
 const fnNode = u => u.kind === 'function' ? u.node :
@@ -29,7 +30,8 @@ const isModuleName = (mod, n) => n?.type === 'Identifier' && mod.unitOfName.has(
 export const DIRECT = {
   tick: u => params(u) === 4 && has(u.strings, ['walking', 'working', 'drinking', 'banking', 'enhancing', 'idle', 'done']) &&
     has(u.props, ['lastTick', 'activity']) && findAll(fnNode(u).body, n => n.type === 'SwitchStatement').length >= 1,
-  predict: u => params(u) === 3 && has(u.props, ['hypothetical', 'secretAt', 'offlineCapTicks', 'eventBox', 'rollIndex', 'stunUntil', 'foeIndex', 'lastTick']) &&
+  // 3 parameters; client 1.0.12xx adds two optional ones (offset, hours).
+  predict: u => params(u) >= 3 && has(u.props, ['hypothetical', 'secretAt', 'offlineCapTicks', 'eventBox', 'rollIndex', 'stunUntil', 'foeIndex', 'lastTick']) &&
     findAll(fnNode(u).body, n => n.type === 'UnaryExpression' && n.operator === 'delete').length > 0,
   startFight: u => params(u) === 4 && has(u.strings, ['toBank', 'toWork', 'bank']) && has(u.props, ['zoneById', 'onFull', 'phase', 'route']),
   startWork: u => params(u) >= 5 && has(u.strings, ['toWork', 'toBank', 'drop']) && has(u.props, ['siteById', 'jobIds', 'levelReq', 'route']),

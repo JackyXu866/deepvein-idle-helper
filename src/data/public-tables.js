@@ -86,10 +86,24 @@ export function extractGameTables(source, parse, baseline) {
       return literal(declarations.get(node.name),scope,[...trail,node.name]);
     }
     if(node.type==='ArrayExpression')return node.elements.flatMap(n=>n?.type==='SpreadElement'?spread(n.argument,scope,trail):[literal(n,scope,trail)]);
-    // A property of a literal value (an element bound by a static map below).
-    if(node.type==='MemberExpression'&&!node.computed&&node.property.type==='Identifier') {
-      const object=literal(node.object,scope,trail);
-      if(object&&typeof object==='object'&&Object.hasOwn(object,node.property.name))return object[node.property.name];
+    // A property of a literal value (an element bound by a static map below),
+    // by name or by a literal key (`names[boss][i]`, client 1.0.12xx boss sets).
+    if(node.type==='MemberExpression'&&(node.computed||node.property.type==='Identifier')) {
+      const object=literal(node.object,scope,trail),key=node.computed?literal(node.property,scope,trail):node.property.name;
+      if(object&&typeof object==='object'&&(typeof key==='string'||Number.isInteger(key))&&
+        !['__proto__','constructor','prototype'].includes(key)&&Object.hasOwn(object,key))return object[key];
+    }
+    // `list.map(x=>...)` / `list.flatMap((x,i)=>...)` over a literal list with
+    // a literal-building arrow (element and index only). Nothing is executed.
+    if(node.type==='CallExpression'&&node.callee.type==='MemberExpression'&&!node.callee.computed&&
+      ['map','flatMap'].includes(node.callee.property.name)&&node.arguments.length===1) {
+      const fn=node.arguments[0],list=literal(node.callee.object,scope,trail);
+      if(Array.isArray(list)&&fn.type==='ArrowFunctionExpression'&&fn.params.length>=1&&fn.params.length<=2&&
+        fn.params.every(p=>p.type==='Identifier')&&fn.body.type!=='BlockStatement') {
+        const out=list.map((value,i)=>literal(fn.body,{...scope,[fn.params[0].name]:value,...fn.params[1]?{[fn.params[1].name]:i}:{}},trail));
+        if(node.callee.property.name==='map')return out;
+        if(out.every(Array.isArray))return out.flat();
+      }
     }
     if(node.type==='ObjectExpression')return Object.fromEntries(node.properties.map(p=>{
       if(p.type!=='Property'||p.computed||p.kind!=='init'||p.method)throw new Error('非静态属性');
@@ -118,28 +132,26 @@ export function extractGameTables(source, parse, baseline) {
     throw new Error('公开表包含未知表达式，保留已核对数据');
   }
   // `...list` or `...list.map(x=>({...}))` inside a table (client 1.0.1196
-  // appends the fireworks this way): the list is a literal array and the map a
-  // single-parameter arrow returning a literal built from its element. Nothing
-  // is executed; anything else is refused like any unknown expression.
+  // appends the fireworks this way; 1.0.12xx the boss sets, built by flatMap):
+  // the list and any map over it are read by literal() above. Nothing is
+  // executed; anything else is refused like any unknown expression.
   function spread(node,scope,trail) {
-    if(node.type==='CallExpression'&&node.callee.type==='MemberExpression'&&!node.callee.computed&&
-      node.callee.property.name==='map'&&node.arguments.length===1) {
-      const fn=node.arguments[0],list=literal(node.callee.object,scope,trail);
-      if(Array.isArray(list)&&fn.type==='ArrowFunctionExpression'&&fn.params.length===1&&fn.params[0].type==='Identifier'&&
-        fn.body.type!=='BlockStatement')return list.map(value=>literal(fn.body,{...scope,[fn.params[0].name]:value},trail));
-    }
     const list=literal(node,scope,trail);
     if(Array.isArray(list))return list;
     throw new Error('公开表包含未知表达式，保留已核对数据');
   }
-  function one(required,array=true,exact=false) {
-    const matches=[...declarations.values()].filter(node=>{
+  // `accept` tells the table apart from look-alikes among the evaluated
+  // candidates (client 1.0.12xx adds alchemy's Dissolve rows shaped like jobs).
+  function one(required,array=true,exact=false,accept=null) {
+    let matches=[...declarations.values()].filter(node=>{
       const row=array&&node?.type==='ArrayExpression'?node.elements[0]:!array?node:null;
       const names=keys(row);
       return required.every(k=>names.includes(k))&&(!exact||names.length===required.length);
     });
+    if(accept&&matches.length>1)matches=matches.map(node=>{try {return {value:literal(node)};} catch {return null;}})
+      .filter(m=>m&&accept(m.value));
     if(matches.length!==1)throw new Error(`无法唯一识别公开表：${required.join('/')}`);
-    return literal(matches[0]);
+    return matches[0].value??literal(matches[0]);
   }
   const foodArrays=new Set();
   function findHealing(node) {
@@ -160,16 +172,24 @@ export function extractGameTables(source, parse, baseline) {
     if(!old)throw new Error('仓库地图变化，需核对寻路数据');
     return {...b,approach:{...old.approach}};
   });
-  const jobs=one(['id','name','skill','baseTicks','xp','inputs','output']);
-  const retired=new Set(jobs.filter(j=>j.retired).map(j=>j.id));
+  // The work table proper: its jobs make something (Dissolve rows make 0).
+  const jobs=one(['id','name','skill','baseTicks','xp','inputs','output'],true,false,rows=>rows.some(j=>j.output?.qty>0));
+  // A site keeps the jobs of the work table only: retired ones, and the work
+  // of other kinds of site (client 1.0.12xx skill bosses, alchemy cauldrons)
+  // the helper does not plan, are left out.
+  const known=new Set(jobs.filter(j=>!j.retired).map(j=>j.id));
   const updated={...baseline,items,banks,
     jobs:jobs.filter(j=>!j.retired),
     gear:[...one(['itemId','slot','bonus']),...one(['itemId','slot','accuracy','strength','defence'])],
-    sites:one(['id','x','y','kind','jobIds']).map(s=>({...s,jobIds:s.jobIds.filter(id=>!retired.has(id))})).filter(s=>s.jobIds.length),
+    sites:one(['id','x','y','kind','jobIds']).map(s=>({...s,jobIds:s.jobIds.filter(id=>known.has(id))})).filter(s=>s.jobIds.length),
     zones:one(['id','monsterId','x','y','width','height']),
     monsters:one(['id','hp','attack','defence','speed','gold','drop']),
     xp:one(['journeyLevel','baseXp','growth','beyondStep','beyondGrowth','speedPerLevelAboveRequirement'],false),
-    toolSkills:one(['pickaxe','rod','axe','gloves','pan','hammer','knife','needle','mortar','hoe'],false,true),
+    // Tool slots of the skills the helper plans (client 1.0.12xx adds alchemy's
+    // flask); the table maps slots to skills, unlike the UI's slot names.
+    toolSkills:Object.fromEntries(Object.entries(one(['pickaxe','rod','axe','gloves','pan','hammer','knife','needle','mortar','hoe'],false,false,
+      t=>t.pickaxe==='mining'&&t.hoe==='farming'))
+      .filter(([,skill])=>baseline.skills.includes(skill))),
     ...(foodArrays.size?{foodHealingMultipliers:literal(declarations.get([...foodArrays][0]))}:{})
   };
   if([...declarations.values()].some(n=>n?.type==='ArrayExpression'&&keys(n.elements[0]).includes('feeds')))
