@@ -29,10 +29,14 @@ export function validHomePortal(data,p,intent) {
     intent.dir==='out'&&atHome(data,p)&&houseDistance(p,travel.exit)<=1;
 }
 
-// House points per item (client Tg/M$, index-DAY9oe71.js): a raw material
+// House points per item (client c4/e4/a4, index-BqokRC4i.js): a raw material
 // gives its tier in its family; a crafted item gives the tier points of its raw
-// inputs, x min(2, 1 + 0.5 x recipe depth), in the family that dominates them.
+// inputs, x min(2.5, 1 + 0.6 x recipe depth), in the family that dominates them.
 // Each quality step triples it; enhanced items cannot be converted.
+// The game gives nothing (server code house-nothing) for what its shops sell,
+// in common quality (seeds, bronze tools, cooked shrimp, horse, firework
+// powder; client m7 less the alchemy-only ones), nor for any firework (client ed).
+const SHOP_ITEMS=new Set([60,80,85,90,160,161,162,190,328,700]),FIREWORKS=new Set([701,702,703,704,705]);
 const pointTables=new WeakMap();
 export function housePointsOf(data,id) {
   if(!pointTables.has(data))pointTables.set(data,buildPointTable(data));
@@ -66,12 +70,12 @@ function buildPointTable(data) {
     })(base,1,0);
     let family=null,total=0,top=0;
     for(const [name,n]of families){total+=n;if(n>top){top=n;family=name;}}
-    const result=family&&total>0?{family,each:total*Math.min(2,1+.5*depth)}:null;
+    const result=family&&total>0?{family,each:total*Math.min(2.5,1+.6*depth)}:null;
     crafted.set(base,result);return result;
   }
   return id=>{
-    if(plusOf(data,id)>0)return null;
-    const base=baseId(data,id),raw=materials.get(base),made=raw?null:craftedPoints(base);
+    if(plusOf(data,id)>0||SHOP_ITEMS.has(id))return null;
+    const base=baseId(data,id),raw=materials.get(base),made=raw||FIREWORKS.has(base)?null:craftedPoints(base);
     const family=raw?.family??made?.family;
     return family?{family,each:(raw?raw.points:made.each)*RARITY_POINTS**rarityOf(data,id)}:null;
   };

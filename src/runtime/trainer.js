@@ -560,6 +560,13 @@ export class Trainer {
           this.pending=null;this.resolution=null;this.syncAfter=this.snapshotSequence;this.nextSync=0;
           this.nextAction=this.now()+1000;
           this.log('房屋操作需要在家园内，已暂缓五分钟；同步位置后继续原任务');
+        } else if(this.active&&this.pending?.intent.t==='convertHouse'&&message.code==='house-nothing') {
+          // The game gives no points for this item and spent nothing: the same
+          // as an ignored conversion, so skip that fuel and carry on.
+          this.planner.refuseHouseFuel?.(this.player,this.pending.intent.itemId);
+          this.log(`${this.pending.label} 被游戏拒绝（该物品不能转换为房屋点数，未花费）；该材料 6 小时内不再用于房屋点数，继续原任务`);
+          this.pending=null;this.resolution=null;this.plan=null;this.syncAfter=this.snapshotSequence;this.nextSync=0;
+          this.nextAction=this.now()+1000;
         } else if(this.active&&this.pending&&SOFT_ACTIONS.has(this.pending.intent.t)) {
           const rest=softRest(this.data,this.pending.intent.t);
           this.softRefused[this.pending.intent.t]=this.now()+rest;

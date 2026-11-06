@@ -13,11 +13,39 @@ test('house points follow the client: tier, x3 per quality, crafted depth bonus'
   assert.deepEqual(housePointsOf(d, copper), {family: 'stone', each: 1});
   assert.equal(housePointsOf(d, copper + R).each, 3);
   assert.equal(housePointsOf(d, copper + 2 * R).each, 9);
-  // Bronze bar = copper + tin (1 + 1 stone), one recipe deep: x1.5.
-  assert.deepEqual(housePointsOf(d, id('Bronze bar')), {family: 'stone', each: 3});
-  // Bronze blade = one bar, two recipes deep: (1 + 1) x 2.
-  assert.equal(housePointsOf(d, id('Bronze blade')).each, 4);
+  // Bronze bar = copper + tin (1 + 1 stone), one recipe deep: x1.6.
+  assert.deepEqual(housePointsOf(d, id('Bronze bar')), {family: 'stone', each: 3.2});
+  // Bronze blade = one bar, two recipes deep: (1 + 1) x 2.2.
+  assert.equal(housePointsOf(d, id('Bronze blade')).each, 4.4);
   assert.equal(housePointsOf(d, id('Bronze blade') + d.plusScale), null, 'enhanced items cannot be converted');
+});
+
+test('what the shops sell and fireworks give no house points (server: house-nothing)', () => {
+  for (const name of ['Bronze rod', 'Bronze pickaxe', 'Bronze axe', 'Cooked shrimp', 'Cobalt rocket'])
+    assert.equal(housePointsOf(d, id(name)), null, name);
+  // Only the common item is the shop's: a better one converts as crafted.
+  assert.equal(housePointsOf(d, id('Bronze rod') + R).family, 'stone');
+  const p = {bank: {[id('Bronze rod')]: 10}, pack: []};
+  const fuel = chooseHouseFuel(d, {p, families: ['wood', 'stone'], missing: 10, inventory: {items: [{itemId: id('Bronze rod'), sellFromBank: 10}]},
+    budget: {items: {}}, unitValue: () => 1});
+  assert.equal(fuel.conversions.length, 0);
+});
+
+test('a conversion the game refuses (house-nothing) does not pause; that fuel is skipped for a while', async () => {
+  const {Trainer} = await import('../src/runtime/trainer.js');
+  const {makePlanner, player} = await import('./helpers.js');
+  const planner = makePlanner(), clock = 5e9, refused = [];
+  planner.refuseHouseFuel = (p, itemId) => refused.push(itemId);
+  const t = new Trainer(planner.data, planner, () => {}, () => clock);
+  const p = player(planner, {bank: {85: 10}});
+  Object.assign(t, {active: true, compatible: true, player: p, snapshotTick: 100,
+    pending: {intent: {t: 'convertHouse', itemId: 85, qty: 10}, label: '准备锯木厂升级 · 转换 Bronze rod × 10', before: p, sentAt: clock}});
+  t.receive({tick: 101, m: [{t: 'error', code: 'house-nothing'}]});
+  assert.equal(t.pausedError ?? null, null, 'no pause');
+  assert.equal(t.active, true);
+  assert.equal(t.pending, null);
+  assert.deepEqual(refused, [85]);
+  assert.match(t.history[0].message, /不能转换为房屋点数/);
 });
 
 test('fuel is the cheapest coins per point; common coal and legendary are never used', () => {
@@ -277,7 +305,7 @@ test('the cheapest points feed the house and are kept from sale, valued at what 
   assert.ok(hold[staff] > 0, `the staff is the cheaper point: ${JSON.stringify(hold)}`);
   // One staff is kept as the best copy; the other four go first, logs top up the rest.
   assert.equal(hold[staff], 4);
-  assert.equal(hold[staff] * 135 + (hold[logs] ?? 0), Math.round(d.houseRules.upgradePoints * d.houseRules.pointsGrowth ** 3));
+  assert.equal(hold[staff] * 144 + (hold[logs] ?? 0), Math.round(d.houseRules.upgradePoints * d.houseRules.pointsGrowth ** 3));
   const economy = createEconomy(d, planner, {autoSell: true});
   const row = economy.review(p, goal, 'melee', 'balanced').items.find(r => r.itemId === staff);
   assert.ok(!row || row.sell <= 5 - hold[staff], `kept from sale: ${JSON.stringify(row && {sell: row.sell, reason: row.reason})}`);
