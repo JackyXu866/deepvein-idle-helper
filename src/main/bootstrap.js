@@ -13,7 +13,7 @@ import {NAMES, createPlanner} from '../planner/planner.js';
 import {createEconomy} from '../economy/economy.js';
 import {createMarket} from '../economy/market.js';
 import {createNativeBossJoinCapture} from '../runtime/world-boss.js';
-import {MODE_LABELS, SOFT_ACTIONS, Trainer, acknowledged, isGuildRefusal} from '../runtime/trainer.js';
+import {HISTORY_SIZE, MODE_LABELS, SOFT_ACTIONS, Trainer, acknowledged, isGuildRefusal} from '../runtime/trainer.js';
 import {CLIENT_ASSET, refreshGameData} from '../data/public-tables.js';
 import {validateIntent} from '../runtime/intents.js';
 import {createUpdateChecker} from '../ui/update-checker.js';
@@ -524,6 +524,25 @@ import {itemLabel, packQty} from '../planner/items.js';
     if(restoredRun.hotParkedGoal)trainer.hotParkedGoal=restoredRun.hotParkedGoal;
   }
   try {trainer.boss.setParticipation(localStorage.getItem(bossParticipationKey));}catch{}
+  // The run log outlives a reload (the game reloads the tab itself on an
+  // update), so the reason a run stopped can still be read afterwards.
+  const logKey='deepvein-run-log-v1';
+  let savedLog='';
+  try {
+    const entries=JSON.parse(localStorage.getItem(logKey)||'[]');
+    if(Array.isArray(entries)) {
+      const kept=entries.filter(e=>Number.isFinite(e?.time)&&typeof e.message==='string').slice(0,HISTORY_SIZE);
+      trainer.history=[...trainer.history,...kept].slice(0,HISTORY_SIZE);
+      if(kept.length)trainer.history.splice(trainer.history.length-kept.length,0,
+        {time:Date.now(),message:'—— 以下为刷新前的记录 ——'});
+      trainer.history=trainer.history.slice(0,HISTORY_SIZE);
+    }
+  } catch { /* A log that no longer reads is dropped. */ }
+  function saveLog() {
+    const record=JSON.stringify(trainer.history.filter(e=>!e.message.startsWith('—— 以下为刷新前')));
+    if(record===savedLog)return;
+    try {localStorage.setItem(logKey,record);savedLog=record;} catch { /* The log stays in memory only. */ }
+  }
   let savedRun='';
   function saveRun() {
     const record=trainer.active||trainer.recovery?JSON.stringify({
@@ -3087,7 +3106,7 @@ import {itemLabel, packQty} from '../planner/items.js';
     } finally {pumping=false;}
     render();
   }
-  const timer=setInterval(()=>{pump();updates.check();},1000);
+  const timer=setInterval(()=>{pump();updates.check();saveLog();},1000);
   // Background tabs: Chrome throttles page timers (to about once a minute after
   // a few minutes hidden), so state checks lapse into a resync, and it may
   // freeze the page. A worker's timer is not throttled that way and wakes the
@@ -3116,5 +3135,5 @@ import {itemLabel, packQty} from '../planner/items.js';
     trainer.nextSync=Math.max(Date.now(),lastSync+2000);
     pump();
   });
-  window.addEventListener('pagehide',()=>{abortNativeBossJoin();saveRun();saveMetrics(true);clearInterval(timer);heartbeat?.terminate();background?.close();releaseLease();bossLootChat.destroy();integrationCleanup?.();},{once:true});
+  window.addEventListener('pagehide',()=>{abortNativeBossJoin();saveRun();saveLog();saveMetrics(true);clearInterval(timer);heartbeat?.terminate();background?.close();releaseLease();bossLootChat.destroy();integrationCleanup?.();},{once:true});
 })();

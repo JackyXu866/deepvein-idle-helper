@@ -31,6 +31,9 @@ export function isGuildRefusal(code) {return GUILD_REFUSALS.has(code);}
 // server dropped a request for coming too quickly; nothing happened.
 export const isRateRefusal=code=>typeof code==='string'&&/(^|-)too-fast$/.test(code);
 const RATE_REST_MS=10000;
+// Run-log entries kept (newest first). The page saves them (bootstrap
+// logKey), so a pause's reason survives the game reloading the tab.
+export const HISTORY_SIZE=30;
 // The account may not trade (no verified email, or a recent email change):
 // the market counts as closed (market.closed), never a pause.
 export const TRADE_GATE_REFUSALS=new Set(['email-needed','email-changed']);
@@ -179,7 +182,7 @@ export class Trainer {
   }
   log(message) {
     this.history.unshift({time:this.now(),message});
-    this.history=this.history.slice(0,8);
+    this.history=this.history.slice(0,HISTORY_SIZE);
     this.message=message;
   }
   // An error pause should not leave the character standing still: if it is
