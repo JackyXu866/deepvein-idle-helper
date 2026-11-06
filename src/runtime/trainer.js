@@ -19,6 +19,9 @@ import {BREED_COUNT, mountsOfQuality} from '../planner/mounts.js';
 export const STATE_REFUSALS=new Set(['not-at-bank','bank-full','storage-full','pack-full',
   'nothing-to-sell','nothing-to-deposit','nothing-to-withdraw','nothing-to-eat','cannot-afford',
   'cannot-enhance','cannot-fight','cannot-set-route','cannot-wield','cannot-equip','level-too-low']);
+// Error pauses restart by themselves (Trainer.pauseError).
+export const ERROR_RETRY_MINUTES=[2,5,10,20,30];
+const ERROR_STREAK_MS=30*60000;
 export const MARKET_ACTIONS=new Set(['marketBuy','marketSell','marketCancel']);
 export const MARKET_REFUSALS=new Set([...STATE_REFUSALS,'not-tradable','too-many-orders','price-changed','below-floor','no-such-order','market-price-step']);
 // The helper sends no guild commands. These reviewed codes belong to the
@@ -189,10 +192,26 @@ export class Trainer {
   // idle, start the gathering backup (the fallback-activity choice) and keep
   // the error on the overview until the next start. Only the page can send;
   // a pause inside the planning Worker is handed back through pausedError.
+  // No error pause is final: it restarts by itself after a wait that grows
+  // with each error in a row (2, 5, 10, 20, then every 30 minutes); 30 minutes
+  // of running after a restart start the count again. Pausing by hand (or any
+  // other pause) cancels the restart.
   pauseError(reason) {
     this.pause(reason);
-    this.pausedError={reason,at:this.now(),backup:null};
+    const now=this.now();
+    if(!(now-(this.lastRetryAt??-Infinity)<ERROR_STREAK_MS))this.errorStreak=0;
+    this.errorStreak=(this.errorStreak??0)+1;
+    const wait=ERROR_RETRY_MINUTES[Math.min(this.errorStreak,ERROR_RETRY_MINUTES.length)-1]*60000;
+    this.pausedError={reason,at:now,backup:null,retryAt:now+wait};
     if(!this.inWorker)this.startBackup();
+  }
+  retryAfterError() {
+    const error=this.pausedError,now=this.now();
+    if(this.active||this.recovery||!(error?.retryAt<=now)||!this.player||!this.compatible||this.awaitingWelcome)return false;
+    this.pausedError={...error,retryAt:null};this.lastRetryAt=now;
+    this.log(`错误暂停 ${Math.round((now-error.at)/60000)} 分钟后自动重新开始（原因：${String(error.reason).slice(0,60)}）`);
+    this.start(true);
+    return this.active;
   }
   startBackup() {
     const p=this.player;
@@ -577,7 +596,12 @@ export class Trainer {
           this.market?.rejected(message.code);
           this.checkCommand(`市场状态已变化：${message.code}`,message.code);
         } else if(this.active&&this.pending&&STATE_REFUSALS.has(message.code))this.checkCommand(`服务器状态已变化：${message.code}`,message.code);
-        else this.pauseError(`服务器拒绝操作：${String(message.code).slice(0,100)}`);
+        // Any other refusal of our command: the server did nothing, so sync,
+        // set that work aside and plan again (repeated failures pause, and the
+        // pause restarts by itself). A refusal of something the helper did not
+        // send (the game's own buttons) is only noted.
+        else if(this.active&&this.pending)this.checkCommand(`服务器拒绝操作：${String(message.code).slice(0,100)}`,message.code);
+        else this.log(`游戏提示：${String(message.code).slice(0,100)}（不是助手发出的操作，不影响调度）`);
       }
       if (message.t==='batch' && message.e?.some(e=>e.kind==='died')&&!this.boss.ownsDeath(frame.tick)) this.pause('检测到角色死亡，请检查战斗配置后再继续');
       if (message.t==='batch' && frame.tick>=this.snapshotTick &&
@@ -936,8 +960,12 @@ export class Trainer {
             pending.intent.t==='eat'&&this.player.hp!==pending.before.hp))
           return this.pauseError('消耗型操作结果不明确，已暂停以防重复消耗');
         if(!this.fault(reason,`${pending?.intent.t}:${code??'timeout'}`))return;
-        if(this.goal&&['setRoute','fight'].includes(pending?.intent.t)&&
-          ['cannot-set-route','cannot-fight','level-too-low'].includes(code)){
+        // A refusal the helper has no rule for: the work it belonged to rests
+        // five minutes (house work, or the current goal) so planning moves on.
+        const unknown=!!code&&!MARKET_REFUSALS.has(code);
+        if(unknown&&pending&&HOUSE_ACTIONS.has(pending.intent.t))this.planner.housingRejected?.(this.player);
+        else if(this.goal&&(unknown||['setRoute','fight'].includes(pending?.intent.t)&&
+          ['cannot-set-route','cannot-fight','level-too-low'].includes(code))){
           this.deferred[this.goal.skill]=now+300000;this.blockedReasons[this.goal.skill]=reason;
           this.waitingGoals[this.goal.skill]=this.goal;this.goal=null;
         }

@@ -43,6 +43,52 @@ test('no backup when the character is busy, for plain pauses, or inside the Work
   assert.equal(worker.sent.length, 1);
 });
 
+test('an error pause restarts by itself, waiting longer for each error in a row; pausing by hand cancels it', () => {
+  const planner = makePlanner();
+  let clock = 5e9;
+  const t = new Trainer(planner.data, planner, () => {}, () => clock);
+  t.compatible = true; t.mode = 'balanced'; t.style = 'melee';
+  t.player = {...player(planner, {levels: {mining: 20}, route: {jobId: 1, siteId: 1, phase: 'working'}, path: null, held: false}), id: 1};
+  const waits = [];
+  for (let i = 0; i < 6; i++) {
+    t.active = true;
+    t.pauseError('x');
+    waits.push((t.pausedError.retryAt - clock) / 60000);
+    assert.equal(t.retryAfterError(), false, 'not before its time');
+    clock = t.pausedError.retryAt;
+    assert.equal(t.retryAfterError(), true);
+    assert.equal(t.active, true);
+    assert.equal(t.pausedError, null);
+  }
+  assert.deepEqual(waits, [2, 5, 10, 20, 30, 30]);
+  // Half an hour of running after a restart starts the count again.
+  clock += 30 * 60000;
+  t.pauseError('x');
+  assert.equal((t.pausedError.retryAt - clock) / 60000, 2);
+  t.pause();
+  clock += 3600000;
+  assert.equal(t.retryAfterError(), false, 'a pause by hand stays');
+});
+
+test('an unknown refusal of our command syncs, sets the goal aside and does not pause; one not ours is only noted', () => {
+  const planner = makePlanner(), clock = 5e9;
+  const t = new Trainer(planner.data, planner, () => {}, () => clock);
+  const p = player(planner, {levels: {mining: 20}});
+  Object.assign(t, {active: true, compatible: true, player: p, snapshotTick: 100, snapshotSequence: 1, received: clock, nextSync: clock + 60000,
+    goal: {skill: 'mining', target: 21}, pending: {intent: {t: 'setRoute', jobId: 1, siteId: 1}, label: '采矿', before: p, sentAt: clock}});
+  t.receive({tick: 101, m: [{t: 'error', code: 'brand-new-code'}]});
+  assert.equal(t.active, true);
+  assert.equal(t.pausedError ?? null, null);
+  t.snapshotSequence = 2;
+  t.tick();
+  assert.equal(t.active, true);
+  assert.equal(t.goal, null);
+  assert.ok(t.deferred.mining > clock, 'the goal rests');
+  t.receive({tick: 102, m: [{t: 'error', code: 'guild-something-else'}]});
+  assert.equal(t.active, true);
+  assert.match(t.history[0].message, /不是助手发出的操作/);
+});
+
 test('starting again clears the error', () => {
   const {t} = setup();
   t.pauseError('x');

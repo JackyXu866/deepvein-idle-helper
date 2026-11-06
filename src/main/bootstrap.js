@@ -2970,7 +2970,8 @@ import {itemLabel, packQty} from '../planner/items.js';
       box.hidden=!error;
       box.textContent=error?`已因错误暂停（${new Date(error.at).toLocaleTimeString()}）：${error.reason}。`+
         (error.backup?`角色已改做 ${error.backup} 采集，避免空闲；`:'角色未在空闲，保持当前任务；')+
-        '处理后点击“开始调度”重试，详情见诊断。':'';
+        (error.retryAt?`${new Date(error.retryAt).toLocaleTimeString()} 自动重新开始，也可现在点击“开始调度”；点“暂停调度”取消自动重试。`:
+          '处理后点击“开始调度”重试，详情见诊断。'):'';
     }
     panel.querySelector('[data-task]').textContent=trainer.plan?.label??'';
     panel.querySelector('[data-reason]').textContent=trainer.plan?.reason??'';
@@ -3029,7 +3030,7 @@ import {itemLabel, packQty} from '../planner/items.js';
     panel.querySelector('[data-blocked]').textContent=Object.entries(trainer.blockedReasons).map(([skill,why])=>`暂缓${NAMES[skill]}：${why}`).join('；');
     panel.querySelector('[data-client]').textContent=compatibilityMessage+`；${engine.message}；${background?'后台 Worker 规划':'当前浏览器不支持 Worker，使用兼容计算'}${planningError?' · '+planningError:''}`;
     panel.querySelector('[data-start]').disabled=checking||trainer.active||!!trainer.recovery||!p||!trainer.compatible;
-    panel.querySelector('[data-pause]').disabled=!checking&&!trainer.active&&!trainer.recovery;
+    panel.querySelector('[data-pause]').disabled=!checking&&!trainer.active&&!trainer.recovery&&!trainer.pausedError?.retryAt;
     panel.querySelector('section').setAttribute('data-running',String(checking||trainer.active||!!trainer.recovery));
     panel.querySelector('.run-state').title=translateGameText(trainer.message);
     // Translate only display text; planner identities and exported diagnostics stay intact.
@@ -3099,6 +3100,8 @@ import {itemLabel, packQty} from '../planner/items.js';
             trainer.log('长期未收到个人参战回报，重新点击原生加入；本轮只补入一次');
           trainer.tick();
         }
+      } else if(trainer.pausedError?.retryAt<=Date.now()&&dataReady&&claimLease()) {
+        if(!trainer.retryAfterError())releaseLease();
       } else releaseLease();
     } catch (error) {
       if ((trainer.active||trainer.recovery)&&socket?.readyState!==NativeWebSocket.OPEN) trainer.connectionLost();
