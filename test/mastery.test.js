@@ -77,17 +77,24 @@ test('a reset worth doing for a lasting main trade is advised, never done', asyn
   assert.equal(resetCost(0), 50000);
   assert.equal(resetCost(3), 400000);
   const leveling = {xp: 62, gather: 37, craft: 30, move: 19};
-  const plan = coins => {
+  const plan = (coins, {id = 1, resetSlice = Infinity} = {}) => {
     const planner = makePlanner(), dd = planner.data;
     planner.coinRate = () => 1000;
     const ore = dd.jobs.find(j => j.skill === 'mining' && !j.inputs.length && j.levelReq <= 60 && j.output.itemId !== dd.coinId);
     planner.marketUnitValue = (_p, id) => planner.base(id) === ore.output.itemId ? 1000 * (1 + Math.floor((id % 10000) / 1000)) ** 3 : null;
-    const p = player(planner, {levels: {mining: 90}, coins, masteries: leveling, masteryResets: 0});
+    const p = player(planner, {id, levels: {mining: 90}, coins, masteries: leveling, masteryResets: 0});
     // A lasting income goal: mining that ore as the main trade.
     const goal = {skill: 'mining', recipeId: ore.id, specialization: true, mainSkill: 'mining', rate: {coins: 1000}};
-    return planner.masteryPlan(p, goal, {earned: spentPoints(leveling), usage: null});
+    return planner.masteryPlan(p, goal, {earned: spentPoints(leveling), usage: null, resetSlice});
   };
   const advised = plan(1e7);
+  // The worker builds a new planner every run: the check goes on across them,
+  // a short slice each, instead of pricing every point in one run (that took
+  // seconds in 补精通 and ran past the 8-second limit).
+  let sliced = null, runs = 0;
+  while (!sliced?.resetAdvice && runs < 500) { sliced = plan(1e7, {id: 2, resetSlice: 0}); runs++; }
+  assert.ok(runs > 1 && sliced?.resetAdvice, `advised after ${runs} runs`);
+  assert.deepEqual(sliced.resetAdvice.ranks, advised.resetAdvice.ranks, 'the sliced check reaches the same allocation');
   assert.notEqual(advised?.intent?.t, 'masteryReset', 'never sent');
   assert.match(advised?.resetAdvice?.reason ?? '', /建议重置精通.*从头分配/, JSON.stringify(advised));
   assert.equal(advised.resetAdvice.cost, 50000);

@@ -65,10 +65,16 @@ function routes(data, usage) {
 // ranks at a time, since the hit rounds up only every few ranks. A best step
 // not affordable yet is bought as far as the points go (those ranks lead to
 // it); with not even one rank affordable, the points wait for it.
-export function allocate(ranks, available, tracks, value, {lookahead = id => id === 'maxhit' ? 8 : 1, maxSteps = 600} = {}) {
-  const now = {...ranks}, bought = {};
-  let left = available, current = value(now), saving = null;
-  for (let step = 0; step < maxSteps; step++) {
+// It can run in slices: past `until` (clock ms) it stops with `done: false` and
+// a `resume` state that a later call continues `from` (re-valued then, so a
+// changed objective is followed).
+export function allocate(ranks, available, tracks, value, {lookahead = id => id === 'maxhit' ? 8 : 1, maxSteps = 600, from = null, until = Infinity, clock = msNow} = {}) {
+  const now = {...(from?.now ?? ranks)}, bought = {...from?.bought};
+  let left = from?.left ?? available, current = value(now), saving = null;
+  const first = from?.step ?? 0;
+  for (let step = first; step < maxSteps; step++) {
+    // At least one step per slice, so a slice always makes progress.
+    if (step > first && clock() > until) return {ranks: now, bought, left, saving, value: current, done: false, resume: {now: {...now}, bought: {...bought}, left, step}};
     let best = null;
     for (const id of tracks) {
       let cost = 0;
@@ -85,8 +91,15 @@ export function allocate(ranks, available, tracks, value, {lookahead = id => id 
     if (n) { bought[best.id] = (bought[best.id] ?? 0) + n; current = value(now); }
     if (n < best.k) { saving = {id: best.id, need: rankCost(now[best.id] + 1)}; break; }
   }
-  return {ranks: now, bought, left, saving, value: current};
+  return {ranks: now, bought, left, saving, value: current, done: true};
 }
+const msNow = () => globalThis.performance?.now?.() ?? Date.now();
+
+// The reset check allocates every earned point afresh: up to seconds of pricing
+// in 补精通. The worker builds a new planner each run, so its progress is kept
+// here, per account and kind of goal, and worked on RESET_SLICE_MS per run.
+const resetMemos = new Map();
+export const RESET_SLICE_MS = 150;
 
 const gold = n => Math.round(n).toLocaleString();
 export function createMasteryPlan(data, planner) {
@@ -154,7 +167,7 @@ export function createMasteryPlan(data, planner) {
 
   // The purchase for this state: {intent, label, reason} or a saving, or null.
   // `earned`: the points the engine counts; `tracks`: the client's track list.
-  function choose(p, goal, {earned, tracks = MASTERY_TRACKS, style = 'magic', usage = null} = {}) {
+  function choose(p, goal, {earned, tracks = MASTERY_TRACKS, style = 'magic', usage = null, resetSlice = RESET_SLICE_MS} = {}) {
     if (!Number.isFinite(earned) || !p?.skills) return null;
     const current = Object.fromEntries(MASTERY_TRACKS.map(id => [id, Number.isInteger(p.masteries?.[id]) ? p.masteries[id] : 0]));
     let available = earned - spentPoints(current);
@@ -172,7 +185,7 @@ export function createMasteryPlan(data, planner) {
     const goalOf = objective(p, goal, style, usage);
     if (!goalOf) return null;
     // A reset worth doing is advice for the player, never done by the helper.
-    const resetAdvice = resetCheck(p, goalOf, current, earned, available, usable);
+    const resetAdvice = resetCheck(p, goalOf, current, earned, available, usable, resetSlice);
     const advised = result => result || resetAdvice ? {intent: null, ...result, resetAdvice} : null;
     if (!(available >= Math.min(...usable.map(id => rankCost(current[id] + 1))))) return advised(null);
     const result = allocate(current, available, usable, goalOf.value);
@@ -188,22 +201,25 @@ export function createMasteryPlan(data, planner) {
   // the goal's horizon (a week for 补精通 or a main trade, a day for a leveling
   // goal), at least 1.2x its price (the payback rule) more than the present
   // ranks with the free points added. Only advised: the player resets. Weighed
-  // once an hour per goal and ranks.
-  let resetMemo = {key: null, fresh: null};
-  function resetCheck(p, goalOf, current, earned, available, tracks) {
+  // once an hour per account and kind of goal (resetMemos), a slice per run.
+  function resetCheck(p, goalOf, current, earned, available, tracks, slice) {
     if (!goalOf.gold || !tracks.some(id => current[id] > 0)) return null;
     const hour = Math.floor((p.lastTick ?? 0) * data.tickMs / 3600000);
-    const key = JSON.stringify([p.id, goalOf.label, current, Math.floor(earned / 50), hour]);
-    if (resetMemo.key !== key) {
-      const blank = Object.fromEntries(MASTERY_TRACKS.map(id => [id, 0]));
-      resetMemo = {key, fresh: allocate(blank, earned, tracks, goalOf.value), kept: allocate(current, available, tracks, goalOf.value)};
-    }
-    const {fresh, kept} = resetMemo, cost = resetCost(p.masteryResets), gain = goalOf.gold(kept.value, fresh.value);
+    const key = `${p.id}|${goalOf.horizon}`, stamp = JSON.stringify([hour, Math.floor(earned / 50), p.masteryResets ?? 0, tracks]);
+    let memo = resetMemos.get(key);
+    if (memo?.stamp !== stamp) resetMemos.set(key, memo = {stamp, fresh: null, advice: undefined});
+    if (memo.advice !== undefined) return memo.advice;
+    const blank = Object.fromEntries(MASTERY_TRACKS.map(id => [id, 0]));
+    memo.fresh = allocate(blank, earned, tracks, goalOf.value, {from: memo.fresh?.resume, until: msNow() + slice});
+    if (!memo.fresh.done) return null;
+    const fresh = memo.fresh, kept = allocate(current, available, tracks, goalOf.value);
+    const cost = resetCost(p.masteryResets), gain = goalOf.gold(kept.value, fresh.value);
+    memo.advice = null;
     if (!(gain >= 1.2 * cost)) return null;
     const name = id => MASTERY_NAMES_ZH[id] ?? id;
     const plan = Object.entries(fresh.ranks).filter(([, n]) => n > 0).map(([id, n]) => `${name(id)} ${n}`).join('、');
-    return {cost, gain, ranks: fresh.ranks,
-      reason: `建议重置精通（${cost.toLocaleString()} 金币）：${goalOf.label}；全部 ${Math.floor(earned).toLocaleString()} 点从头分配（${plan}）比现在多赚约 ${gold(gain)} 金币（按${goalOf.horizon}算），超过重置费的 1.2 倍。需要你在游戏里手动重置，之后助手按新分配加点`};
+    return memo.advice = {cost, gain, ranks: fresh.ranks,
+      reason: `建议重置精通（${cost.toLocaleString()} 金币）：${goalOf.label}；全部 ${Math.floor(earned).toLocaleString()} 点从头分配（${plan}）比现在多赚约 ${gold(gain)} 金币（按${goalOf.horizon}算），超过重置费 1.2 倍。需要你在游戏里手动重置，之后助手按新分配加点`};
   }
   return {choose, objective};
 }
