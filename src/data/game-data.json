@@ -1,9 +1,10 @@
 {
-  "client": "index-BqokRC4i.js",
-  "sha256": "13f144ed0a9a34f3f844e4f1c5b490a34590d37a57775522cceecf2c9716d932",
-  "captured": "2026-11-06",
+  "client": "index-B_r662-8.js",
+  "sha256": "af65c9192a206e496749bde21a1693b4f97bc7da451ca33abdee4a158c7aa273",
+  "captured": "2026-11-07",
   "compatibleClients": [
-    "index-BqokRC4i.js"
+    "index-BqokRC4i.js",
+    "index-B_r662-8.js"
   ],
   "protocol": 3,
   "skills": [

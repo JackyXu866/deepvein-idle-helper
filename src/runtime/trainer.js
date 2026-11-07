@@ -1,6 +1,5 @@
 import {PROFESSIONS, professionSkill} from '../planner/professions.js';
 import {LEGENDARY, autoUsableMaterial} from '../planner/quality.js';
-import {PAGE_COOLDOWN_TICKS} from '../planner/mastery-pages.js';
 import {bankedGatheringLoad, finishTaskReason} from '../planner/crafting.js';
 import {POTIONS, POTION_TICKS, foodEffects} from '../planner/supplies.js';
 import {inventoryBudget, reserveWaitingGoals} from '../planner/inventory.js';
@@ -45,9 +44,9 @@ export const TRADE_GATE_REFUSALS=new Set(['email-needed','email-changed']);
 // Growth modes and their labels (the UI uses the same names).
 export const MODE_LABELS={balanced:'自主发展',experience:'经验优先',business:'主业经营',mastery:'补精通',assist:'只收菜＋蹭世界 Boss'};
 export const SOFT_ACTIONS=new Set(['rerollQuest','goQuest','contract','buyPerk','masteryConfirm','masteryReset','masteryPage','setFallback','plantPref','plotChoice']);
-// How long a refused or unconfirmed optional action rests: six hours, or one
-// switch cooldown for the mastery page.
-const softRest=(data,t)=>t==='masteryPage'?PAGE_COOLDOWN_TICKS*data.tickMs:t==='goQuest'||t==='contract'?600000:6*3600000;
+// How long a refused or unconfirmed optional action rests: six hours; ten
+// minutes for quest moves; a minute for the mastery page (switching is free).
+const softRest=(data,t)=>t==='masteryPage'?60000:t==='goQuest'||t==='contract'?600000:6*3600000;
 const restText=ms=>ms>=3600000?`${Math.round(ms/3600000)} 小时`:`${Math.round(ms/60000)} 分钟`;
 export const ROUTE_STOPS=new Set(['noMaterials','storageFull','unreachable','levelTooLow','noSuchSite']);
 // Bank, overflow and pack (shared definition in planner/items.js).

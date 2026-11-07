@@ -24,15 +24,12 @@ test('enhancing is priced with every point on page 2 (80 ranks: odds x1.2)', () 
   assert.ok(Math.abs(two / one - 1.2) < 1e-9, `${one} -> ${two}`);
 });
 
-test('the helper switches to page 2 to enhance and back to page 1 after; the cooldown holds enhancing', () => {
-  assert.deepEqual(pageStep(withPages(), true, 600).intent, {t: 'masteryPage', page: 2});
-  assert.equal(pageStep(withPages(), false, 600), null, 'on the work page already');
-  assert.deepEqual(pageStep(withPages({masteryPage: 2}), false, 600).intent, {t: 'masteryPage', page: 1});
-  const cooling = pageStep(withPages({masterySwitchTick: 99800}), true, 600);
-  assert.equal(cooling.intent, null);
-  assert.equal(cooling.waiting, true);
-  assert.match(cooling.reason, /冷却约 180 秒/);
-  assert.equal(pageStep({masteries: work, masteryPage: 1, masteryOther: null}, true, 600), null, 'no second page');
+test('the helper switches to page 2 to enhance and back to page 1 after, with no cooldown (1.0.1213)', () => {
+  assert.deepEqual(pageStep(withPages(), true).intent, {t: 'masteryPage', page: 2});
+  assert.equal(pageStep(withPages(), false), null, 'on the work page already');
+  assert.deepEqual(pageStep(withPages({masteryPage: 2}), false).intent, {t: 'masteryPage', page: 1});
+  assert.deepEqual(pageStep(withPages({masterySwitchTick: 99990}), true).intent, {t: 'masteryPage', page: 2}, 'just switched: switches again');
+  assert.equal(pageStep({masteries: work, masteryPage: 1, masteryOther: null}, true), null, 'no second page');
 });
 
 test('page 2 buys enhance ranks only; page 1 never buys enhance', () => {
@@ -49,11 +46,11 @@ test('page 2 buys enhance ranks only; page 1 never buys enhance', () => {
   assert.equal(page1.intent.ranks.enhance, undefined);
 });
 
-test('a page switch is valid only to the other owned page, outside the cooldown', () => {
+test('a page switch is valid only to the other owned page', () => {
   const planner = makePlanner(), d = planner.data;
   const p = player(planner, withPages());
   assert.equal(validateIntent(d, p, {t: 'masteryPage', page: 2}, {planner}), true);
   assert.equal(validateIntent(d, p, {t: 'masteryPage', page: 1}, {planner}), false, 'already there');
-  assert.equal(validateIntent(d, {...p, masterySwitchTick: p.lastTick - 10}, {t: 'masteryPage', page: 2}, {planner}), false, 'cooldown');
+  assert.equal(validateIntent(d, {...p, masterySwitchTick: p.lastTick - 10}, {t: 'masteryPage', page: 2}, {planner}), true, 'no cooldown');
   assert.equal(validateIntent(d, {...p, masteryOther: null}, {t: 'masteryPage', page: 2}, {planner}), false, 'not owned');
 });

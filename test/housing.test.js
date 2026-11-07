@@ -20,6 +20,19 @@ test('house points follow the client: tier, x3 per quality, crafted depth bonus'
   assert.equal(housePointsOf(d, id('Bronze blade') + d.plusScale), null, 'enhanced items cannot be converted');
 });
 
+test('1.0.1213: cloth gives hide, unsold seeds their crop, the rough gem stone; cloth-only crafts give hide', () => {
+  assert.deepEqual(housePointsOf(d, id('Homespun bolt')), {family: 'hide', each: 1});
+  assert.deepEqual(housePointsOf(d, id('Voidweave bolt') + R), {family: 'hide', each: 21});
+  assert.equal(housePointsOf(d, id('Homespun hood')).family, 'hide');
+  assert.equal(housePointsOf(d, id('Linen grimoire')).family, 'hide');
+  assert.equal(housePointsOf(d, id('Bitterroot seed')).family, 'crop');
+  assert.equal(housePointsOf(d, id('Bitterroot seed')).each, housePointsOf(d, id('Bitterroot')).each, 'its crop\'s tier');
+  assert.equal(housePointsOf(d, id('Potato seed')), null, 'the shop sells it');
+  // Iron is the first ore that turns up rough gems: stone tier 2.
+  assert.deepEqual(housePointsOf(d, id('Rough gem')), {family: 'stone', each: 2});
+  assert.equal(housePointsOf(d, id('Cut gem')).family, 'stone');
+});
+
 test('what the shops sell and fireworks give no house points (server: house-nothing)', () => {
   for (const name of ['Bronze rod', 'Bronze pickaxe', 'Bronze axe', 'Cooked shrimp', 'Cobalt rocket'])
     assert.equal(housePointsOf(d, id(name)), null, name);

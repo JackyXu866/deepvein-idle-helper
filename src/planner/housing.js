@@ -29,7 +29,7 @@ export function validHomePortal(data,p,intent) {
     intent.dir==='out'&&atHome(data,p)&&houseDistance(p,travel.exit)<=1;
 }
 
-// House points per item (client c4/e4/a4, index-BqokRC4i.js): a raw material
+// House points per item (client r4/h4/u4, index-B_r662-8.js): a raw material
 // gives its tier in its family; a crafted item gives the tier points of its raw
 // inputs, x min(2.5, 1 + 0.6 x recipe depth), in the family that dominates them.
 // Each quality step triples it; enhanced items cannot be converted.
@@ -39,6 +39,7 @@ export function validHomePortal(data,p,intent) {
 // Kinds of unsellable surplus worth a trip home of their own (housing work()).
 export const FREE_FUEL_TRIP=20;
 const SHOP_ITEMS=SHOP_ITEM_IDS,FIREWORKS=new Set([701,702,703,704,705]);
+const CLOTH_POINTS=new Map([[300,1],[301,3],[302,5],[303,7]]),ROUGH_GEM_ID=100;
 const pointTables=new WeakMap();
 export function housePointsOf(data,id) {
   if(!pointTables.has(data))pointTables.set(data,buildPointTable(data));
@@ -55,31 +56,49 @@ function buildPointTable(data) {
     const levels=[...new Set([...materials.values()].filter(m=>m.family===family).map(m=>m.level))].sort((a,b)=>a-b);
     for(const material of materials.values())if(material.family===family)material.points=levels.indexOf(material.level)+1;
   }
+  // Secondary sources (client CK, 1.0.1213): seeds no shop sells give their
+  // crop's tier, the rough gem the stone tier of the first ore that turns it up,
+  // cloth bolts hide 1/3/5/7. A crafted item counts them only when none of its
+  // inputs reaches a raw material (so hoods, robes and linen tomes give hide).
+  const secondary=new Map();
+  for(const job of data.jobs) {
+    const seed=job.skill==='farming'?job.inputs[0]?.itemId:null;
+    if(seed!=null&&!SHOP_ITEMS.has(seed)&&!secondary.has(seed))
+      secondary.set(seed,{family:'crop',points:materials.get(job.output.itemId)?.points??1});
+  }
+  let gemOre=null;
+  for(const job of data.jobs)if(job.skill==='mining'&&!job.inputs.length&&job.bonus?.itemId===ROUGH_GEM_ID&&
+    job.bonus.chance>0&&(!gemOre||job.levelReq<gemOre.levelReq))gemOre=job;
+  if(gemOre)secondary.set(ROUGH_GEM_ID,{family:'stone',points:materials.get(gemOre.output.itemId)?.points??1});
+  for(const [id,points]of CLOTH_POINTS)secondary.set(id,{family:'hide',points});
   const RARITY_POINTS=3,craftJobs=new Map(),crafted=new Map();
   for(const job of data.jobs)if(job.inputs.length&&!materials.has(job.output.itemId)&&!craftJobs.has(job.output.itemId))
     craftJobs.set(job.output.itemId,job);
+  const add=(map,family,n)=>map.set(family,(map.get(family)??0)+n);
   function craftedPoints(base) {
     if(crafted.has(base))return crafted.get(base);
     crafted.set(base,null);
-    const families=new Map();let depth=0;
+    const primary=new Map(),fallback=new Map();let depth=0,unknown=false;
     (function walk(id,qty,level) {
-      const raw=materials.get(baseId(data,id));
-      if(raw){families.set(raw.family,(families.get(raw.family)??0)+qty*raw.points);return;}
+      const raw=materials.get(baseId(data,id)),other=secondary.get(baseId(data,id));
+      if(raw){add(primary,raw.family,qty*raw.points);return;}
+      if(other){add(fallback,other.family,qty*other.points);return;}
       const job=level<=8&&craftJobs.get(baseId(data,id));
-      if(!job)return;
+      if(!job){unknown=true;return;}
       depth=Math.max(depth,level+1);
       for(const input of job.inputs)walk(input.itemId,qty*input.qty/job.output.qty,level+1);
     })(base,1,0);
     let family=null,total=0,top=0;
-    for(const [name,n]of families){total+=n;if(n>top){top=n;family=name;}}
+    for(const [name,n]of primary.size||unknown?primary:fallback){total+=n;if(n>top){top=n;family=name;}}
     const result=family&&total>0?{family,each:total*Math.min(2.5,1+.6*depth)}:null;
     crafted.set(base,result);return result;
   }
   return id=>{
     if(plusOf(data,id)>0||SHOP_ITEMS.has(id))return null;
-    const base=baseId(data,id),raw=materials.get(base),made=raw||FIREWORKS.has(base)?null:craftedPoints(base);
-    const family=raw?.family??made?.family;
-    return family?{family,each:(raw?raw.points:made.each)*RARITY_POINTS**rarityOf(data,id)}:null;
+    const base=baseId(data,id),scale=RARITY_POINTS**rarityOf(data,id),raw=materials.get(base)??secondary.get(base);
+    if(raw)return {family:raw.family,each:raw.points*scale};
+    const made=FIREWORKS.has(base)?null:craftedPoints(base);
+    return made?{family:made.family,each:made.each*scale}:null;
   };
 }
 

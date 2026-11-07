@@ -8,7 +8,7 @@ import {FALLBACK_SKILLS} from '../planner/fallback.js';
 import {onPriceStep} from '../economy/market.js';
 import {baseId, dayTicks, merchantPrice, nearBank, packCapacity, packQty, packUsed} from '../planner/items.js';
 import {MASTERY_RANK_LIMIT, MASTERY_TRACKS} from '../engine/mastery-rules.js';
-import {ENHANCE_PAGE, WORK_PAGE, hasEnhancePage, pageCooldown} from '../planner/mastery-pages.js';
+import {ENHANCE_PAGE, WORK_PAGE, hasEnhancePage} from '../planner/mastery-pages.js';
 import {resetCost} from '../planner/mastery-plan.js';
 
 export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mode='balanced',waitingGoals={}}={}) {
@@ -87,7 +87,7 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
   if(intent.t==='masteryReset')return Object.keys(intent).length===2&&intent.pay==='coins'&&(p.masteryPage??WORK_PAGE)===WORK_PAGE&&
     Object.values(p.masteries??{}).some(n=>n>0)&&p.coins>=resetCost(p.masteryResets);
   if(intent.t==='masteryPage')return Object.keys(intent).length===2&&hasEnhancePage(p)&&
-    [WORK_PAGE,ENHANCE_PAGE].includes(intent.page)&&intent.page!==(p.masteryPage??WORK_PAGE)&&pageCooldown(p)===0;
+    [WORK_PAGE,ENHANCE_PAGE].includes(intent.page)&&intent.page!==(p.masteryPage??WORK_PAGE);
   if(intent.t==='masteryConfirm') {
     // Server rule: every track listed, none below its locked rank. Points are
     // checked by the server (the page cannot count them without the engine).
