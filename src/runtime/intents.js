@@ -32,7 +32,7 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
       packQty(p,intent.itemId)>=intent.qty;
   }
   if(intent.t==='dropItem') {
-    const safe=planner?.gatheringSurplus?.(p,goal,style,mode,waitingGoals)?.intent;
+    const safe=planner?.gatheringSurplus?.(p,goal,style,mode,waitingGoals,intent.itemId)?.intent;
     return !!safe&&intent.itemId===safe.itemId&&Number.isSafeInteger(intent.qty)&&intent.qty>0&&intent.qty<=safe.qty;
   }
   if(HOUSE_ACTIONS.has(intent.t))return planner?.validateHousing(p,intent,goal,style,mode)===true;
