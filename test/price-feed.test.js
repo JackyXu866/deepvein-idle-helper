@@ -83,3 +83,18 @@ test('the equipment scan takes candidates from the feed without queuing book que
   const q = market.query(p);
   assert.ok(!q || q.t !== 'marketBooks' || q.itemIds.every(id => id === gear + 2 * d.rarityScale), JSON.stringify(q));
 });
+
+test('a deep pile of cheaper asks is the market: the listing follows it; a thin one is ignored', () => {
+  const sell = askQty => {
+    const {market, p, item, d, feed} = setup();
+    market.setPriceFeed(feed({[item]: {lowestSell: 700, sellQty: askQty, avg7d: 1000, vol7d: 700}}));
+    market.watch(p, [item], item);
+    market.query(p);
+    market.receive({tick: 100001, m: [{t: 'marketDepth', itemId: item, bids: [], asks: [{price: 700, qty: askQty}], trades: []}]});
+    const floor = Math.floor(d.items[item].value * .4);
+    return market.sale({...p, bank: {[item]: 300}}, {intent: {t: 'marketDump', itemId: item, qty: 300, floor}, label: 'x', reason: 'y', profitSale: true});
+  };
+  // A day's turnover is 100: 500 cheaper units sell first for five days.
+  assert.ok(sell(500).intent.price < 700, JSON.stringify(sell(500).intent));
+  assert.equal(sell(5).intent.price, 900, 'five cheap units: kept at 90% of the market price');
+});

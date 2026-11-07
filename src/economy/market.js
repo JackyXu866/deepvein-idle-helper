@@ -676,19 +676,33 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   const fairBid=(id,price,listing=null)=>{const m=marketPrice(id);return m>0?price>=m*BID_FAIR:!listing||price>=listing.price*BID_FAIR;};
   const listable=(id,bidPrice)=>marketPrice(id)>0&&(bidPrice==null||!fairBid(id,bidPrice));
   const listSize=(id,qty)=>{const d=dailyTurnover(id);return Math.min(qty,d>0?Math.max(1,Math.floor(d*LIST_SHARE)):1);};
+  // The 90% floor ignores a thin cheap ask. Once more units are offered under
+  // it than the market takes in a day, those asks are the market: they sell
+  // first, a listing above them waits for weeks (the week's average lags a
+  // falling price), so the floor is dropped and the lowest ask followed. Depth
+  // from the live book, else the top of book.
+  function fairFloor(id,market) {
+    if(!(market>0))return 0;
+    const floor=Math.ceil(market*FAIR),daily=dailyTurnover(id);
+    if(!(daily>0))return floor;
+    const live=quotes.get(id),top=topOfBook(id);
+    const depth=live&&now()-live.at<ttl?live.asks.filter(a=>a.price<floor).reduce((n,a)=>n+a.qty,0):
+      top?.ask>0&&top.ask<floor?top.askQty??0:0;
+    return depth>=daily?0:floor;
+  }
   function listingQuote(p,book,id,floor) {
     const minimum=priceUp(minListPrice(floor,taxBp)),market=marketPrice(id);
     let price=book.asks.length?stepBelow(lowestAsk(book)):market;
-    if(market>0&&price!=null)price=Math.min(Math.max(price,Math.ceil(market*FAIR)),Math.floor(market*CEILING));
+    if(market>0&&price!=null)price=Math.min(Math.max(price,fairFloor(id,market)),Math.floor(market*CEILING));
     if(!(price>0))return null;
     price=Math.max(minimum,priceDown(price));
     if(!valid(price)||price>1e9)return null;
     return {price,market,demand:saleDemand(p,book,price,floor)};
   }
   // Someone now sells below our listing, and following them one step stays at
-  // or above 90% of the market price: then it is re-listed; otherwise it waits.
-  const undercut=order=>{const ask=topOfBook(order.itemId)?.ask,m=marketPrice(order.itemId);
-    return ask>0&&ask<order.price&&!(m>0&&stepBelow(ask)<m*FAIR);};
+  // or above the fair floor (fairFloor): then it is re-listed; otherwise it waits.
+  const undercut=order=>{const ask=topOfBook(order.itemId)?.ask;
+    return ask>0&&ask<order.price&&stepBelow(ask)>=fairFloor(order.itemId,marketPrice(order.itemId));};
   const netOf=(price,qty)=>netProceeds(price,qty,taxBp);
   const merchantUnit=id=>merchantPrice(data,id);
   const dayTicks=dayTicksOf(data);
@@ -839,7 +853,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     const market=marketPrice(id)??prices[Math.floor(prices.length/2)]??null;
     if(!(market>0))return null;
     const vendor=merchantPrice(data,id);
-    const minimum=priceUp(Math.max(Math.ceil(market*FAIR),minListPrice(vendor,taxBp)));
+    const minimum=priceUp(Math.max(fairFloor(id,market),minListPrice(vendor,taxBp)));
     const bid=bidsHighFirst(book).find(row=>row.price>=Math.max(minimum,market*BID_FAIR));
     if(bid)return {qty:Math.min(qty,bid.qty),price:bid.price};
     const price=Math.max(minimum,priceDown(book.asks.length?stepBelow(lowestAsk(book)):market));
