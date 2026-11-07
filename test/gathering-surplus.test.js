@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {makePlanner, player} from './helpers.js';
 import {packCapacity} from '../src/planner/items.js';
 import {validateIntent} from '../src/runtime/intents.js';
+import {acknowledged} from '../src/runtime/trainer.js';
 
 // Chopping Trees for gold (the funding goal's placeholder target is past the
 // level cap) at the tree site, far from the bank (28-slot pack, about 2 s of
@@ -70,4 +71,18 @@ test('the page accepts the drop the plan chose and refuses another quality', () 
   assert.equal(validateIntent(d, p, plan.intent, ctx), true);
   assert.equal(validateIntent(d, p, {t: 'dropItem', itemId: q(3), qty: 1}, ctx), false);
   assert.equal(validateIntent(d, p, {...plan.intent, qty: plan.intent.qty + 1}, ctx), false);
+});
+
+test('a drop is confirmed while mining refills the pack faster, and across a trip home', () => {
+  const ore = n => Array.from({length: n}, () => ({itemId: 2, qty: 1}));
+  const before = {pack: ore(20), bank: {2: 100}, overflow: {}, collections: {2: 5000}};
+  const drop = {t: 'dropItem', itemId: 2, qty: 5};
+  // 5 dropped, 7 mined meanwhile: the pack holds more than before.
+  assert.equal(acknowledged(before, {...before, pack: ore(22), collections: {2: 5007}}, drop), true);
+  // ...then the full pack went to the bank.
+  assert.equal(acknowledged(before, {...before, pack: [], bank: {2: 122}, collections: {2: 5007}}, drop), true);
+  // Mined 7, dropped nothing: not confirmed.
+  assert.equal(acknowledged(before, {...before, pack: ore(27), collections: {2: 5007}}, drop), false);
+  // More gone than the drop: not this command.
+  assert.equal(acknowledged(before, {...before, pack: ore(10), collections: {2: 5000}}, drop), false);
 });

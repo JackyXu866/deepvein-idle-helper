@@ -2,6 +2,10 @@
 
 版本号由本 fork（[JackyXu866/deepvein-idle-helper](https://github.com/JackyXu866/deepvein-idle-helper)，分支 `modular-rewrite`）维护；v0.8.8 及更早的版本来自上游 [ljyoukong-cpu/deepvein-idle-helper](https://github.com/ljyoukong-cpu/deepvein-idle-helper)。
 
+## v0.14.7 — 2026-11-07
+
+- **修复：快速采矿时原地丢弃被误判“结果未确认”而暂停**。以前只有背包里这种物品比丢之前少了才算丢弃成功；挖得快时，丢 5 个的这几秒里又挖进来 5 个以上，数量没减少，助手就以为没丢掉，30 秒后暂停调度。现在按游戏自己记录的“累计获得数”把这段时间新挖到的加回去，再比较背包＋仓库的总数：少了 1～丢弃数量就算成功。中途背包满了回仓库存放也不再影响确认。
+
 ## v0.14.6 — 2026-11-07
 
 适配游戏 1.0.1213（数据表未变）：

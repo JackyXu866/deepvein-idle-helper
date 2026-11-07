@@ -95,12 +95,12 @@ export function acknowledged(before, p, intent, data=null) {
     case 'wear': case 'equipFromBank': return Object.values(p.equipment).includes(intent.itemId);
     case 'deposit': return p.pack.length<before.pack.length || p.pack.length===0;
     case 'dropItem': {
-      // Gathering continues while the receipt travels back. New output may
-      // partially refill the pack, but cannot itself reduce total inventory.
-      const removed=quantity(before,intent.itemId)-quantity(p,intent.itemId);
-      return removed>0&&removed<=intent.qty&&
-        (p.bank[intent.itemId]??0)===(before.bank[intent.itemId]??0)&&
-        (p.overflow?.[intent.itemId]??0)===(before.overflow?.[intent.itemId]??0);
+      // Gathering goes on while the receipt travels back: what was made since
+      // (the game's count of every item gained, `collections`) is added back,
+      // and the whole stock is compared, so a trip home in between only moves it.
+      const id=intent.itemId,gained=Math.max(0,(p.collections?.[id]??0)-(before.collections?.[id]??0));
+      const removed=quantity(before,id)+gained-quantity(p,id);
+      return removed>0&&removed<=intent.qty;
     }
     case 'withdraw': return packQty(p,intent.itemId)-packQty(before,intent.itemId)>=intent.qty &&
       quantity(before,intent.itemId)===quantity(p,intent.itemId);
