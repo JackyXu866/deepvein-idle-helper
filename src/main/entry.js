@@ -15,7 +15,6 @@ import '../planner/progression.js';
 import '../planner/specialization.js';
 import '../planner/quests.js';
 import '../planner/housing.js';
-import '../planner/gathering-surplus.js';
 import '../planner/planner.js';
 import '../economy/economy.js';
 import '../economy/market.js';

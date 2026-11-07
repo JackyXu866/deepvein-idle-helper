@@ -634,13 +634,13 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     }
     return null;
   }
-  // Order slots: the game's own limit, plus at most three of the helper's own
-  // sell listings at once (they sit in slots for hours). A purchase at the
-  // lowest ask fills at once, so the helper's listings never block buying:
-  // three listings used to stop every purchase, an epic pan included.
+  // Order slots: the game's own limit. Sell listings (which sit for hours) may
+  // take every slot but one, kept for a purchase. A fixed cap of three of the
+  // helper's own listings let three slow ones block every sale while seven
+  // slots stood empty.
   function slots(p,side='sell') {
-    if(!ordersKnown||orders.length>=(p.marketOrderSlots??10))return false;
-    return side==='buy'||Object.keys(state.owned).length<3;
+    const limit=p.marketOrderSlots??10;
+    return ordersKnown&&orders.length<(side==='buy'?limit:limit-1);
   }
   const hasOrder=id=>orders.some(o=>o.itemId===id);
   function saleDemand(p,book,price,floor) {

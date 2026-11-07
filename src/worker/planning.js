@@ -95,7 +95,7 @@ export function runPlanning(data,input,inspectOnly=false) {
   // Time inside the decision by step (inclusive: a step's own calls to the
   // others count in both), so a slow calculation names the step.
   const steps={plan:'计划',maintenance:'整理',housingPlan:'房屋',consumable:'药水食物',selectGoal:'选目标',questChooseGoal:'任务',
-    harvest:'收菜',investmentOptions:'投资表',candidates:'候选',gatheringSurplus:'采集清理',chooseFallback:'备用'};
+    harvest:'收菜',investmentOptions:'投资表',candidates:'候选',chooseFallback:'备用'};
   for(const [name,label]of Object.entries(steps)) {
     const fn=planner[name];
     if(typeof fn!=='function')continue;

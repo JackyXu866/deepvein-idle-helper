@@ -18,7 +18,6 @@ import {createSpecialization} from './specialization.js';
 import {createQuests} from './quests.js';
 import {createTownOrders} from './town-orders.js';
 import {createHousing} from './housing.js';
-import {planGatheringSurplus} from './gathering-surplus.js';
 import {perkOverview} from './perks.js';
 import {chooseFallback} from './fallback.js';
 import {createInvestments, expectedEnhancement} from './investment.js';
@@ -1813,7 +1812,6 @@ export function createPlanner(data) {
   api.reportConsumable=(key,message)=>{consumableReason={key,message};};
   api.consumableReason=()=>consumableReason;
   api.consumable=(p,goal,style,plan,window)=>{consumableReason=null;return planConsumable(data,api,p,goal,style,plan,window);};
-  api.gatheringSurplus=(p,goal,style='magic',mode='balanced',waitingGoals={},itemId=null)=>planGatheringSurplus(data,api,p,goal,style,mode,waitingGoals,itemId);
   api.enhancementTraining=createEnhancementTraining(data,api);
   const strategy=createStrategy(data,api);
   api.crafting=createCrafting(data,api);

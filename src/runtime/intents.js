@@ -16,9 +16,9 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
   // Quality holds follow the player's profession; the page's planner never
   // runs plan(), which otherwise sets it, so a check would use magic's holds.
   if(planner)planner.styleHint=style;
-  // Legendary stock is the player's: never drunk, eaten, traded or dropped.
+  // Legendary stock is the player's: never drunk, eaten or traded.
   // Enhancing worn legendary gear keeps it with the player, so it may run.
-  if(['drink','eat','chooseFood','marketSell','marketDump','dropItem'].includes(intent.t)&&
+  if(['drink','eat','chooseFood','marketSell','marketDump'].includes(intent.t)&&
     !autoUsableMaterial(data,intent.itemId))return false;
   // Legendary gear may be bought, to wear (quality.js buyableItem).
   if(intent.t==='marketBuy'&&!buyableItem(data,intent.itemId))return false;
@@ -30,10 +30,6 @@ export function validateIntent(data,p,intent,{planner,goal=null,style='magic',mo
     return Number.isSafeInteger(intent.itemId)&&!!data.items[baseId(data,intent.itemId)]&&
       Number.isSafeInteger(intent.qty)&&intent.qty>0&&
       packQty(p,intent.itemId)>=intent.qty;
-  }
-  if(intent.t==='dropItem') {
-    const safe=planner?.gatheringSurplus?.(p,goal,style,mode,waitingGoals,intent.itemId)?.intent;
-    return !!safe&&intent.itemId===safe.itemId&&Number.isSafeInteger(intent.qty)&&intent.qty>0&&intent.qty<=safe.qty;
   }
   if(HOUSE_ACTIONS.has(intent.t))return planner?.validateHousing(p,intent,goal,style,mode)===true;
   if(intent.t==='portal')return validHomePortal(data,p,intent);

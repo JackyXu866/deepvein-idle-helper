@@ -94,14 +94,6 @@ export function acknowledged(before, p, intent, data=null) {
     case 'walk': return distance(p,intent)<=1;
     case 'wear': case 'equipFromBank': return Object.values(p.equipment).includes(intent.itemId);
     case 'deposit': return p.pack.length<before.pack.length || p.pack.length===0;
-    case 'dropItem': {
-      // Gathering goes on while the receipt travels back: what was made since
-      // (the game's count of every item gained, `collections`) is added back,
-      // and the whole stock is compared, so a trip home in between only moves it.
-      const id=intent.itemId,gained=Math.max(0,(p.collections?.[id]??0)-(before.collections?.[id]??0));
-      const removed=quantity(before,id)+gained-quantity(p,id);
-      return removed>0&&removed<=intent.qty;
-    }
     case 'withdraw': return packQty(p,intent.itemId)-packQty(before,intent.itemId)>=intent.qty &&
       quantity(before,intent.itemId)===quantity(p,intent.itemId);
     case 'depositItem': return packQty(before,intent.itemId)-packQty(p,intent.itemId)>=intent.qty &&
@@ -952,8 +944,6 @@ export class Trainer {
       } else {
         if(pending&&!code&&HOUSE_ACTIONS.has(pending.intent.t))
           return this.pauseError('房屋操作结果仍未确认，已暂停以防重复花费；请核对房屋状态后继续');
-        if(pending&&!code&&pending.intent.t==='dropItem')
-          return this.pauseError('原地丢弃结果仍未确认，已暂停调度以防重复丢弃；游戏当前采集继续');
         if(pending&&!code&&['enhance','marketDump','vendorBuy','breedMounts','eat','drink'].includes(pending.intent.t)&&
           (this.player.coins!==pending.before.coins||quantity(this.player,pending.intent.itemId)!==quantity(pending.before,pending.intent.itemId)||
             pending.intent.t==='eat'&&this.player.hp!==pending.before.hp))
@@ -1213,8 +1203,6 @@ export class Trainer {
         continue;
       }
       if (this.goal) delete this.blockedReasons[this.goal.skill];
-      const surplus=!harvest&&!this.plan.intent&&this.planner.gatheringSurplus?.(p,this.goal,this.style,this.mode,this.waitingGoals);
-      if(surplus?.intent)return this.issue(surplus);
       const consumable=this.consume(p,reserveWaitingGoals(this.goal,this.waitingGoals),this.style,this.plan);
       if(consumable?.intent)return this.issue(consumable);
       if(!(harvest?.marketWaiting&&harvest.farmJobId))this.bankedLoad=false;

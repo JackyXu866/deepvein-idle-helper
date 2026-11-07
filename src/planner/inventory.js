@@ -260,9 +260,11 @@ export function reviewInventory(data, planner, p, goal=null, style='magic',budge
     }
     return {lines,copies};
   })();
-  // What the current batch makes or uses (any quality) is judged when it ends.
+  // What the current batch uses (any quality) is judged when it ends, and so
+  // is what it makes when it has an end: an endless route (a funding or
+  // leveling stretch) never ends, so its output is judged as it comes.
   const routeJob=p.route&&!p.route.errand?data.jobs.find(j=>j.id===p.route.jobId):null;
-  const batchBases=new Set(routeJob?[routeJob.output.itemId,...routeJob.inputs.map(i=>i.itemId)]:[]);
+  const batchBases=new Set(routeJob?[...(p.route.limit>0?[routeJob.output.itemId]:[]),...routeJob.inputs.map(i=>i.itemId)]:[]);
   const batchItem=id=>batchBases.has(baseId(data,id));
   const {ids:locked,variants:lockedVariants}=lockedGear(data,p,goal);
   const requirement=g=>gearRequirementOf(data,g.itemId).level;

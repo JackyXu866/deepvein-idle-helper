@@ -81,3 +81,14 @@ test('an unsold buyback batch goes to the merchant next', () => {
   assert.equal(plan.intent.t, 'marketDump');
   assert.match(plan.label, /回购未成交/);
 });
+
+test('sell listings take every order slot but one, kept for a purchase', () => {
+  const order = i => ({id: 900 + i, itemId: 1, side: 'sell', price: 999, qtyRemaining: 1, qtyTotal: 1});
+  const sell = n => {
+    const {market, item, merchant, p} = setup({book: m => ({bids: [], asks: [{price: m * 3, qty: 50}], trades: []}), boughtQty: 0});
+    market.receive({tick: 100002, m: [{t: 'snapshot', you: p, orders: Array.from({length: n}, (_, i) => order(i))}]});
+    return market.sale({...p, bank: {[item]: 300}}, {intent: {t: 'marketDump', itemId: item, qty: 300, floor: merchant}, label: 'x', reason: 'y'});
+  };
+  assert.equal(sell(8).intent?.t, 'marketSell', 'eight of ten slots used: still lists');
+  assert.equal(sell(9).intent ?? null, null, 'the last slot stays free for buying');
+});
