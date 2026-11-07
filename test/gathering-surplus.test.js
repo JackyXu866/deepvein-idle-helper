@@ -35,6 +35,20 @@ test('a pack about to fill drops a few instead of carrying them home', () => {
   assert.equal(setup({0: 4, 3: 20}).drop(), null, 'too few to be worth a command');
 });
 
+test('fast work keeps room for what it makes before a drop lands', () => {
+  // About 1.4 ores a second: ten seconds of work fill 16 slots.
+  const fast = (pack, prices) => {
+    const s = setup(pack, prices), work = s.planner.estimateWork;
+    s.planner.estimateWork = (p, j, lv) => ({...work(p, j, lv), seconds: .7});
+    return s;
+  };
+  // Eleven uncommon kept, eight common: four slots short of the half-pack batch,
+  // and the pack would fill before a later drop arrived.
+  assert.deepEqual(fast({0: 8, 1: 11}, {1: 100000}).drop()?.intent, {t: 'dropItem', itemId: 10, qty: 8});
+  assert.equal(fast({0: 4, 1: 11}, {1: 100000}).drop(), null, 'fewer than five: not worth a command yet');
+  assert.equal(setup({0: 8, 1: 11}, {1: 100000}).drop(), null, 'slow work: room enough to wait for a batch');
+});
+
 test('below epic, any quality goes when its room is worth more; epic and legendary never', () => {
   const uncommon = setup({1: 14}, {1: 5});
   assert.equal(uncommon.drop()?.intent.itemId, uncommon.q(1));

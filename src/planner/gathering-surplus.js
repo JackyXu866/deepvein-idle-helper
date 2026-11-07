@@ -15,9 +15,12 @@ import {baseStride, distance, itemLabel, packCapacity, packQty, packUsed, player
 // Native onFull:'drop' removes every quality of BOTH main and bonus outputs.
 // dropItem matches an exact pack item ID and leaves the active route intact.
 export const DROP_BELOW_RARITY=3;
-// Batches: half a pack of one output, or a few when the pack is about to fill,
-// so no surplus is ever carried home and drops stay one every several seconds.
-const NEAR_FULL=5;
+// Batches: half a pack of one output, or at least a few once the room left is
+// what the work fills before a drop lands (a planning pass and the command's
+// round trip, about ten seconds: fast mining filled the last four slots of a
+// pack holding eleven uncommon ores and carried its common ones home), so no
+// surplus is carried home and drops stay one every several seconds.
+const MIN_BATCH=5,DROP_LATENCY_SECONDS=10;
 export function planGatheringSurplus(data,planner,p,goal,style,mode,waitingGoals={},itemId=null) {
   const route=p.route,job=data.jobs.find(j=>j.id===route?.jobId);
   if(!['balanced','experience'].includes(mode)||!goal||goal.quest||goal.upgrade||
@@ -36,6 +39,7 @@ export function planGatheringSurplus(data,planner,p,goal,style,mode,waitingGoals
   const remaining=Math.min(route.limit??Infinity,Math.ceil(planner.xpTo(p,job.skill,goal.target)/e.xp));
   // Never redirect a trip the work is about to end anyway.
   if(!(remaining*job.output.qty>free)||!(e.seconds>0))return null;
+  const arriving=Math.max(MIN_BATCH,Math.ceil(DROP_LATENCY_SECONDS/e.seconds*(job.output.qty+(e.bonusOutput??0)))+1);
   const unit=id=>planner.saleValue?.(p,id,1)??Infinity;
   const tiers=(e.tierOutput??[e.commonOutput]).map((made,r)=>({id:withRarity(data,base,r),made,r,unit:unit(withRarity(data,base,r))}));
   if(tiers.some(t=>!(t.unit>=0)))return null;
@@ -60,7 +64,7 @@ export function planGatheringSurplus(data,planner,p,goal,style,mode,waitingGoals
     const worth=pays(travel/capacity,goldToSeconds(t.unit,rate));
     if(!worth)break; // a dearer output never goes before a cheaper one
     if(itemId!=null&&t.id!==itemId)continue;
-    const due=qty>=Math.ceil(capacity/2)||free<=NEAR_FULL&&qty>=NEAR_FULL;
+    const due=qty>=Math.ceil(capacity/2)||free<=arriving&&qty>=MIN_BATCH;
     if(!Number.isSafeInteger(qty)||qty<1||!due||!pays(saved,earn))continue;
     return {intent:{t:'dropItem',itemId:t.id,qty},label:`原地清理盈余 · ${itemLabel(data,t.id)} ×${qty}`,
       reason:`每占一格背包要分摊约 ${(travel/capacity).toFixed(1)} 秒往返，这段时间砍出的留用产物约值 ${Math.round(travel/capacity*rate)} 金币，`+
