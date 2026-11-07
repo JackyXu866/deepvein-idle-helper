@@ -1191,15 +1191,20 @@ export function createPlanner(data) {
         result.reason=`已持有更好的 ${fullName(best)}，换下 ${current!=null?fullName(current):'空位'}：只需一趟仓库，${rarity(best)===LEGENDARY?'传说装备穿上仍归你':'不另外制作或购买'}`;
         return result;
       }
-      const picks=(api.investmentOptions?.(p,profession,goal)??[]).filter(r=>r.cheapest);
-      for(const row of picks.filter(r=>r.source==='市场'&&r.kind!=='acquireEnhance')) {
-        const market=api.marketEquipment?.(p,goal,profession,{ids:[base(row.id)],row});
+      // Each slot's pick is one route: get its starting piece, then enhance it
+      // (the enhancing step, in the bank) and put it on above once it beats the
+      // worn one. Getting it: bought on the market here, made by the gear
+      // project (upgrade), a mount bred or from the merchant by its supply plan
+      // (mounts.js). A route starts only when its whole cost, enhancing
+      // included, is affordable; until then funding earns it.
+      const picks=(api.investmentOptions?.(p,profession,goal)??[]).filter(r=>r.cheapest&&r.source!=='已持有'&&
+        count(p,r.start??r.id)<=0&&r.gold<=p.coins);
+      for(const row of picks.filter(r=>r.source==='市场')) {
+        const start=row.start??row.id;
+        const market=api.marketEquipment?.(p,goal,profession,{ids:[base(start)],row:{...row,id:start,gold:row.acquireGold??row.gold}});
         if(market?.intent||market?.marketWaiting)return market;
       }
-      // A mount the table picked to buy at the merchant, breed, or get and then
-      // enhance: its supply plan (mounts.js), one command at a time; a held
-      // one is enhanced by the enhancing step and put on above once it beats the worn one.
-      for(const row of picks.filter(r=>r.slot==='mount'&&r.source!=='已持有'&&(r.kind==='acquireEnhance'||r.source!=='市场'))) {
+      for(const row of picks.filter(r=>r.slot==='mount'&&r.source!=='市场'&&r.source!=='自制')) {
         const step=mountSupplyStep(data,api,p,goal,profession,row.start??row.id,{label:row.label,bankAction,need:row.gold});
         if(step?.intent||step?.marketWaiting)return step;
       }
@@ -1224,9 +1229,12 @@ export function createPlanner(data) {
       // saves while worn), and a project goes on while its row still pays back.
       const rows=api.investmentOptions?.(p,profession,goal)??[];
       if (goal.upgrade) {
-        const {slot,id}=goal.upgrade,row=rows.find(r=>r.slot===slot&&r.id===id);
+        const {slot,id}=goal.upgrade,row=rows.find(r=>r.slot===slot&&(r.start??r.id)===id);
         const current=p.equipment[slot];
-        if (current===id||compareGear(slot,current,id)>=0||count(p,id)<=0&&!row?.worth) {
+        // A piece made to be enhanced is done once made: the enhancing step
+        // takes it on in the bank, and it is put on once it beats the worn one.
+        const enhanceAfter=row?.kind==='acquireEnhance'||goal.upgrade.toPlus>plusOf(data,id);
+        if (current===id||(enhanceAfter?count(p,id)>0:compareGear(slot,current,id)>=0)||count(p,id)<=0&&!row?.worth) {
           delete goal.upgrade;completedUpgrade=true;return null;
         }
         gearReserve=plannedGearReserve(p,profession,id,goal);
@@ -1235,7 +1243,7 @@ export function createPlanner(data) {
         if(result.blocked)delete goal.upgrade;
         return result;
       }
-      const picks=rows.filter(r=>r.cheapest&&r.source==='自制');
+      const picks=rows.filter(r=>r.cheapest&&r.source==='自制'&&count(p,r.start??r.id)<=0).map(r=>({...r,id:r.start??r.id}));
       if(!picks.length)return null;
       // The quality intermediates several picked pieces share (every uncommon
       // cobalt bar for a few cobalt tools) are made in one batch first.
@@ -1256,7 +1264,7 @@ export function createPlanner(data) {
         return result;
       }
       const row=picks.find(r=>(recipeOf(r.id)?.inputs??[]).every(i=>rarity(i.itemId)===0||count(p,i.itemId)>=i.qty))??picks[0];
-      goal.upgrade={id:row.id,slot:row.slot,skill:data.toolSkills[row.slot]??professionSkill(profession),priority:true,
+      goal.upgrade={id:row.id,slot:row.slot,toPlus:row.toPlus??plusOf(data,row.id),skill:data.toolSkills[row.slot]??professionSkill(profession),priority:true,
         xpRate:api.gearXpRate(p,profession,goal,row.slot,row.id)};
       gearReserve=plannedGearReserve(p,profession,row.id,goal); // the piece uses its own held materials
       const result=need(row.id,1);
@@ -1503,7 +1511,7 @@ export function createPlanner(data) {
   // must not burn them into bars or plates for XP, and they are not sold.
   function plannedQualityGear(p,profession='magic',goal=null) {
     const worn=Object.values(p.equipment);
-    const picks=(api.investmentOptions?.(p,profession,goal)??[]).filter(r=>r.cheapest&&r.source==='自制').map(r=>r.id);
+    const picks=(api.investmentOptions?.(p,profession,goal)??[]).filter(r=>r.cheapest&&r.source==='自制').map(r=>r.start??r.id);
     return [...new Set([...picks,goal?.upgrade?.id])].filter(id=>id!=null&&rarity(id)>0&&count(p,id)<=0&&!worn.includes(id));
   }
   // The quality materials those pieces need, down their quality chain: the
@@ -1562,7 +1570,7 @@ export function createPlanner(data) {
       };
       // The pick as the table states it: what, how (held, market, made,
       // enhanced) and its payback; a piece to make with its materials.
-      const upgrade=pick?{...(pick.source==='自制'?describe(pick.id):{id:pick.id,name:fullName(pick.id),wear:gearRequirement(pick.id),
+      const upgrade=pick?{...(pick.source==='自制'?describe(pick.start??pick.id):{id:pick.id,name:fullName(pick.id),wear:gearRequirement(pick.id),
         owned:pick.kind==='owned',requirements:[],materials:{},chainMaterials:{},seconds:0}),
         pick:{label:pick.label,source:pick.source,kind:pick.kind,affordable:pick.affordable,paidHours:pick.paid/3600,savedHours:pick.saved/3600}}:null;
       return {slot,current:current==null?null:{id:current,name:fullName(current)},upgrade,next:describe(next)};

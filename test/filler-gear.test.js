@@ -16,7 +16,8 @@ test('the investment table weighs every quality: rare Bone gloves, not the cheap
   planner.marketAsk = (_p, id) => ASKS[id] ?? null;
   const rows = planner.investmentOptions(thief(planner), 'melee', {skill: 'thieving', recipeId: 242}).filter(r => r.slot === 'gloves');
   const best = rows.find(r => r.cheapest);
-  assert.equal(best?.id, 2326, JSON.stringify(rows.map(r => [r.id, r.net])));
+  // Bought, then enhanced to its best +k: the rare pair is the route's start.
+  assert.equal(best?.start, 2326, JSON.stringify(rows.map(r => [r.id, r.net])));
   assert.ok(best.worth && best.gain > .1);
 });
 

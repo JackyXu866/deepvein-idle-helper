@@ -34,8 +34,9 @@ test('the planned piece is the table\'s 自制 pick, made first from its own mat
   planner.perkUsage = {'combat:1': {seconds: 3600}, [`job:${barJob.id}`]: {seconds: 3600}}; // fights and smiths, never mines
   void d;
   const pick = picks(planner, p, goal).find(r => r.slot === 'weapon');
-  assert.equal(pick?.id, blade('Cobalt') + 2 * R, 'a rare cobalt blade from the rare bar held');
-  assert.deepEqual(planner.plannedQualityGear(p, 'melee', goal), picks(planner, p, goal).map(r => r.id).filter(id => id >= R));
+  // Made from the rare bar held, then perhaps enhanced: the route starts at the +0 blade.
+  assert.equal(pick?.start, blade('Cobalt') + 2 * R, 'a rare cobalt blade from the rare bar held');
+  assert.deepEqual(planner.plannedQualityGear(p, 'melee', goal), picks(planner, p, goal).map(r => r.start ?? r.id).filter(id => id >= R));
   // The rare bar is held for the blade, not training stock.
   assert.equal(planner.plannedGearReserve(p, 'melee', null, goal)[d.jobs.find(j => j.output.itemId === blade('Cobalt')).inputs[0].itemId + 2 * R], 1);
   // The plan works on a picked piece (the largest net saving first: here the empty shield slot).

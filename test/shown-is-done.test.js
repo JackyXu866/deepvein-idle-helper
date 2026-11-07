@@ -86,7 +86,7 @@ test('the investment table prices enhanced copies on the market, which the buy s
   const p = player(planner, {levels: {thieving: 66, crafting: 72}, coins: 8_000_000, equipment: {gloves: 50325},
     route: {jobId: 242, siteId: 82, limit: 0, onFull: 'bank', phase: 'working'}, activity: 'working', path: null});
   const rows = planner.investmentOptions(p, 'melee', {skill: 'thieving', recipeId: 242}).filter(r => r.slot === 'gloves');
-  assert.ok(rows.some(r => r.id === plus5 && r.source === '市场'), JSON.stringify(rows.map(r => [r.id, r.source, r.net])));
+  assert.ok(rows.some(r => r.start === plus5 && r.source === '市场'), JSON.stringify(rows.map(r => [r.id, r.source, r.net])));
 });
 
 test('enhancing follows the table: a worthwhile enhancement is not dropped by a separate stats check', () => {

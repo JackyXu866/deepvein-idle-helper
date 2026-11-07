@@ -27,22 +27,24 @@ test('the table values a better hoe by its extra crops\' gold over its use', () 
   const {p, crop, fields} = farmer(planner);
   planner.coinRate = () => 100;
   planner.marketAsk = (_p, id) => id === 388 ? 50_000 : null;
-  const row = planner.investmentOptions(p, 'melee', null).find(r => r.slot === 'hoe' && r.id === 388);
+  // Bought, then enhanced to its best +k: one route (its id is the piece it ends as).
+  const row = planner.investmentOptions(p, 'melee', null).find(r => r.slot === 'hoe' && r.start === 388);
   assert.ok(row, 'a Cobalt hoe row');
   const perSecond = bonus => fields.length * harvestCrops(60, bonus) * CROP_PRICE / (crop.grow * d.tickMs / 1000);
-  const extra = perSecond(planner.equipmentStats(388).bonus) - perSecond(planner.equipmentStats(385).bonus);
+  const extra = perSecond(planner.equipmentStats(row.id).bonus) - perSecond(planner.equipmentStats(385).bonus);
   assert.ok(Math.abs(row.saved - extra * row.useSeconds / 100) < 1e-6, 'extra gold over its use, as time at the gold rate');
-  assert.equal(row.paid, 500, '50,000 gold at 100 a second');
+  assert.equal(row.acquireGold ?? row.gold, 50_000);
+  assert.ok(Math.abs(row.paid - row.gold / 100) < .01, 'its gold, the enhancing included, at 100 a second');
   assert.equal(row.source, '市场');
   // Gold against gold: worth it only when the extra crops over its use bring
   // the price back with the margin (the gold rate cancels out).
-  assert.equal(row.worth, extra * row.useSeconds >= 50_000 * 1.2);
+  assert.equal(row.worth, extra * row.useSeconds >= row.gold * 1.2);
   const dear = makePlanner();
   dear.coinRate = () => 100;
   dear.marketAsk = (_p, id) => id === 388 ? Math.ceil(extra * row.useSeconds / 1.2) + 1 : null;
   const same = farmer(dear);
-  assert.equal(dear.investmentOptions(same.p, 'melee', null).find(r => r.slot === 'hoe' && r.id === 388)?.worth, false,
-    'priced just above what its crops repay');
+  assert.equal(dear.investmentOptions(same.p, 'melee', null).find(r => r.slot === 'hoe' && r.start === 388)?.worth, false,
+    'priced above what its crops repay, even enhanced');
 });
 
 // Plans `goal` until it buys, answering the market's quote queries as the game would.
@@ -64,7 +66,7 @@ function buysHoe(goalOf) {
   market.setPriceFeed({generatedAt: new Date(clock).toISOString(), items});
   planner.marketUnitValue = (_p, id) => planner.base(id) === farmer(makePlanner()).crop.output.itemId ? CROP_PRICE : 0;
   const pick = planner.investmentOptions(p, 'melee', {skill: 'thieving'}).find(r => r.slot === 'hoe' && r.cheapest);
-  assert.equal(pick?.id, 388, JSON.stringify(pick));
+  assert.equal(pick?.start, 388, JSON.stringify(pick));
   // The buy checks the live ask first: answer the market's queries as the game would.
   const goal = goalOf(d);
   let plan;

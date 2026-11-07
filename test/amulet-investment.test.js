@@ -27,12 +27,12 @@ test('an amulet is worth the rarer drops its luck brings, in the work the accoun
   assert.ok(gold > 0);
   assert.ok(Math.abs(rate(185) - (1 + gold / 50)) < 1e-9, `${rate(185)} vs ${1 + gold / 50}`);
   planner.marketAsk = (_p, id) => id === 185 ? 1000 : null;
-  const row = planner.investmentOptions(p, 'melee', null).find(r => r.slot === 'amulet' && r.id === 185);
+  const row = planner.investmentOptions(p, 'melee', null).find(r => r.slot === 'amulet' && r.start === 185);
   assert.ok(row && row.gain > 0 && row.saved > 0, JSON.stringify(row));
   assert.equal(row.worth, true, 'cheap luck pays back');
   // The luck's extra gold counts in full over the use, not as a speed ratio.
-  const worn = luckGold(d, planner, p, {job});
-  assert.ok(Math.abs(row.saved - (gold - worn) * row.useSeconds / 50) < 1e-3, `${row.saved} vs ${(gold - worn) * row.useSeconds / 50}`);
+  const worn = luckGold(d, planner, p, {job}), ends = luckGold(d, planner, {...p, equipment: {...p.equipment, amulet: row.id}}, {job});
+  assert.ok(Math.abs(row.saved - (ends - worn) * row.useSeconds / 50) < 1e-3, `${row.saved} vs ${(ends - worn) * row.useSeconds / 50}`);
 });
 
 // A mount speeds every walk (bank trips, travel between sites): it is rated by

@@ -60,7 +60,8 @@ export function createInvestments(data,planner) {
       data.monsters.find(m=>m.id===data.zones.find(z=>z.id===p.route?.zoneId)?.monsterId)??
       [...safe].sort((a,b)=>(planner.combatChoice?.(p,style,b)?.score??0)-(planner.combatChoice?.(p,style,a)?.score??0))[0]??null;
     const usable=j=>!j.grow&&lv[j.skill]>=j.levelReq&&data.sites.some(s=>s.jobIds.includes(j.id));
-    const jobFor=toolSkill=>data.jobs.find(j=>j.id===work.find(r=>!r.combat&&r.skill===toolSkill&&usable(data.jobs.find(x=>x.id===r.id)))?.id)??
+    const jobs=new Map(),jobFor=toolSkill=>{if(!jobs.has(toolSkill))jobs.set(toolSkill,chooseJob(toolSkill));return jobs.get(toolSkill);};
+    const chooseJob=toolSkill=>data.jobs.find(j=>j.id===work.find(r=>!r.combat&&r.skill===toolSkill&&usable(data.jobs.find(x=>x.id===r.id)))?.id)??
       data.jobs.find(j=>j.id===p.route?.jobId&&j.skill===toolSkill)??
       data.jobs.filter(j=>j.skill===toolSkill&&usable(j))
         .sort((a,b)=>{const r=j=>{const e=formulaWork(data,planner,p,j,lv);return e.xp/e.seconds;};return r(b)-r(a);})[0]??null;
@@ -208,6 +209,30 @@ export function createInvestments(data,planner) {
     const cost=o=>o.seconds+goldToSeconds(o.gold,coinRate);
     return options.sort((a,b)=>cost(a)-cost(b))[0]??null;
   }
+  // A legendary piece made by hand: its recipe takes legendary materials,
+  // which are the player's and never used by the helper. Priced as the player
+  // would do it: the legendary materials held (worth nothing to the helper,
+  // which never sells them) or bought at the lowest ask, the other materials
+  // the usual way, and the one craft's time. Shown as advice, never done.
+  function manualCraft(p,id,coinRate) {
+    const original=data.jobs.find(j=>j.output.itemId===baseId(data,id)&&j.inputs.length&&!j.grow);
+    const recipe=original&&craftRecipe(data,original,LEGENDARY);
+    if(!recipe||!(lvOf(p)[recipe.skill]>=recipe.levelReq)||!planner.inputCost)return null;
+    let gold=0,seconds=planner.estimateWork(p,recipe).seconds;
+    const buy=[];
+    for(const input of recipe.inputs) {
+      if(autoUsableMaterial(data,input.itemId)) {
+        seconds+=planner.inputCost.unitSeconds(p,input.itemId,input.qty)*input.qty;
+        continue;
+      }
+      const missing=Math.max(0,input.qty-planner.count(p,input.itemId)),ask=missing?planner.marketAsk?.(p,input.itemId):0;
+      if(missing&&!(ask>0))return null;
+      gold+=ask*missing;
+      if(missing)buy.push({itemId:input.itemId,qty:missing,ask});
+    }
+    if(!Number.isFinite(seconds+goldToSeconds(gold,coinRate)))return null;
+    return {gold,seconds,source:'手动制作',manual:{recipeId:original.id,skill:recipe.skill,buy}};
+  }
   // The share of the account's time each skill takes ('combat' for fights),
   // from the measured routes the mastery choice reads (planner.perkUsage): a
   // piece saves time only while its slot is in use, so a pickaxe for a miner
@@ -264,93 +289,79 @@ export function createInvestments(data,planner) {
         return {slot,kind,id,label,current,source:cost.source??null,gold:Math.round(cost.gold),seconds:cost.seconds,
           gain:after/before-1,useSeconds:use,...result,...extra};
       };
-      const add=(...args)=>{const row=priced(...args);if(row)rows.push(row);};
-      // Every quality of a piece that beats the floor, priced; the best net
-      // saving wins (the cheapest quality that beats may save far less than a
-      // dearer one: common Bone gloves +1% against rare +13%).
-      // Enhanced copies (+1..+20) on the market count too: the buy step buys
-      // only what this table priced.
-      const bestQuality=(kind,base,tiers)=>tiers.flatMap(r=>Array.from({length:ENHANCEMENT_MAX+1},
-        (_,plus)=>base+r*data.rarityScale+plus*data.plusScale))
-        .map(id=>{
-          if(!plusOf(data,id))return [id,acquire(p,id,coinRate)];
-          const ask=planner.marketAsk?.(p,id);
-          return [id,ask>0?{gold:ask,seconds:0,source:'市场'}:null];
-        }).filter(([id,cost])=>cost&&worth(p,style,ctx,slot,id)>floor)
-        .map(([id,cost])=>priced(kind,id,`换 ${itemLabel(data,id)}`,cost)).filter(Boolean)
-        .sort((a,b)=>b.net-a.net)[0]??null;
-      // Enhance the worn piece, any quality (a legendary one stays worn): the
-      // best stopping point up to the game's +20. A failure never destroys the
-      // piece; it goes back to +0, which the expected cost counts.
-      if(current!=null&&plusOf(data,current)<ENHANCEMENT_MAX) {
-        let best=null;
-        const ladder=enhancementLadder(data,planner,p,current);
-        for(let to=plusOf(data,current)+1;to<=ENHANCEMENT_MAX;to++) {
-          const cost=ladder[to],target=current%data.plusScale+to*data.plusScale;
-          const after=worth(p,style,ctx,slot,target);
-          if(!(after>floor)||!Number.isFinite(cost.gold))continue;
-          const gold=cost.gold+cost.shards*shardValue,use=useSeconds(target);
-          const result=settleGear(p,style,ctx,slot,current,target,{gold},use);
-          if(!best||result.net>best.net)best={slot,kind:'enhance',id:target,current,toPlus:to,source:null,
-            label:`强化 ${itemLabel(data,current)} → +${to}`,gold:Math.round(gold),coins:Math.round(cost.gold),shards:Math.ceil(cost.shards),
-            seconds:0,gain:after/before-1,useSeconds:use,...result};
+      // One route for every way to improve the slot: start from a piece (the
+      // worn one, one held, or one to get: made, bought, or for a mount bred or
+      // from the merchant: acquire), then enhance it to the best +k (k = its
+      // own +N: as it is). A start's cost is getting it plus the expected
+      // enhancing (failures back to +0 included); its row is its best k.
+      // Every piece wearable now, every quality (legendary only bought, or
+      // made by hand from legendary materials: the player's call, so shown,
+      // never done), +0 and the enhanced copies on sale.
+      const wornNow=new Set(Object.values(p.equipment).filter(Number.isFinite)),heldNow=new Set(heldIds(p));
+      const starts=[];
+      if(current!=null)starts.push({id:current,cost:{gold:0,seconds:0,source:null},worn:true});
+      for(const id of heldNow)if(!wornNow.has(id)&&fits(id))starts.push({id,cost:{gold:0,seconds:0,source:'已持有'}});
+      for(const g of data.gear.filter(g=>fits(g.itemId)))for(let tier=0;tier<=LEGENDARY;tier++) {
+        const plain=g.itemId+tier*data.rarityScale;
+        const got=acquire(p,plain,coinRate);
+        if(got&&got.source!=='已持有')starts.push({id:plain,cost:got});
+        if(tier===LEGENDARY&&!isMount(data,plain)) {
+          const manual=manualCraft(p,plain,coinRate);
+          if(manual)starts.push({id:plain,cost:manual});
         }
-        if(best)rows.push(best);
-      }
-      // A better copy of the same piece: a higher quality, or the same quality
-      // at a higher +N on sale (only copies that beat the worn one survive).
-      // A mount's qualities run to legendary: bought or bred, it is worn
-      // (legendary stays the player's), never sold or used up.
-      const top=slot==='mount'?LEGENDARY:LEGENDARY-1,upTo=from=>Array.from({length:Math.max(0,top+1-from)},(_,i)=>from+i);
-      if(current!=null) {
-        const quality=bestQuality('quality',baseId(data,current),upTo(rarityOf(data,current)));
-        if(quality)rows.push(quality);
-      }
-      // Another piece wearable now, in its quality with the best net saving.
-      const others=data.gear.filter(g=>(current==null||g.itemId!==baseId(data,current))&&fits(g.itemId))
-        .map(g=>bestQuality('tier',g.itemId,upTo(0))).filter(Boolean).sort((a,b)=>b.net-a.net).slice(0,2);
-      rows.push(...others);
-      // A mount to get and then enhance, as one option: a held copy (its
-      // highest +N), else +0 the cheapest way (bought, from the merchant, or
-      // bred: acquire), enhanced to the best +k by the expected cost. A
-      // legendary +0 (x5) is slower than an epic +5 (x6.1); +2 beats it.
-      // Enhanced in the bank, it is put on once it beats the worn one (ownedBest).
-      if(slot==='mount') {
-        const wornNow=new Set(Object.values(p.equipment).filter(Number.isFinite));
-        let best=null;
-        for(const g of data.gear.filter(g=>g.slot==='mount'&&fits(g.itemId)))for(const tier of upTo(0)) {
-          const plain=g.itemId+tier*data.rarityScale;
-          const held=heldIds(p).filter(id=>id%data.plusScale===plain&&!wornNow.has(id)).sort((a,b)=>b-a)[0];
-          const start=held??plain,cost=held!=null?{gold:0,seconds:0,source:'已持有'}:acquire(p,plain,coinRate);
-          if(!cost||plusOf(data,start)>=ENHANCEMENT_MAX)continue;
-          const ladder=enhancementLadder(data,planner,p,start);
-          for(let to=plusOf(data,start)+1;to<=ENHANCEMENT_MAX;to++) {
-            const step=ladder[to],target=plain+to*data.plusScale;
-            if(!Number.isFinite(step?.gold)||!(worth(p,style,ctx,slot,target)>floor))continue;
-            const enhanceGold=step.gold+step.shards*shardValue,gold=cost.gold+enhanceGold;
-            const row=priced('acquireEnhance',target,`${cost.source==='已持有'?'强化':`${cost.source} `}${itemLabel(data,start)} → +${to}`,
-              {gold,seconds:cost.seconds,source:cost.source},{start,toPlus:to,acquireGold:Math.round(cost.gold),
-                coins:Math.round(step.gold),shards:Math.ceil(step.shards),supply:cost.supply??null});
-            if(row&&(!best||row.net>best.net))best=row;
-          }
+        for(let plus=1;plus<=ENHANCEMENT_MAX;plus++) {
+          const id=plain+plus*data.plusScale,ask=planner.marketAsk?.(p,id);
+          if(ask>0&&!heldNow.has(id))starts.push({id,cost:{gold:ask,seconds:0,source:'市场'}});
         }
-        if(best)rows.push(best);
       }
-      if(owned!=null) {
+      const best=new Map(); // per line (piece and quality): its best row
+      for(const start of starts) {
+        const from=plusOf(data,start.id),line=start.id%data.plusScale;
+        // Enhancing is priced only past what the start already reaches.
+        if(!(worth(p,style,ctx,slot,line+ENHANCEMENT_MAX*data.plusScale)>floor))continue;
+        const ladder=from<ENHANCEMENT_MAX?enhancementLadder(data,planner,p,start.id):[];
+        const held=start.cost.source==='已持有'||start.worn;
+        let top=null;
+        for(let to=start.worn?from+1:from;to<=ENHANCEMENT_MAX;to++) {
+          const step=to===from?{gold:0,shards:0}:ladder[to],target=line+to*data.plusScale;
+          if(!Number.isFinite(step?.gold)||!(worth(p,style,ctx,slot,target)>floor))continue;
+          const enhanceGold=step.gold+step.shards*shardValue,gold=start.cost.gold+enhanceGold;
+          const kind=start.worn?'enhance':to===from?(held?'owned':'get'):'acquireEnhance';
+          const label=start.worn?`强化 ${itemLabel(data,start.id)} → +${to}`:
+            to===from?`换 ${itemLabel(data,start.id)}`:`${held?'强化':start.cost.source} ${itemLabel(data,start.id)} → +${to}`;
+          const row=priced(kind,target,label,{...start.cost,gold},{start:start.id,toPlus:to,
+            ...(to>from?{acquireGold:Math.round(start.cost.gold),coins:Math.round(step.gold),shards:Math.ceil(step.shards)}:{}),
+            ...(start.cost.manual?{manual:start.cost.manual}:{}),...(start.cost.supply?{supply:start.cost.supply}:{})});
+          if(row&&(!top||row.net>top.net))top=row;
+        }
+        const key=start.worn?'worn':`${line}:${start.cost.source}`;
+        if(top&&(!best.has(key)||top.net>best.get(key).net))best.set(key,top);
+      }
+      // The plan tab and the picks need only a slot's best few.
+      rows.push(...[...best.values()].sort((a,b)=>b.net-a.net).filter((r,i)=>i<6||r.kind==='enhance'));
+      if(owned!=null&&!rows.some(r=>r.slot===slot&&r.kind==='owned'&&r.id===owned)) {
         // Free and one bank trip: put on even when the formulas see no gain
         // (an amulet's luck), as the owned swap does.
-        const row=priced('owned',owned,`换 ${itemLabel(data,owned)}`,{gold:0,seconds:0,source:'已持有'});
-        rows.push(row?{...row,worth:true}:{slot,kind:'owned',id:owned,label:`换 ${itemLabel(data,owned)}`,current,source:'已持有',gold:0,seconds:0,
-          gain:0,useSeconds:useSeconds(owned),paid:0,saved:0,net:0,worth:true});
+        const row=priced('owned',owned,`换 ${itemLabel(data,owned)}`,{gold:0,seconds:0,source:'已持有'},{start:owned,toPlus:plusOf(data,owned)});
+        rows.push(row?{...row,worth:true}:{slot,kind:'owned',id:owned,start:owned,toPlus:plusOf(data,owned),label:`换 ${itemLabel(data,owned)}`,
+          current,source:'已持有',gold:0,seconds:0,gain:0,useSeconds:useSeconds(owned),paid:0,saved:0,net:0,worth:true});
       }
       // The piece the stage-gear project is making, on the same terms.
       const project=goal?.upgrade?.slot===slot?goal.upgrade.id:null;
-      if(project!=null&&!rows.some(r=>r.slot===slot&&r.id===project))
-        add('project',project,`阶段装备 ${itemLabel(data,project)}`,acquire(p,project,coinRate));
+      if(project!=null&&!rows.some(r=>r.slot===slot&&(r.start??r.id)===project)) {
+        const row=priced('project',project,`阶段装备 ${itemLabel(data,project)}`,acquire(p,project,coinRate),{start:project,toPlus:plusOf(data,project)});
+        if(row)rows.push(row);
+      }
     }
-    // A held piece is put on first (free, one bank trip), so it is the slot's pick.
-    for(const row of rows)row.cheapest=row.worth&&(row.kind==='owned'||
-      !rows.some(o=>o!==row&&o.slot===row.slot&&(o.kind==='owned'||o.worth&&o.net>row.net)));
+    // A held piece is put on first (free, one bank trip), so it is the slot's
+    // pick. A piece only the player can make (legendary, by hand) is never
+    // the pick: when it would save the most, the table marks it as advice.
+    const auto=r=>!r.manual;
+    for(const row of rows)row.cheapest=row.worth&&auto(row)&&(row.kind==='owned'||
+      !rows.some(o=>o!==row&&o.slot===row.slot&&auto(o)&&(o.kind==='owned'||o.worth&&o.net>row.net)));
+    for(const row of rows)row.advice=!!row.manual&&row.worth&&
+      !rows.some(o=>o!==row&&o.slot===row.slot&&(o.kind==='owned'||o.worth&&o.net>row.net));
+    // Each slot: its rows best first, a few per line kept for the plan tab.
     return rows.sort((a,b)=>b.net-a.net);
   }
   // The time wearing `id` in place of the worn piece in `slot` saves over its
