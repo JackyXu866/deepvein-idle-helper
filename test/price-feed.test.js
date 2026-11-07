@@ -31,6 +31,20 @@ test('without a live book, sales are valued at the feed bid its buyers can take'
   assert.equal(market.opportunity(p, item, 10).net, merchant, 'buyers cannot take 10');
 });
 
+test('quality gear with no market price in a fresh feed cannot be sold; without a feed that is unknown', () => {
+  const {market, p, d, feed, advance} = setup();
+  const bow = d.items[140] ? 140 + d.rarityScale : null, common = 140;
+  assert.ok(bow);
+  assert.equal(market.saleable(p, bow), true, 'no feed: assumed sellable');
+  market.setPriceFeed(feed({[common]: {lowestSell: 30, sellQty: 5, avg7d: 20, vol7d: 100}}));
+  assert.equal(market.saleable(p, bow), false, 'nobody trades the uncommon one');
+  assert.equal(market.saleable(p, common), true, 'the common one still goes to the merchant');
+  market.setPriceFeed(feed({[bow]: {lowestSell: 300, sellQty: 5, avg7d: 250, vol7d: 50}}));
+  assert.equal(market.saleable(p, bow), true, 'traded: sellable');
+  advance(16 * 60000);
+  assert.equal(market.saleable(p, bow), true, 'a stale feed proves nothing');
+});
+
 test('a stale or far-off feed is ignored', () => {
   const {market, p, item, d, feed, advance} = setup();
   const bid = Math.floor(d.items[item].value * 2);

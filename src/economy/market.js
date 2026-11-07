@@ -352,7 +352,8 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     if(history.recordFeed(kept,generated))saveHistory(true);
     return true;
   }
-  const feedRow=id=>feed&&now()-feed.at<feedTtl?feed.items[id]??null:null;
+  const feedFresh=()=>!!feed&&now()-feed.at<feedTtl;
+  const feedRow=id=>feedFresh()?feed.items[id]??null:null;
   // Top of the book for one id: a fresh live top (under a minute old), else
   // the price feed. Every ask lookup and "is it priced" check reads this.
   const topOfBook=id=>{const live=tops.get(id);return live&&now()-live.at<60000?live:feedRow(id);};
@@ -713,9 +714,13 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   // (planner.stockValue)? A tradable, unprotected item: on the market (which
   // also takes quality bars, gear and potions), or a common one to the
   // merchant when the market is closed to the character.
+  // Quality gear and rare goods sell only at a same-quality market price,
+  // never to the merchant: when a fresh price feed shows none (and the helper
+  // watched none), nobody buys it. A missing or stale feed proves nothing.
   function saleable(p,id) {
     select(p);
-    return tradable(planner.base(id))&&!saleProtectionReason(data,id,true)&&(!closed(p)||id===planner.base(id));
+    const base=planner.base(id);
+    return tradable(base)&&!saleProtectionReason(data,id,true)&&(id===base||!closed(p)&&!(feedFresh()&&!(marketPrice(id)>0)));
   }
   // Everyday selling sells it.
   const sells=(p,id)=>salesEnabled&&saleable(p,id);

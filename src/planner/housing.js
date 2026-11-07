@@ -36,6 +36,8 @@ export function validHomePortal(data,p,intent) {
 // The game gives nothing (server code house-nothing) for what its shops sell,
 // in common quality (seeds, bronze tools, cooked shrimp, horse, firework
 // powder; client m7 less the alchemy-only ones), nor for any firework (client ed).
+// Kinds of unsellable surplus worth a trip home of their own (housing work()).
+export const FREE_FUEL_TRIP=20;
 const SHOP_ITEMS=new Set([60,80,85,90,160,161,162,190,328,700]),FIREWORKS=new Set([701,702,703,704,705]);
 const pointTables=new WeakMap();
 export function housePointsOf(data,id) {
@@ -269,7 +271,19 @@ export function createHousing(data,planner) {
         `还需 ${missing} 点，本批材料售价合计约 ${Math.ceil(cost)} 金币；先用每点最便宜的（本项约 ${(first.unit/first.each).toFixed(1)} 金币/点）；`+
         (room.id==='storeroom'?'仓库紧张，优先增加仓位':'按 30 天有效挂机、分摊各职业使用时间估算收益')+'；保留原计划材料、口粮和稀有物品');
     }
-    return null;
+    if(hold)return null;
+    // Surplus nobody buys (stockValue 0: quality gear and rare goods with no
+    // same-quality market price) costs nothing to burn. It becomes points kept
+    // for later levels of a placed facility: on any visit home, or a trip of
+    // its own once there is enough of it or the bank is nearly full.
+    const families=[...new Set(rooms.filter(r=>p.houseFurniture[r.id]&&p.houseUpgrades[r.id]==null).flatMap(feeds))];
+    if(!families.length)return null;
+    const free=chooseHouseFuel(data,{p,families,missing:0,inventory:inventoryNow(),budget:budgetNow(),
+      unitValue:(id,qty)=>planner.stockValue?.(p,id,qty)??planner.saleValue(p,id,qty),refused:refusedFuel}).donors.filter(d=>d.unit===0);
+    if(!free.length||!(atHome(data,p)||pressure||free.length>=FREE_FUEL_TRIP))return null;
+    const d=free[0];
+    return action({t:'convertHouse',itemId:d.itemId,qty:d.available},`房屋点数 · 转换卖不掉的 ${itemLabel(data,d.itemId)} × ${d.available}`,
+      `市场上没有同品质成交、也不卖给商人的盈余（共 ${free.length} 种）；换成约 ${Math.floor(d.available*d.each)} 点房屋点数留给以后升级，腾出仓位`);
   }
   // The fuel to keep from sale (item -> qty), once per state.
   let held={key:null,items:{}};
@@ -353,7 +367,7 @@ export function createHousing(data,planner) {
       rooms.filter(r=>p.houseFurniture[r.id]).map(r=>`${roomName(r.id)} ${(p.house[r.id]??0)} 级${p.houseUpgrades[r.id]!=null?' · 升级中':''}`).join('、')+
       `\n${Object.keys(p.houseUpgrades).length} 个设施正在升级；不同设施可同时计时。`+
       (review.length?'\n上次投料评估：\n'+review.join('\n'):'')+
-      '\n完成当前一趟后回家扩建、升级，再恢复原任务；只转换普通现货盈余，不拆设施、不花宝石。'+
+      '\n完成当前一趟后回家扩建、升级，再恢复原任务；只转换盈余（含市场上没人买的品质装备），不拆设施、不花宝石。'+
       (p.lastTick<retryAt?'\n房屋操作被拒绝，暂缓五分钟；正常挂机继续。':'');
   }
   // The page's check before a conversion is sent: safety, not a second

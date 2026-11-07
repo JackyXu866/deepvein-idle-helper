@@ -206,6 +206,37 @@ test('a house plot is bought only for a facility whose first level repays it (th
   assert.notEqual(make(1e-6)?.intent?.t, 'buildRoom', 'gold is dear: the plot does not repay');
 });
 
+test('surplus nobody buys is burnt into house points: at home, or on a trip once there is enough of it', async () => {
+  const {makePlanner, player} = await import('./helpers.js');
+  const planner = makePlanner(), d = planner.data, R = d.rarityScale, region = d.houseTravel.region, entrance = d.houseRules.entrance;
+  const bow = id('Shortbow') + R, rod = id('Bronze rod') + R;
+  planner.setHousingEnabled(true);
+  planner.coinRate = () => 1000;
+  let unsold = new Set([bow]);
+  planner.stockSold = (_p, item) => !unsold.has(item);
+  const base = {levels: {mining: 50, fletching: 50}, path: null, route: null, activity: 'idle', coins: 0,
+    houseCells: [entrance, entrance + 1], houseFurniture: {mine: {cell: entrance + 1, slot: 0}}, house: {mine: 40},
+    housePoints: {}, houseUpgrades: {}, bank: {[bow]: 10, [rod]: 10}};
+  const goal = {skill: 'mining', target: 51, budget: {coins: 0, items: {}}};
+  const home = player(planner, {...base, x: region.x + 1, y: region.y + 1});
+  const step = planner.housingPlan(home, goal, 'melee', 'balanced');
+  assert.equal(step?.intent?.t, 'convertHouse', JSON.stringify(step));
+  assert.equal(step.intent.itemId, bow, 'the unsold bow, not the rod that still sells');
+  assert.ok(step.intent.qty >= 9);
+  assert.equal(planner.validateHousing(home, step.intent, goal, 'melee', 'balanced'), true, 'the page check agrees');
+  // Outside, a few kinds wait for the next visit; many are worth a trip.
+  planner.housingRuntime({owner: home.id, visit: null, retryAt: 0});
+  const away = player(planner, {...base});
+  assert.equal(planner.housingPlan(away, goal, 'melee', 'balanced', true), null);
+  const many = d.jobs.filter(j => j.inputs.length && j.levelReq <= 99 && d.gear.some(g => g.itemId === j.output.itemId))
+    .map(j => j.output.itemId + R).filter(item => housePointsOf(d, item)?.family === 'stone').slice(0, 25);
+  assert.ok(many.length >= 20);
+  unsold = new Set(many);
+  const crowded = player(planner, {...base, levels: Object.fromEntries(d.skills.map(s => [s, 99])),
+    houseFurniture: {sawmill: {cell: entrance + 1, slot: 0}}, house: {sawmill: 40}, bank: Object.fromEntries(many.map(item => [item, 5]))});
+  assert.ok(planner.housingPlan(crowded, goal, 'melee', 'balanced', true)?.intent, 'a trip home');
+});
+
 test('the lucky shrine is placed for work that rolls quality, by the gold of its rarer drops', async () => {
   const {makePlanner, player} = await import('./helpers.js');
   const plan = goal => {
