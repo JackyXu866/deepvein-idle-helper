@@ -1866,7 +1866,7 @@ export function createPlanner(data) {
     ordersOpen:p=>orders.read(p).some(o=>o.delivered===false),orderOverview:orders.overview,orderRead:orders.read,
     questReroll:quests.reroll,questOverview:quests.overview,
     perkOverview:p=>perkOverview(p),
-    investmentOptions:(p,style,goal)=>investments.options(p,style,goal),fundingEnded:(p,goal)=>investments.fundingEnded(p,goal),
+    investmentOptions:(p,style,goal)=>investments.options(p,style,goal),
     // One gear rating for the table and every gear decision (investment.js).
     gearRate:(p,style,goal,slot,id)=>investments.gearRate(p,style,goal,slot,id),
     // The share of the account's time each skill takes ('combat' for fights), measured.

@@ -144,7 +144,9 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
     // current means of getting there.
     goal: goal ? (goal.quest ? {label: `${goal.quest.period === 'daily' ? '每日任务' : goal.quest.period === 'order' ? '城镇订单' : '每周任务'} · ${label(goal.quest.monsterId != null ? {monsterId: goal.quest.monsterId} : {recipeId: goal.quest.jobId})}`,
         target: null, via: null, reason: goal.reason ?? null} :
-      {label: goal.skill ? NAMES[goal.skill] ?? goal.skill : null, target: goal.target ?? null,
+      // Earning and funding goals end on gold, not a level: their target is
+      // only a placeholder past the level cap and is not shown.
+      {label: goal.skill ? NAMES[goal.skill] ?? goal.skill : null, target: goal.earning || goal.funding ? null : goal.target ?? null,
         via: running(goal) ? label(running(goal)) : null, reason: goal.reason ?? null}) : null,
     xpSkill, xpSkillName: xpSkill ? NAMES[xpSkill] ?? xpSkill : null, xpAcross, xpBasis, xpCandidates, goldCandidates, frontier, investments, funding, quests, orders, perks, mastery};
 }

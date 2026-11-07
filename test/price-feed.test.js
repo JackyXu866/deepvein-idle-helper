@@ -45,6 +45,15 @@ test('quality gear with no market price in a fresh feed cannot be sold; without 
   assert.equal(market.saleable(p, bow), true, 'a stale feed proves nothing');
 });
 
+test('nothing the game shop sells is worth more than the shop asks', () => {
+  const {market, p, d, feed} = setup();
+  const seed = 160, shop = d.items[seed].value * 4;
+  market.setPriceFeed(feed({[seed]: {lowestSell: null, sellQty: 0, highestBuy: 1, buyQty: 985569, avg7d: 115503, vol7d: 3031},
+    10: {lowestSell: 146, sellQty: 96792, highestBuy: 102, buyQty: 6260, avg7d: 112, vol7d: 351635}}));
+  assert.equal(market.unitValue(p, seed), shop - Math.floor(shop * 200 / 10000), 'a wash-traded average is capped at the shop');
+  assert.equal(market.unitValue(p, 10), 112 - Math.floor(112 * 200 / 10000), 'logs keep their market price');
+});
+
 test('a stale or far-off feed is ignored', () => {
   const {market, p, item, d, feed, advance} = setup();
   const bid = Math.floor(d.items[item].value * 2);

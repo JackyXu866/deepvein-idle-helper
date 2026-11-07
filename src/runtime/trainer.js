@@ -1141,8 +1141,6 @@ export class Trainer {
         this.goal.specialization&&!p.route&&p.skills[this.goal.skill]>this.goal.startedXp ||
         this.goal.temporary&&!this.deferred[this.goal.mainSkill])) {
       this.served[this.goal.skill]=++this.sequence;
-      // A funding stretch that ended short sets that improvement aside for a while.
-      if(this.goal.funding)this.planner.fundingEnded?.(p,this.goal);
       // Allow other skills a turn after a long ingredient-gathering slice.
       if (now-this.goalSince>600000&&!this.goal.rate&&this.goal.fixedRecipeId==null&&this.goal.fixedMonsterId==null)
         this.deferred[this.goal.skill]=now+120000;

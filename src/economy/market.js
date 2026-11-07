@@ -4,7 +4,7 @@ import {POTIONS, foodEffects, foodHealing} from '../planner/supplies.js';
 import {ENHANCEMENT_MAX, coinReserve, enhanceQuote, inventoryBudget, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
 import {expectedEnhancement} from '../planner/investment.js';
 import {goldToSeconds, maxPrice, pays, secondsToGold} from '../planner/gold.js';
-import {bankTripSeconds, dayTicks as dayTicksOf, playerQueued, distance, itemLabel, itemName, merchantPrice, minListPrice, netProceeds, plusOf, rarityOf, reachableQty, stockQty, tradableBase} from '../planner/items.js';
+import {bankTripSeconds, dayTicks as dayTicksOf, playerQueued, distance, itemLabel, itemName, merchantPrice, minListPrice, netProceeds, plusOf, rarityOf, reachableQty, shopPrice, stockQty, tradableBase} from '../planner/items.js';
 import {MARKET_HISTORY_KEY, createMarketHistory} from './market-history.js';
 
 // Price grid (client Nb/Vn/ih/Zm; refusal 'market-price-step'): a price must be
@@ -656,8 +656,13 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   // A week's average counts only on real turnover: at least about one trade a
   // day (a handful of trades can say anything: a +2 Bronze pickaxe "averaged"
   // 232M on three).
+  // Nor above what the game's shop asks for it: a common Potato seed (shop 8)
+  // "averaged" 115,503 over 3,031 trades while its best bid was 1, which made
+  // chopping Trees look worth 3.2M/h instead of about 1.8M/h.
   const MIN_WEEK_VOLUME=7;
-  const marketPrice=id=>{const row=feedRow(id);return (row?.vol>=MIN_WEEK_VOLUME?row.avg:null)??history.tradePrice(id)??null;};
+  const marketPrice=id=>{const row=feedRow(id);
+    const price=(row?.vol>=MIN_WEEK_VOLUME?row.avg:null)??history.tradePrice(id)??null;
+    return price>0?Math.min(price,shopPrice(data,id)??Infinity):price;};
   // Units the market takes a day: the feed's 7-day volume, else what was watched.
   const dailyTurnover=id=>{const v=feedRow(id)?.vol;return v>0?v/7:history.dailyVolume(id);};
   // Sell as a player does: one step under the cheapest competitor, never under

@@ -9,9 +9,10 @@ import {harvestCrops} from './farming.js';
 import {COMBAT_SLOTS, USE_CAP_SECONDS, fitsSlot, shieldless, useSeconds as sharedUseSeconds} from './gear.js';
 export {USE_CAP_SECONDS} from './gear.js';
 
-// A funding stretch on the best gold job lasts at most this long.
-export const FUNDING_CAP_SECONDS=3600;
-const FUNDING_RETRY_SECONDS=6*3600,CACHE_SECONDS=60;
+// A funding stretch on the best gold job is rechecked after this long: it goes
+// on while the improvement is still worth it at the latest prices.
+export const FUNDING_CHECK_SECONDS=3600;
+const CACHE_SECONDS=60;
 
 // Expected gold and shards to take an item from its current +N to `toPlus`.
 // A failed attempt resets it to +0, so step k costs (g + (1-s)·E_k)/s, where
@@ -35,7 +36,7 @@ export function enhancementLadder(data,planner,p,itemId,toMax=ENHANCEMENT_MAX) {
 }
 
 export function createInvestments(data,planner) {
-  let cache=null,fundingDeferred={};
+  let cache=null;
   const contextCache=new Map();
   const lvOf=p=>planner.levels(p);
   // The account's measured work (planner.perkUsage, as the mastery choice
@@ -401,27 +402,24 @@ export function createInvestments(data,planner) {
     return income?{...income[1],saleItems:income[0].saleItems,coinsPerHour:Math.round(income[0].coins*3600)}:null;
   }
   // A worthwhile improvement that is not yet affordable: earn the gold first on
-  // the best gold job, for at most an hour, then return to levelling. A stretch
-  // that ends short leaves that improvement alone for six hours.
+  // the best gold job until it is affordable. Splitting it into short stretches
+  // earns the same gold later and loses the time the improvement saves meanwhile.
+  // Each stretch is an hour; at its end the goal is chosen afresh, so it goes on
+  // only while the improvement is still worth it at the latest prices.
   function fundingGoal(p,style,deferred={},goal=null) {
-    const row=options(p,style,goal).find(r=>r.cheapest&&!r.affordable&&r.gold>0&&
-      !(fundingDeferred[fundingKey(r)]>p.lastTick));
+    const row=options(p,style,goal).find(r=>r.cheapest&&!r.affordable&&r.gold>0);
     if(!row)return null;
     const choice=earningGoal(p,style,deferred);
     if(!choice)return null;
-    const ticks=Math.ceil(FUNDING_CAP_SECONDS*1000/data.tickMs);
+    const ticks=Math.ceil(FUNDING_CHECK_SECONDS*1000/data.tickMs);
     return {...choice,target:planner.thresholds.length,funding:{key:fundingKey(row),gold:row.gold,label:row.label,until:p.lastTick+ticks},
-      budget:{...choice.budget,coins:Math.max(choice.budget?.coins??0,row.gold)},horizon:FUNDING_CAP_SECONDS,
+      budget:{...choice.budget,coins:Math.max(choice.budget?.coins??0,row.gold)},horizon:FUNDING_CHECK_SECONDS,
       reason:`筹资：${row.label} 约 ${row.gold.toLocaleString()} 金币（含失败重来），按 ${Math.round(row.useSeconds/3600)} 小时使用期可省约 `+
-        `${(row.saved/3600).toFixed(1)} 小时，赚这笔钱约 ${(row.paid/3600).toFixed(1)} 小时；先做金币最高的工作，最多 1 小时，再回到练级`};
-  }
-  function fundingEnded(p,goal) {
-    if(goal?.funding&&p.coins<goal.funding.gold)
-      fundingDeferred[goal.funding.key]=p.lastTick+Math.ceil(FUNDING_RETRY_SECONDS*1000/data.tickMs);
+        `${(row.saved/3600).toFixed(1)} 小时，赚这笔钱约 ${(row.paid/3600).toFixed(1)} 小时；做金币最高的工作直到凑够，每小时按最新价格复核一次是否仍值得`};
   }
   function runtime(value) {
-    if(value){cache=value.cache??null;fundingDeferred=value.fundingDeferred??{};}
-    return {cache,fundingDeferred};
+    if(value)cache=value.cache??null;
+    return {cache};
   }
-  return {options,fundingGoal,fundingEnded,runtime,gearRate,gearXpRate,shareOf,ownedBest,earningGoal,savingOf,acquireGold};
+  return {options,fundingGoal,runtime,gearRate,gearXpRate,shareOf,ownedBest,earningGoal,savingOf,acquireGold};
 }

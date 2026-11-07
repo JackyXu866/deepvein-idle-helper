@@ -1680,7 +1680,7 @@ import {itemLabel, packQty} from '../planner/items.js';
             <div class="card">
               <div class="card-heading"><strong>投资（金币换时间）</strong><span data-plan-funding class="muted"></span></div>
               <div data-plan-investments class="plan-scroll"></div>
-              <p class="fine-print">花费按金币最高的工作折成小时；强化含失败归零后重来的期望成本。省下＝装备使用期内（到下一档或最多 30 天）同样进度少花的时间；锄头按使用期内多收作物的售价折成金币效率的小时数。省下超过花费 1.2 倍才值得；同一位置只做最省的一项。值得但钱不够时，先做金币最高的工作最多 1 小时筹资。</p>
+              <p class="fine-print">花费按金币最高的工作折成小时；强化含失败归零后重来的期望成本。省下＝装备使用期内（到下一档或最多 30 天）同样进度少花的时间；锄头按使用期内多收作物的售价折成金币效率的小时数。省下超过花费 1.2 倍才值得；同一位置只做最省的一项。值得但钱不够时，先做金币最高的工作筹资直到凑够，每小时按最新价格复核一次是否仍值得。</p>
             </div>
             <div class="card">
               <div class="card-heading"><strong>任务与点数</strong></div>
@@ -2618,7 +2618,7 @@ import {itemLabel, packQty} from '../planner/items.js';
     fill('[data-plan-orders]',JSON.stringify(view.orders??[]),()=>(view.orders??[]).map(o=>el('p',{className:'muted',
       textContent:`城镇订单 · ${o.qty} × ${translateGameText(GAME_DATA.items[o.itemId]?.name??String(o.itemId))} · ${fmt(o.coins)} 金币 · 已有 ${o.held} · ${o.status}`+
         (o.minutes!=null?`（做这单约 ${o.minutes} 分钟）`:'')})));
-    set('[data-plan-funding]',view.funding?`筹资中：${view.funding.label}，目标 ${fmt(view.funding.gold)} 金币，剩 ${view.funding.minutesLeft} 分钟`:'');
+    set('[data-plan-funding]',view.funding?`筹资中：${view.funding.label}，目标 ${fmt(view.funding.gold)} 金币，${view.funding.minutesLeft} 分钟后复核`:'');
     const hours=h=>h>=10?`${Math.round(h)} 小时`:`${h.toFixed(1)} 小时`;
     fill('[data-plan-investments]',JSON.stringify(view.investments),()=>view.investments.length?
       [el('table',{className:'plan-table'},[el('thead',{},[el('tr',{},['项目','花费','赚钱','省下','结论'].map(text=>el('th',{textContent:text})))]),

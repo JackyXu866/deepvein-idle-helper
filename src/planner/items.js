@@ -94,9 +94,16 @@ export const COAL_ID=5;
 // special items, and worth something (burnt food 70 sells for scrap).
 export const tradableBase=(data,base)=>base!==data.coinId&&![294,295,296,297].includes(base)&&
   (data.items[base]?.value>0||base===70);
+// The game's shop (client m7, index-BqokRC4i, less its alchemy-only lines)
+// sells these common-quality items without limit: seeds at four times base
+// value, bronze tools, cooked shrimp and the horse at twice, firework powder
+// (700) at 5000. Nobody pays a player more than the shop asks.
+const SHOP_FACTORS={160:4,161:4,162:4,190:4,60:2,80:2,85:2,90:2,328:2},SHOP_FIXED={700:5000};
+export const SHOP_ITEM_IDS=new Set([...Object.keys(SHOP_FACTORS),...Object.keys(SHOP_FIXED)].map(Number));
+export const shopPrice=(data,id)=>SHOP_FIXED[id]??(SHOP_FACTORS[id]&&data.items[id]?.value>0?data.items[id].value*SHOP_FACTORS[id]:null);
 // The vendor sells the starter seed (sage, 190) at four times base value.
 export const SEED_ID=190;
-export const seedVendorPrice=data=>(data.items[SEED_ID]?.value??0)*4;
+export const seedVendorPrice=data=>shopPrice(data,SEED_ID)??0;
 export const merchantPrice=(data,id)=>Math.max(1,Math.floor((data.items[baseId(data,id)]?.value??0)*.4));
 export const netProceeds=(price,qty,taxBp)=>price*qty-Math.floor(price*qty*taxBp/10000);
 export const minListPrice=(floor,taxBp)=>Math.floor(floor/(1-taxBp/10000))+1;

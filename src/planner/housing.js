@@ -2,7 +2,7 @@ import {professionSkill} from './professions.js';
 import {autoUsableMaterial} from './quality.js';
 import {action as step} from './result.js';
 import {combinedBudget, reviewInventory, saleProtectionReason} from './inventory.js';
-import {COAL_ID, baseId, itemLabel, playerQueued, plusOf, rarityOf} from './items.js';
+import {COAL_ID, SHOP_ITEM_IDS, baseId, itemLabel, playerQueued, plusOf, rarityOf} from './items.js';
 import {goldToSeconds, payback, pays} from './gold.js';
 import {expectedEnhancement} from './investment.js';
 import {USE_CAP_SECONDS} from './gear.js';
@@ -38,7 +38,7 @@ export function validHomePortal(data,p,intent) {
 // powder; client m7 less the alchemy-only ones), nor for any firework (client ed).
 // Kinds of unsellable surplus worth a trip home of their own (housing work()).
 export const FREE_FUEL_TRIP=20;
-const SHOP_ITEMS=new Set([60,80,85,90,160,161,162,190,328,700]),FIREWORKS=new Set([701,702,703,704,705]);
+const SHOP_ITEMS=SHOP_ITEM_IDS,FIREWORKS=new Set([701,702,703,704,705]);
 const pointTables=new WeakMap();
 export function housePointsOf(data,id) {
   if(!pointTables.has(data))pointTables.set(data,buildPointTable(data));
