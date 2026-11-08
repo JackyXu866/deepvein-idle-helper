@@ -26,7 +26,7 @@ import {slotsFor} from './gear.js';
 import {FORGE_LADDER, createCollectionMastery, forgePoints, forgeReached} from './collection.js';
 import {ENHANCE_PAGE, WORK_PAGE, hasEnhancePage, pageRanks} from './mastery-pages.js';
 import {createMasteryPlan} from './mastery-plan.js';
-import {goldToSeconds, secondsToGold} from './gold.js';
+import {byReturn, goldToSeconds, secondsToGold} from './gold.js';
 import {HOT_FOLLOW_SKILLS, hotSkillAt, hotWindows} from '../runtime/hot-follow.js';
 import {createAutomationPolicy, normalizeAutomation} from '../runtime/automation-policy.js';
 
@@ -1196,8 +1196,9 @@ export function createPlanner(data) {
       // project (upgrade), a mount bred or from the merchant by its supply plan
       // (mounts.js). A route starts only when its whole cost, enhancing
       // included, is affordable; until then funding earns it.
+      // In the gold's order (byReturn), as funding takes them.
       const picks=(api.investmentOptions?.(p,profession,goal)??[]).filter(r=>r.cheapest&&r.source!=='已持有'&&
-        count(p,r.start??r.id)<=0&&r.gold<=p.coins);
+        count(p,r.start??r.id)<=0&&r.gold<=p.coins).sort(byReturn);
       for(const row of picks.filter(r=>r.source==='市场')) {
         const start=row.start??row.id;
         const market=api.marketEquipment?.(p,goal,profession,{ids:[base(start)],row:{...row,id:start,gold:row.acquireGold??row.gold}});

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {expectedEnhancement} from '../src/planner/investment.js';
-import {PAYBACK_MARGIN, payback, secondsSaved} from '../src/planner/gold.js';
+import {PAYBACK_MARGIN, byReturn, payback, secondsSaved} from '../src/planner/gold.js';
 import {planEnhancement} from '../src/planner/enhancement.js';
 import {makePlanner, player} from './helpers.js';
 
@@ -73,6 +73,18 @@ test('funding: a worthwhile unaffordable step is funded on the best gold job, re
   // Rich enough: nothing to fund.
   const rich = fighter(5_000_000);
   assert.equal(rich.planner.fundingGoal(rich.p, 'melee', {}, null), null);
+});
+
+test('funding goes down the slots\' picks by return per gold, and waits while the head is affordable', () => {
+  const {planner, p} = fighter();
+  const picks = planner.investmentOptions(p, 'melee', null).filter(r => r.cheapest && r.gold > 0).sort(byReturn);
+  const helm = picks.find(r => r.slot === 'helmet'), pickaxe = picks.find(r => r.slot === 'pickaxe');
+  assert.ok(helm && pickaxe && helm.net < pickaxe.net && picks.indexOf(helm) < picks.indexOf(pickaxe),
+    'more saved per gold comes first, even with the smaller net');
+  assert.equal(planner.fundingGoal(p, 'melee', {}, null)?.funding.key, `${picks[0].kind}:${picks[0].id}`, 'the head is funded');
+  // The blade and helm affordable, the pickaxe not: the blade goes first, the pickaxe is not funded past it.
+  const some = fighter(100_000);
+  assert.equal(some.planner.fundingGoal(some.p, 'melee', {}, null), null);
 });
 
 test('enhancement runs only on the worthwhile route, up to its stopping point', () => {

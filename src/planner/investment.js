@@ -3,7 +3,7 @@ import {formulaWork, luckGold} from './rates.js';
 import {canWear, professionSkill} from './professions.js';
 import {LEGENDARY, autoUsableMaterial, craftRecipe} from './quality.js';
 import {baseId, baseStride, heldIds, itemLabel, plusOf, rarityOf} from './items.js';
-import {goldToSeconds, incomePayback, payback, pays, secondsToGold} from './gold.js';
+import {byReturn, goldToSeconds, incomePayback, payback, pays, secondsToGold} from './gold.js';
 import {isMount, mountSupply} from './mounts.js';
 import {harvestCrops} from './farming.js';
 import {COMBAT_SLOTS, USE_CAP_SECONDS, fitsSlot, shieldless, useSeconds as sharedUseSeconds} from './gear.js';
@@ -424,9 +424,11 @@ export function createInvestments(data,planner) {
   // earns the same gold later and loses the time the improvement saves meanwhile.
   // Each stretch is an hour; at its end the goal is chosen afresh, so it goes on
   // only while the improvement is still worth it at the latest prices.
+  // Funded in the gold's order (byReturn): the head of the queue; while the
+  // head is affordable it is being bought or made, and nothing is funded past it.
   function fundingGoal(p,style,deferred={},goal=null) {
-    const row=options(p,style,goal).find(r=>r.cheapest&&!r.affordable&&r.gold>0);
-    if(!row)return null;
+    const row=options(p,style,goal).filter(r=>r.cheapest&&r.gold>0).sort(byReturn)[0];
+    if(!row||row.affordable)return null;
     const choice=earningGoal(p,style,deferred);
     if(!choice)return null;
     const ticks=Math.ceil(FUNDING_CHECK_SECONDS*1000/data.tickMs);

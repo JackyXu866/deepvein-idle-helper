@@ -18,6 +18,12 @@ export const secondsSaved=(before,after,useSeconds)=>
 // buff food, a dropped load): the time it saves beats the time it costs by
 // the margin.
 export const pays=(saved,paid)=>Number.isFinite(paid)&&saved>0&&saved>=paid*PAYBACK_MARGIN;
+// The order improvements across slots get the gold in: the most saved per
+// unit paid first (not the cheapest, nor the largest), then the larger net.
+// One slot's options are alternatives and its pick is by net; the slots'
+// picks then queue by this, and a lower one waits for those above it.
+const returnOf=r=>r.paid>0?r.saved/r.paid:Infinity;
+export const byReturn=(a,b)=>returnOf(b)-returnOf(a)||b.net-a.net;
 export function payback({gold=0,seconds=0,credit=0,coinRate,before,after,useSeconds}) {
   const paid=Math.max(0,seconds-credit)+goldToSeconds(gold,coinRate);
   const saved=secondsSaved(before,after,useSeconds);
