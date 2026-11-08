@@ -123,10 +123,8 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
     // back) used to fall below a cut at eight rows and looked never considered.
     const all = planner.investmentOptions?.(p, style, goal) ?? [], seen = {};
     const shown = all.filter(r => {seen[r.slot] = (seen[r.slot] ?? 0) + 1; return r.worth || r.funding || seen[r.slot] <= 3;});
-    // A legendary piece only the player can make: what to buy and where to make it.
-    const manualNote = m => !m ? null : `${m.buy.length ? `先在市场买 ${m.buy.map(b => `${itemLabel(data, b.itemId)} ×${b.qty}`).join('、')}，` : '传说材料已齐，'}` +
-      `再去 ${NAMES[m.skill] ?? m.skill} 手动制作；助手不会动用传说材料`;
-    investments = shown.map(r => ({label: r.label, kind: r.kind, advice: !!r.advice, manual: manualNote(r.manual),
+    // A legendary piece only the player can make: its label says 手动制作.
+    investments = shown.map(r => ({label: r.label, kind: r.kind, advice: !!r.advice, manual: !!r.manual,
       gold: r.gold, paidHours: r.paid / 3600, savedHours: r.saved / 3600, useHours: r.useSeconds / 3600, gain: r.gain,
       worth: r.worth, cheapest: r.cheapest, affordable: r.affordable, source: r.source, project: !!r.project,
       funding: goal?.funding?.key === `${r.kind}:${r.id}`}));

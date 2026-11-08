@@ -314,9 +314,16 @@ export function createInvestments(data,planner) {
           if(ask>0&&!heldNow.has(id))starts.push({id,cost:{gold:ask,seconds:0,source:'市场'}});
         }
       }
+      // A copy already worn or held is never got again: no buying, making or
+      // breeding a piece of the same line at its +N or lower.
+      const ownedPlus=new Map();
+      for(const s of starts.filter(s=>s.worn||s.cost.source==='已持有')) {
+        const line=s.id%data.plusScale;ownedPlus.set(line,Math.max(ownedPlus.get(line)??-1,plusOf(data,s.id)));
+      }
       const best=new Map(); // per line (piece and quality): its best row
       for(const start of starts) {
         const from=plusOf(data,start.id),line=start.id%data.plusScale;
+        if(!start.worn&&start.cost.source!=='已持有'&&ownedPlus.get(line)>=from)continue;
         // Enhancing is priced only past what the start already reaches.
         if(!(worth(p,style,ctx,slot,line+ENHANCEMENT_MAX*data.plusScale)>floor))continue;
         const ladder=from<ENHANCEMENT_MAX?enhancementLadder(data,planner,p,start.id):[];
