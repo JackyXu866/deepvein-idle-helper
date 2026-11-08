@@ -65,6 +65,8 @@ export function createMarketHistory({now=Date.now,limit=400}={}) {
   // A live book's recent trades ({price,qty,tick}); `tick` is the frame's tick.
   // Only trades newer than the last recorded one count, so repeated quotes of
   // the same book add nothing. Coverage starts at the oldest trade first seen.
+  // The book's trades of the last week also give their quantity-weighted median
+  // (`tradeMedian`), which one freak trade cannot move.
   function recordTrades(id,trades,tick,tickMs,at=now()) {
     const item=entry(id);if(!item||!Number.isFinite(tick)||!(tickMs>0))return false;
     const fresh=trades.filter(r=>r.tick<=tick&&(item.tradeTick==null||r.tick>item.tradeTick));
@@ -72,9 +74,14 @@ export function createMarketHistory({now=Date.now,limit=400}={}) {
     for(const r of fresh)add(item,time(r),b=>{b[QTY]+=r.qty;b[VALUE]+=r.qty*r.price;});
     if(fresh.length)item.tradeTick=Math.max(item.tradeTick??-Infinity,...fresh.map(r=>r.tick));
     item.since??=Math.min(at,...trades.filter(r=>r.tick<=tick).map(time));
+    const week=trades.filter(r=>r.tick<=tick&&(tick-r.tick)*tickMs<=KEEP*HOUR).sort((a,b)=>a.price-b.price);
+    const total=week.reduce((n,r)=>n+r.qty,0);let seen=0;
+    const median=week.find(r=>(seen+=r.qty)*2>=total)?.price;
+    if(median>0)item.median={price:median,at};
     compact(String(id));
     return fresh.length>0;
   }
+  const tradeMedian=id=>{const m=state.items[String(id)]?.median;return m&&now()-m.at<KEEP*HOUR?m.price:null;};
   function buckets(id,hours) {
     const item=state.items[String(id)],cutoff=hourNow()-hours;
     return item?[...item.days.filter(b=>b[0]+24>cutoff),...item.recent.filter(b=>b[0]+3>cutoff)]:[];
@@ -128,8 +135,8 @@ export function createMarketHistory({now=Date.now,limit=400}={}) {
     const round=n=>n==null?null:Math.round(n*100)/100;
     return {bid7d:round(averagePrice(id,{side:'bid'})),ask7d:round(averagePrice(id,{side:'ask'})),
       bid24h:round(averagePrice(id,{side:'bid',hours:RECENT})),ask24h:round(averagePrice(id,{side:'ask',hours:RECENT})),
-      tradePrice:round(tradePrice(id)),dailyVolume:round(dailyVolume(id)),trend:round(priceTrend(id))};
+      tradePrice:round(tradePrice(id)),tradeMedian:round(tradeMedian(id)),dailyVolume:round(dailyVolume(id)),trend:round(priceTrend(id))};
   }
-  return {recordFeed,recordTrades,priceStats,averagePrice,tradePrice,dailyVolume,priceTrend,
+  return {recordFeed,recordTrades,tradeMedian,priceStats,averagePrice,tradePrice,dailyVolume,priceTrend,
     adopt,load,text,summary,describe,state:()=>state};
 }

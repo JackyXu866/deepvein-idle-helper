@@ -210,7 +210,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
       lastSync=now();return {t:'resync'};
     }
     if(state.attempt||now()-lastQuery<1500)return null;
-    for(const [itemId,request]of requests)if((request.background||request.potionBackground)&&
+    for(const [itemId,request]of requests)if((request.background||request.potionBackground||request.review)&&
       request.sentAt!=null&&now()-request.sentAt>=waitMs) {
       requests.delete(itemId);cooldowns.set(itemId,now()+coolMs);
     }
@@ -698,9 +698,15 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   // Nor above what the game's shop asks for it: a common Potato seed (shop 8)
   // "averaged" 115,503 over 3,031 trades while its best bid was 1, which made
   // chopping Trees look worth 3.2M/h instead of about 1.8M/h.
-  const MIN_WEEK_VOLUME=7;
+  // Nor set by a freak trade: an average more than twice off the median of the
+  // week's trades the book showed (history.tradeMedian) is replaced by that
+  // median. One Bogskin chaps sold for 120,000,000 among trades of 600-3,600
+  // made its 7-day average 1,072,910, and a listing went up at 1,060,000.
+  const MIN_WEEK_VOLUME=7,OUTLIER=2;
   const marketPrice=id=>{const row=feedRow(id);
-    const price=(row?.vol>=MIN_WEEK_VOLUME?row.avg:null)??history.tradePrice(id)??null;
+    let price=(row?.vol>=MIN_WEEK_VOLUME?row.avg:null)??history.tradePrice(id)??null;
+    const median=history.tradeMedian(id);
+    if(price>0&&median>0&&(price>median*OUTLIER||price*OUTLIER<median))price=median;
     return price>0?Math.min(price,shopPrice(data,id)??Infinity):price;};
   // Units the market takes a day: the feed's 7-day volume, else what was watched.
   const dailyTurnover=id=>{const v=feedRow(id)?.vol;return v>0?v/7:history.dailyVolume(id);};
@@ -740,8 +746,11 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   }
   // Someone now sells below our listing, and following them one step stays at
   // or above the fair floor (fairFloor): then it is re-listed; otherwise it waits.
-  const undercut=order=>{const ask=topOfBook(order.itemId)?.ask;
-    return ask>0&&ask<order.price&&stepBelow(ask)>=fairFloor(order.itemId,marketPrice(order.itemId));};
+  // So is one above the 115% ceiling (the market price it was listed at proved
+  // a freak trade's average).
+  const undercut=order=>{const ask=topOfBook(order.itemId)?.ask,market=marketPrice(order.itemId);
+    return market>0&&order.price>Math.floor(market*CEILING)||
+      ask>0&&ask<order.price&&stepBelow(ask)>=fairFloor(order.itemId,market);};
   const netOf=(price,qty)=>netProceeds(price,qty,taxBp);
   const merchantUnit=id=>merchantPrice(data,id);
   const dayTicks=dayTicksOf(data);
@@ -896,7 +905,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     const minimum=priceUp(Math.max(fairFloor(id,market),minListPrice(vendor,taxBp)));
     const bid=bidsHighFirst(book).find(row=>row.price>=Math.max(minimum,market*BID_FAIR));
     if(bid)return {qty:Math.min(qty,bid.qty),price:bid.price};
-    const price=Math.max(minimum,priceDown(book.asks.length?stepBelow(lowestAsk(book)):market));
+    const price=Math.max(minimum,priceDown(Math.min(book.asks.length?stepBelow(lowestAsk(book)):market,Math.floor(market*CEILING))));
     return {qty:listSize(id,qty),price};
   }
   // One purchase rule (balancedPurchase); with procurement off nothing is bought.
@@ -1173,6 +1182,11 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
         (need?.itemId===order.itemId&&now()-need.at<ttl);
       // A buyback listing is held, not re-priced, until just after the next daily run.
       if(order.side==='sell'&&!needed&&owned.buyback&&p.lastTick<owned.buyback.holdUntilTick)continue;
+      // A listing whose week of trades was never seen gets its book read once
+      // per review (the week's median checks the price it was listed at).
+      if(order.side==='sell'&&now()-(owned.bookAt??owned.at)>=reviewMs&&history.tradeMedian(order.itemId)==null&&!requests.has(order.itemId)) {
+        owned.bookAt=now();requests.set(order.itemId,{at:now(),sentAt:null,review:true});
+      }
       // A buyback listing past its run is reviewed like any other batch.
       if(order.side==='buy'||needed||now()-owned.at>=reviewMs&&(undercut(order)||!!owned.buyback)) {
         reviewOrderId=order.side==='sell'&&!needed?order.id:null;
