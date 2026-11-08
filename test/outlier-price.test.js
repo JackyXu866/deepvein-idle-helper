@@ -22,8 +22,10 @@ test('the week\'s trades give a quantity-weighted median a freak trade cannot mo
   const history = createMarketHistory({now: () => clock});
   history.recordTrades(7, TRADES, TICK, 600);
   assert.equal(history.tradeMedian(7), 1580, 'the 11-day-old trade is outside the week');
-  clock += 8 * 86400000;
-  assert.equal(history.tradeMedian(7), null, 'a median older than a week is forgotten');
+  clock += 23 * 3600000;
+  assert.equal(history.tradeMedian(7), 1580, 'a median holds for a day');
+  clock += 3600000;
+  assert.equal(history.tradeMedian(7), null, 'a median older than a day waits for the next book read');
 });
 
 function setup() {

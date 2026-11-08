@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Deep Vein Idle 自给成长与职业助手
 // @namespace    local.deepvein.balanced
-// @version      0.14.11
+// @version      0.14.12
 // @description  自主发展、经验优先、指定主业与收菜Boss辅助；连续发展计划、批量供料、装备与市场比价；默认暂停
 // @homepageURL  https://github.com/JackyXu866/deepvein-idle-helper
 // @updateURL    https://raw.githubusercontent.com/JackyXu866/deepvein-idle-helper/modular-rewrite/deepvein-balanced.meta.js

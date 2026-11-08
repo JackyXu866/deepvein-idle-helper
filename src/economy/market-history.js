@@ -81,7 +81,8 @@ export function createMarketHistory({now=Date.now,limit=400}={}) {
     compact(String(id));
     return fresh.length>0;
   }
-  const tradeMedian=id=>{const m=state.items[String(id)]?.median;return m&&now()-m.at<KEEP*HOUR?m.price:null;};
+  // A median is trusted for a day; after that the next book read refreshes it.
+  const tradeMedian=id=>{const m=state.items[String(id)]?.median;return m&&now()-m.at<DAY?m.price:null;};
   function buckets(id,hours) {
     const item=state.items[String(id)],cutoff=hourNow()-hours;
     return item?[...item.days.filter(b=>b[0]+24>cutoff),...item.recent.filter(b=>b[0]+3>cutoff)]:[];
