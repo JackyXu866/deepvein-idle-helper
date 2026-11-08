@@ -22,9 +22,20 @@ const validItem=item=>item&&typeof item==='object'&&Array.isArray(item.recent)&&
 export function createMarketHistory({now=Date.now,limit=400}={}) {
   let state=blank();
   const hourNow=()=>Math.floor(now()/HOUR);
-  function entry(id) {
+  // The hour an item was last seen: its newest bucket, or its median's read.
+  const lastSeen=item=>Math.max(-Infinity,...[...item.recent,...item.days].map(b=>b[0]),
+    item.median?Math.floor(item.median.at/HOUR):-Infinity);
+  // A full history takes no new id from the feed; a book read (its trades, its
+  // median) makes room by dropping the id seen longest ago. A full history used
+  // to drop the read too, so a listing kept the 7-day average a freak trade set
+  // (2026-11-08: rare Pelt chaps at 5,000,000 among trades of 2,350).
+  function entry(id,{evict=false}={}) {
     const key=String(id);
-    if(!state.items[key]&&Object.keys(state.items).length>=limit)return null;
+    if(!state.items[key]&&Object.keys(state.items).length>=limit) {
+      if(!evict)return null;
+      const oldest=Object.keys(state.items).reduce((a,b)=>lastSeen(state.items[b])<lastSeen(state.items[a])?b:a);
+      delete state.items[oldest];
+    }
     return state.items[key]??={recent:[],days:[],tradeTick:null,since:null};
   }
   // Old three-hour buckets fold into their day; days past a week are dropped,
@@ -68,7 +79,8 @@ export function createMarketHistory({now=Date.now,limit=400}={}) {
   // The book's trades of the last week also give their quantity-weighted median
   // (`tradeMedian`), which one freak trade cannot move.
   function recordTrades(id,trades,tick,tickMs,at=now()) {
-    const item=entry(id);if(!item||!Number.isFinite(tick)||!(tickMs>0))return false;
+    if(!Number.isFinite(tick)||!(tickMs>0))return false;
+    const item=entry(id,{evict:true});if(!item)return false;
     const fresh=trades.filter(r=>r.tick<=tick&&(item.tradeTick==null||r.tick>item.tradeTick));
     const time=r=>at-(tick-r.tick)*tickMs;
     for(const r of fresh)add(item,time(r),b=>{b[QTY]+=r.qty;b[VALUE]+=r.qty*r.price;});

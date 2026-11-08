@@ -28,6 +28,20 @@ test('the week\'s trades give a quantity-weighted median a freak trade cannot mo
   assert.equal(history.tradeMedian(7), null, 'a median older than a day waits for the next book read');
 });
 
+test('a full history makes room for a book read: the id seen longest ago goes', () => {
+  // 2026-11-08: 400 ids held, so rare Pelt chaps' median was never stored.
+  let clock = 5e9;
+  const history = createMarketHistory({now: () => clock, limit: 2});
+  history.recordFeed([[1, {ask: 10, bid: 9}], [2, {ask: 20, bid: 19}]], clock - 2 * 3600000);
+  history.recordFeed([[2, {ask: 20, bid: 19}]], clock);
+  history.recordFeed([[3, {ask: 30, bid: 29}]], clock + 1);
+  assert.equal(history.averagePrice(3, {side: 'ask'}), null, 'the feed adds no id to a full history');
+  history.recordTrades(7, TRADES, TICK, 600);
+  assert.equal(history.tradeMedian(7), 1580, 'the book read is kept');
+  assert.equal(history.averagePrice(1, {side: 'ask'}), null, 'id 1, seen longest ago, made room');
+  assert.equal(history.averagePrice(2, {side: 'ask'}), 20);
+});
+
 function setup() {
   const planner = makePlanner(), d = planner.data;
   const item = [...new Set(d.jobs.map(j => j.output.itemId))]
