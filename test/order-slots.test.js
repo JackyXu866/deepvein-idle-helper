@@ -27,14 +27,18 @@ function setup({listings, feed, owned = () => true, age = 0}) {
 
 test('a full order book gives the weakest own listing\'s slot to a sale worth twice as much a day', () => {
   // Eight listings of 1 at 100,000 (one sale a day) and a slow one at 50.
-  const {sale, items, orders} = setup({
+  const book = {
     listings: items => items.slice(0, 9).map((itemId, i) => ({itemId, price: i === 3 ? 50 : 100000, qtyRemaining: 1})),
     feed: items => [...items.slice(0, 9).map(id => [id, 100000, 7]), [items[9], 300, 700000]],
-  });
+  };
+  const {sale, items, orders} = setup({...book, age: 1800000});
   // The waiting sale: a tenth of 100,000 a day at 300 = 3,000,000 a day.
   const plan = sale(items[9], 50000);
   assert.equal(plan.intent?.t, 'marketCancel');
   assert.equal(plan.intent.orderId, orders[3].id, 'the slow listing gives way');
+  // A listing placed minutes ago keeps its slot until its review (no chain of cancels).
+  const fresh = setup({...book, age: 60000});
+  assert.equal(fresh.sale(fresh.items[9], 50000).intent ?? null, null);
 });
 
 test('a sale not worth twice the weakest listing waits, and the player\'s own orders are never taken back', () => {

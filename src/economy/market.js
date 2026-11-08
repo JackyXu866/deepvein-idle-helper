@@ -658,8 +658,11 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   function slotFor(p,id,qty) {
     const value=dayValue(id,marketPrice(id),listSize(id,qty));
     if(!(value>0))return null;
+    // A listing gets its review time before it can give up its slot: sales are
+    // offered one at a time, so a fresh listing evicted by the next waiting
+    // sale started a chain of cancels (2026-11-08: five in twenty seconds).
     const weakest=orders.filter(o=>o.side==='sell'&&o.itemId!==id).map(o=>({o,owned:ownedOf(o)}))
-      .filter(({owned})=>owned&&!heldForBuyback(p,owned))
+      .filter(({owned})=>owned&&!heldForBuyback(p,owned)&&now()-owned.at>=reviewMs)
       .map(({o})=>({o,value:dayValue(o.itemId,o.price,o.qtyRemaining)})).sort((a,b)=>a.value-b.value||a.o.id-b.o.id)[0];
     if(!weakest||value<SLOT_MARGIN*weakest.value)return null;
     reviewOrderId=null;

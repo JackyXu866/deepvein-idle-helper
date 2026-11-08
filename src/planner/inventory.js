@@ -16,12 +16,14 @@ export const ENHANCEMENT_MAX=20;
 export const WORKING_STOCK=50;
 // Food kept for fights: the working stock, or three trips' carry if more.
 export const foodReserve=p=>Math.max(WORKING_STOCK,foodCarry(p)*3);
-// The plans a goal stands for: itself, the goals waiting on it, and the
-// development project (often the same goal kept twice, so their coins are
+// The plans a goal stands for: itself, the goals waiting on it (parked by the
+// trainer while a quest runs: a stage, a gear project, gold being saved), and
+// the development project (often the same goal kept twice, so their coins are
 // taken at the most, not added).
 function plansOf(planner,p,goal) {
   const development=(goal?.development||goal?.quest)&&planner.developmentRuntime?.();
-  return [goal,...goal?.reservedGoals??[],...(development?.owner===p.id?[development.focus,...Object.values(development.parked)]:[])].filter(Boolean);
+  return [...new Set([goal,...goal?.reservedGoals??[],...planner.parkedGoals?.()??[],
+    ...(development?.owner===p.id?[development.focus,...Object.values(development.parked)]:[])])].filter(Boolean);
 }
 // The coins every spender leaves alone (buying, housing, maintenance, the
 // sale review): the most the goal's plans keep, plus a pending equipment

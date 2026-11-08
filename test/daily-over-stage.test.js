@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Trainer} from '../src/runtime/trainer.js';
 import {makePlanner, player} from './helpers.js';
-import {reserveWaitingGoals} from '../src/planner/inventory.js';
+import {coinReserve, reserveWaitingGoals} from '../src/planner/inventory.js';
 
 // A smithing stage preparing for days (9,851 greaves) must not shut out the
 // dailies: the daily runs at the boundary, the stage is parked with its
@@ -47,7 +47,8 @@ test('gold being saved for an improvement stays reserved while a daily runs', ()
   t.advance();
   assert.equal(t.goal?.quest?.period, 'daily', 'the daily runs');
   assert.equal(t.waitingGoals.funding, saving, 'the saving is parked');
-  assert.equal(reserveWaitingGoals(t.goal, t.waitingGoals).budget.coins, 60_000_000, 'its coins stay out of other spending');
+  assert.equal(reserveWaitingGoals(t.goal, t.waitingGoals).budget.coins, 60_000_000, 'its coins stay out of maintenance');
+  assert.equal(coinReserve(t.planner, t.player, t.goal), 60_000_000, 'and out of the daily\'s own purchases (2026-11-08: a rod bought for 8.5M)');
   t.player = {...t.player, coins: 60_000_000};
   t.advance();
   assert.equal(t.waitingGoals.funding, undefined, 'met: no longer held');

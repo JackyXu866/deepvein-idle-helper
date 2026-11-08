@@ -151,6 +151,9 @@ export class Trainer {
     this.active=false; this.player=null; this.received=0; this.goal=null;
     this.pending=null; this.recentDeposit=null; this.served={}; this.deferred={}; this.questDeferred={}; this.waitingGoals={}; this.blockedReasons={}; this.sequence=0;
     this.softRefused={}; this.questAside=false; this.questRoute=null;
+    // Parked goals keep their reserve for every spender (inventory.coinReserve),
+    // the plan's own purchases included, not only maintenance.
+    planner.parkedGoals=()=>Object.values(this.waitingGoals??{});
     // Native fallback activity: on/off, the one the helper set per player, last check.
     this.autoFallback=true; this.fallbackOwned={}; this.fallbackCheckedAt=0;
     // The last error pause (shown on the overview) and whether this copy runs in the Worker.
