@@ -61,7 +61,7 @@ Every file under `src/` and what it owns. Before writing logic, find the module 
 - `rates.js`: game-formula inputs for a job or a fight, and `qualityGain` (gold the rarer drops add). `estimates.js`: base work and combat estimates from the formulas. `rarity.js`: the quality roll factor.
 - `input-cost.js`: make or buy: the cheapest way to get an input, as time.
 - `crafting.js`: what can be made from held stock; batch boundaries (`finishTaskReason`).
-- `inventory.js`: budgets and reserves (`inventoryBudget`, `coinReserve`), the sale review, enhancement quotes and tiers, what a quality item is worth to a levelling plan.
+- `inventory.js`: budgets and reserves (`inventoryBudget`, `coinReserve`), the sale review, enhancement quotes and tiers, what a quality item is worth to a levelling plan. A goal a quest interrupts keeps its reserve through `waitingGoals` (`reserveWaitingGoals`): a stage preparation or gear project under its skill, a funding goal under `funding` until its gold is met or its hour is up.
 - `quality.js`: every quality rule (recipes at a quality, holds, what is worth using, sale ratios).
 - `gold.js`: gold as time, the payback test.
 - `items.js`: item ids, stock, pack, map, prices. `levels.js`: the level curve. `keys.js`: measurement keys.

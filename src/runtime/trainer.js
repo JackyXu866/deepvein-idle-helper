@@ -260,6 +260,7 @@ export class Trainer {
     const waiting=this.waitingGoals[goal?.skill];
     if(!goal?.quest&&!equipmentProject(goal)&&waiting?.craftPreparation)goal=waiting;
     if(goal)delete this.waitingGoals[goal.skill];
+    if(goal?.funding)delete this.waitingGoals.funding;
     return goal;
   }
   chooseGoal(p) {
@@ -1153,6 +1154,9 @@ export class Trainer {
         const quest=this.planner.questChooseGoal(p,proposedGoal,this.style,this.questDeferred);
         if(quest&&(quest.quest.period==='daily'||!project&&!this.goal?.quest)) {
           if(project&&proposedGoal.skill&&!proposedGoal.quest)this.waitingGoals[proposedGoal.skill]=proposedGoal;
+          // Gold being saved for an improvement stays reserved while the quest
+          // runs: parked under its own key, it ends when met or its hour is up.
+          if(proposedGoal?.funding&&!proposedGoal.quest)this.waitingGoals.funding=proposedGoal;
           this.goal=quest;this.goalSince=now;
         }
       } else if(questsOpen) {
@@ -1161,7 +1165,8 @@ export class Trainer {
         if(quest?.quest.period==='daily'&&quest.urgent){this.goal=quest;this.goalSince=now;}
       }
       for(const [skill,goal]of Object.entries(this.waitingGoals))
-        if(this.planner.level(p.skills[skill])>=goal.target)delete this.waitingGoals[skill];
+        if(goal.funding?p.coins>=goal.funding.gold||p.lastTick>=goal.funding.until:
+          this.planner.level(p.skills[skill])>=goal.target)delete this.waitingGoals[skill];
       // Select the foreground project before optional farm investment can take
       // the first turn. Otherwise a low skill may never get a material budget.
       if (!this.goal) {
