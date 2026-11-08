@@ -103,6 +103,14 @@ test('the table weighs breeding a legendary mount and enhancing it, as one optio
   assert.ok(rows.some(r => r.kind === 'quality' && r.id === 4328 && r.source === '繁育') === false, 'a legendary +0 alone is slower than the worn mount');
 });
 
+test('a mount of the quality already worn is never bred or bought again at its +N or lower', () => {
+  // 2026-11-08: an epic +4 worn, and a second epic +0 was bred to be enhanced past it.
+  const {planner, p} = walker({equipment: {mount: 43328}});
+  const rows = planner.investmentOptions(p, 'melee', null).filter(r => r.slot === 'mount');
+  assert.ok(!rows.some(r => r.start === 3328 && r.kind !== 'enhance'), JSON.stringify(rows.map(r => r.label)));
+  assert.ok(rows.some(r => r.kind === 'enhance' && r.start === 43328), 'the worn epic is enhanced instead');
+});
+
 test('end to end: the plan\'s gear step starts the breeding chain the table picked', () => {
   // No mount on the market: ten thousand merchant horses (200M) bred up to a legendary.
   const {planner, d, p} = walker({asks: {}});
