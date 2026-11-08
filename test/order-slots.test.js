@@ -31,7 +31,7 @@ test('a full order book gives the weakest own listing\'s slot to a sale worth tw
     listings: items => items.slice(0, 9).map((itemId, i) => ({itemId, price: i === 3 ? 50 : 100000, qtyRemaining: 1})),
     feed: items => [...items.slice(0, 9).map(id => [id, 100000, 7]), [items[9], 300, 700000]],
   };
-  const {sale, items, orders} = setup({...book, age: 1800000});
+  const {sale, items, orders} = setup({...book, age: 10800000});
   // The waiting sale: a tenth of 100,000 a day at 300 = 3,000,000 a day.
   const plan = sale(items[9], 50000);
   assert.equal(plan.intent?.t, 'marketCancel');
@@ -58,13 +58,13 @@ test('a sale not worth twice the weakest listing waits, and the player\'s own or
 test('a listing sold down is merged with the new surplus into one order after the review', () => {
   const listings = items => [{itemId: items[0], price: 300, qtyRemaining: 100}];
   const feed = items => [[items[0], 300, 70000]];
-  const old = setup({listings, feed, age: 1800000});
+  const old = setup({listings, feed, age: 10800000});
   const plan = old.sale(old.items[0], 5000);
   assert.equal(plan.intent?.t, 'marketCancel', 'taken back to list 100 + 5,000 as one order');
   assert.equal(plan.intent.orderId, old.orders[0].id);
   const fresh = setup({listings, feed, age: 60000});
   assert.equal(fresh.sale(fresh.items[0], 5000).intent ?? null, null, 'a fresh listing waits its review');
-  const full = setup({listings: items => [{itemId: items[0], price: 300, qtyRemaining: 900}], feed, age: 1800000});
+  const full = setup({listings: items => [{itemId: items[0], price: 300, qtyRemaining: 900}], feed, age: 10800000});
   assert.equal(full.sale(full.items[0], 5000).intent ?? null, null, 'still near a full listing (1,000): kept');
 });
 

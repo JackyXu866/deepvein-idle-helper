@@ -75,7 +75,7 @@ test('a listing above 115% of the corrected market price is taken back at its re
   const runtime = market.runtime();
   runtime.saved.players[p.id].owned[order.id] = {...order, at: 10_000_000};
   market.runtime(runtime);
-  advance(1800000);
+  advance(10800000);
   assert.equal(market.next(p)?.intent ?? null, null, 'no median yet: the book is asked for first');
   assert.deepEqual(market.query(p), {t: 'marketDepth', itemId: item});
   market.receive({tick: TICK, m: [{t: 'marketDepth', itemId: item, bids: [], asks: [{price: 1060000, qty: 1}], trades: TRADES}]});

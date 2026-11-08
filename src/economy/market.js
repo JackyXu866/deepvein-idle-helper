@@ -31,7 +31,10 @@ export function priceUp(price) {
 // inventory removed into escrow is not evidence of a sale or realized income.
 export function createMarket(data,planner,{now=Date.now,storage=null,historyStorage=null,autoSell=false,capacitySales=false}={}) {
   const key='deepvein-market-v1',ttl=15000,waitMs=4000,coolMs=30000;
-  const reviewMs=1800000,recycleMs=7200000;
+  // One cadence for the helper's own listings: reviewed (re-priced, merged,
+  // giving up a slot) and one sale per item every three hours. Thirty minutes
+  // cancelled and re-listed too often.
+  const reviewMs=3*3600000,recycleMs=7200000;
   // The player market is closed to an ironman, and to an account the game
   // refuses for having no verified email (email-needed). That refusal is kept
   // per character for six hours (or until the game reports the email
@@ -671,7 +674,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   }
   // One order per item: a listing of the helper's own that has sold down to
   // under two thirds of what one listing of it would now hold (with the new
-  // surplus) is taken back after the 30-minute review and listed again as one
+  // surplus) is taken back after its review and listed again as one
   // order. A second order of the same item is merged the same way.
   function merged(p,id,qty) {
     const listed=orders.filter(o=>o.itemId===id);
@@ -824,11 +827,11 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
       Math.max(0,quantity(p,id)+worn));
     if(safeQty<=0)return defer('暂无可出售的已确认盈余');
     if(hasOrder(id))return merged(p,id,safeQty)??defer('同类物品已有订单，等待成交并继续练级');
-    // One sale per item every 30 minutes (the listing review's cadence): output
-    // gathers into one larger batch instead of a stop and a small sale on every
-    // bank visit. A full bank still sells at once.
+    // One sale per item per review (three hours): output gathers into one
+    // larger batch instead of a stop and a small sale on every bank visit. A
+    // full bank still sells at once.
     if(!capacitySale&&now()-(state.soldAt?.[id]??-Infinity)<reviewMs)
-      return defer(`${labelOf(id)} 30 分钟内已卖过一批；攒成一批再卖，继续当前任务`);
+      return defer(`${labelOf(id)} 3 小时内已卖过一批；攒成一批再卖，继续当前任务`);
     if((cooldowns.get(id)??0)>now())return defer('市场短暂冷却，稍后重新报价');
     if(!slots(p))return slotFor(p,id,safeQty)??defer('挂单槽暂满，保留盈余并继续练级');
     const book=quote(id);

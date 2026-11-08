@@ -5,7 +5,7 @@ import {saleProtectionReason} from '../src/planner/inventory.js';
 import {makePlanner, player} from './helpers.js';
 
 // Output is sold in larger batches: one sale fills every buy order at the
-// best price, and an item is sold at most once every 30 minutes (a full bank
+// best price, and an item is sold at most once every 3 hours (a full bank
 // still sells at once).
 const pickItem = d => d.jobs.map(j => j.output.itemId).find(id => id !== d.coinId && d.items[id]?.value >= 50 && !saleProtectionReason(d, id));
 
@@ -36,7 +36,7 @@ test('one sale fills every buy order at the best price', () => {
   assert.equal(plan.intent.qty, 44 + 391, 'both orders at that price, not just the first');
 });
 
-test('an item is sold at most once every 30 minutes; a full bank still sells', () => {
+test('an item is sold at most once every 3 hours; a full bank still sells', () => {
   const {market, sell, p, item, book, advance} = setup();
   const first = sell(2000);
   market.issued({...p, bank: {[item]: 2000}}, first.intent, first);
@@ -48,9 +48,9 @@ test('an item is sold at most once every 30 minutes; a full bank still sells', (
   book();
   const soon = sell(1565);
   assert.equal(soon.marketDeferred, true, 'waits to gather a batch');
-  assert.match(soon.reason, /30 分钟/);
+  assert.match(soon.reason, /3 小时/);
   assert.equal(sell(1565, {capacitySale: true}).marketDeferred, undefined, 'a full bank sells at once');
-  advance(30 * 60000);
+  advance(3 * 3600000);
   book();
-  assert.equal(sell(1565).intent.t, 'marketSell', 'after 30 minutes the batch sells');
+  assert.equal(sell(1565).intent.t, 'marketSell', 'after 3 hours the batch sells');
 });

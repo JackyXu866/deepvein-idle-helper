@@ -31,7 +31,7 @@ function listed(feedAsk) {
   const after = {...p, lastTick: 100010, bank: {[item]: 400}};
   market.receive({tick: 100010, m: [{t: 'snapshot', you: after, orders: [order]}]});
   market.next(after);
-  clock += 3600000; // past the 30-minute review
+  clock += 4 * 3600000; // past the 3-hour review
   feed(feedAsk);
   return market.next(after);
 }
