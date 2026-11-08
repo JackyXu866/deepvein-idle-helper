@@ -2,12 +2,12 @@
 
 [Deep Vein Idle](https://deepveinidle.com/)（含 [中国入口](https://cn.deepveinidle.com/)）的 Tampermonkey 用户脚本。它替你安排练级、供料、装备、强化、买卖、收菜和世界 Boss，默认暂停，点“开始调度”才会动手。
 
-当前版本 **v0.14.9**，由本 fork 维护 · [更新日志](CHANGELOG.md)
+当前版本 **v0.14.10**，由本 fork 维护 · [更新日志](CHANGELOG.md)
 
 ## 安装
 
 1. 安装 Tampermonkey。
-2. 打开 [安装链接](https://raw.githubusercontent.com/JackyXu866/deepvein-idle-helper/modular-rewrite/deepvein-balanced.user.js) 并确认安装（GitHub 打不开时用 [Gcore CDN 备用链接](https://gcore.jsdelivr.net/gh/JackyXu866/deepvein-idle-helper@v0.14.9/deepvein-balanced-cdn.user.js)）。
+2. 打开 [安装链接](https://raw.githubusercontent.com/JackyXu866/deepvein-idle-helper/modular-rewrite/deepvein-balanced.user.js) 并确认安装（GitHub 打不开时用 [Gcore CDN 备用链接](https://gcore.jsdelivr.net/gh/JackyXu866/deepvein-idle-helper@v0.14.10/deepvein-balanced-cdn.user.js)）。
 3. 刷新游戏，从右侧工具栏打开“脚本助手”，选好策略和战斗职业，点“开始调度”。
 
 只启用一份助手，只开一个游戏标签页。以后有新版时，油猴会按它自己的设置更新；助手标题旁也会提示，点“安装／更新”后刷新游戏才生效。从上游或旧链接装过的，请用上面的链接重装一次，以后才会从本 fork 更新。

@@ -643,6 +643,45 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     return ordersKnown&&orders.length<(side==='buy'?limit:limit-1);
   }
   const hasOrder=id=>orders.some(o=>o.itemId===id);
+  const ownedOf=order=>Object.values(state.owned).find(owned=>ownMatch(order,owned))??null;
+  const heldForBuyback=(p,owned)=>!!owned?.buyback&&p.lastTick<owned.buyback.holdUntilTick;
+  // What a sell listing brings in a day: its price on what the market takes of
+  // it in a day, never more than it holds. A waiting sale is valued the same way
+  // at the market price and its list size.
+  const dayValue=(id,price,qty)=>{const d=dailyTurnover(id);return d>0&&price>0?price*Math.min(qty,d):0;};
+  // One rule for a full order book: a sell slot goes to what sells for most in
+  // a day. A waiting sale worth twice the weakest of the helper's own listings
+  // takes its slot (that stock goes back to the bank and waits its turn); the
+  // player's own orders and buyback listings held for the run are never touched.
+  // Nine slow gear listings once kept 52M of quality tin off the market.
+  const SLOT_MARGIN=2;
+  function slotFor(p,id,qty) {
+    const value=dayValue(id,marketPrice(id),listSize(id,qty));
+    if(!(value>0))return null;
+    const weakest=orders.filter(o=>o.side==='sell'&&o.itemId!==id).map(o=>({o,owned:ownedOf(o)}))
+      .filter(({owned})=>owned&&!heldForBuyback(p,owned))
+      .map(({o})=>({o,value:dayValue(o.itemId,o.price,o.qtyRemaining)})).sort((a,b)=>a.value-b.value||a.o.id-b.o.id)[0];
+    if(!weakest||value<SLOT_MARGIN*weakest.value)return null;
+    reviewOrderId=null;
+    status=`挂单槽已满：${labelOf(id)} 每天约可卖 ${Math.round(value)}，撤回每天约 ${Math.round(weakest.value)} 的 ${labelOf(weakest.o.itemId)} 让出挂单槽`;
+    return atBank(p,{t:'marketCancel',orderId:weakest.o.id},`挂单槽让位 · 撤回 ${labelOf(weakest.o.itemId)}，改挂 ${labelOf(id)}`);
+  }
+  // One order per item: a listing of the helper's own that has sold down to
+  // under two thirds of what one listing of it would now hold (with the new
+  // surplus) is taken back after the 30-minute review and listed again as one
+  // order. A second order of the same item is merged the same way.
+  function merged(p,id,qty) {
+    const listed=orders.filter(o=>o.itemId===id);
+    const own=listed.map(o=>({o,owned:ownedOf(o)})).filter(({o,owned})=>o.side==='sell'&&owned&&!heldForBuyback(p,owned));
+    if(!own.length||own.length<listed.length)return null;
+    const held=own.reduce((n,{o})=>n+o.qtyRemaining,0);
+    const pick=own.length>1?own.sort((a,b)=>a.o.qtyRemaining-b.o.qtyRemaining||b.o.id-a.o.id)[0]:
+      now()-own[0].owned.at>=reviewMs&&listSize(id,held+qty)*2>=held*3?own[0]:null;
+    if(!pick)return null;
+    reviewOrderId=null;
+    status=`${labelOf(id)} 合并为一张挂单：撤回 ${pick.o.qtyRemaining} 件，连同仓库盈余重新挂出`;
+    return atBank(p,{t:'marketCancel',orderId:pick.o.id},`合并挂单 · 撤回 ${labelOf(id)} × ${pick.o.qtyRemaining}，与盈余一起重挂`);
+  }
   function saleDemand(p,book,price,floor) {
     const trades=book.trades.filter(row=>row.tick<=p.lastTick&&(p.lastTick-row.tick)*data.tickMs<=recycleMs&&
       row.price>=price&&netOf(row.price,row.qty)>floor*row.qty);
@@ -766,22 +805,23 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     if(!tradable(planner.base(id)))return defer('未确认可交易，保留物品');
     if(state.attempt)return defer('交易结果待确认，保留盈余并继续练级');
     if(!ordersKnown)return defer('等待同步市场订单，保留盈余并继续练级');
-    if(hasOrder(id))return defer('同类物品已有订单，等待成交并继续练级');
+    const previous=state.sales[id];
+    const worn=Object.values(p.equipment??{}).filter(itemId=>itemId===id).length;
+    // A re-listed item takes its new surplus along: one order per item.
+    const safeQty=Math.min(intent.qty,p.bank[id]??0,retired?.sellFromBank??1000000,
+      Math.max(0,quantity(p,id)+worn));
+    if(safeQty<=0)return defer('暂无可出售的已确认盈余');
+    if(hasOrder(id))return merged(p,id,safeQty)??defer('同类物品已有订单，等待成交并继续练级');
     // One sale per item every 30 minutes (the listing review's cadence): output
     // gathers into one larger batch instead of a stop and a small sale on every
     // bank visit. A full bank still sells at once.
     if(!capacitySale&&now()-(state.soldAt?.[id]??-Infinity)<reviewMs)
       return defer(`${labelOf(id)} 30 分钟内已卖过一批；攒成一批再卖，继续当前任务`);
-    if(!slots(p))return defer('挂单槽暂满，保留盈余并继续练级');
     if((cooldowns.get(id)??0)>now())return defer('市场短暂冷却，稍后重新报价');
+    if(!slots(p))return slotFor(p,id,safeQty)??defer('挂单槽暂满，保留盈余并继续练级');
     const book=quote(id);
     if(book.waiting)return defer('查询买单与挂售价，等待期间继续练级');
     if(book.fallback)return defer('报价暂不可用，保留盈余并稍后重试');
-    const previous=state.sales[id];
-    const worn=Object.values(p.equipment??{}).filter(itemId=>itemId===id).length;
-    const safeQty=Math.min(intent.qty,p.bank[id]??0,previous?.qty??1000000,retired?.sellFromBank??1000000,
-      Math.max(0,quantity(p,id)+worn));
-    if(safeQty<=0)return defer('暂无可出售的已确认盈余');
     if(marketOnly) {
       const what=data.gear.some(g=>g.itemId===planner.base(id))?'淘汰装备':'稀有加工品';
       const offer=equipmentOffer(p,id,safeQty,book);
@@ -1118,6 +1158,10 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
         return atBank(p,{t:'marketCancel',orderId:order.id},'撤回受保护物品的旧脚本挂单',true);
       }
       if((cooldowns.get(order.itemId)??0)>now())continue;
+      if(order.side==='sell'&&orders.filter(o=>o.itemId===order.itemId).length>1) {
+        const merge=merged(p,order.itemId,0);
+        if(merge?.intent)return merge;
+      }
       if(order.side==='sell'&&!salesEnabled&&!(capacitySalesEnabled&&owned.capacitySale===true)&&owned.profitSale!==true) {
         reviewOrderId=null;
         const cancel=atBank(p,{t:'marketCancel',orderId:order.id},'平时出售已关闭，撤回助手自己的挂单');
