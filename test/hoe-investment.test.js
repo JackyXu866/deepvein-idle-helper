@@ -43,7 +43,7 @@ test('the table values a better hoe by its extra crops\' gold over its use', () 
   dear.coinRate = () => 100;
   dear.marketAsk = (_p, id) => id === 388 ? Math.ceil(extra * row.useSeconds / 1.2) + 1 : null;
   const same = farmer(dear);
-  assert.equal(dear.investmentOptions(same.p, 'melee', null).find(r => r.slot === 'hoe' && r.start === 388)?.worth, false,
+  assert.ok(!dear.investmentOptions(same.p, 'melee', null).find(r => r.slot === 'hoe' && r.start === 388)?.worth,
     'priced above what its crops repay, even enhanced');
 });
 

@@ -2624,7 +2624,7 @@ import {itemLabel, packQty} from '../planner/items.js';
       [el('table',{className:'plan-table'},[el('thead',{},[el('tr',{},['项目','花费','赚钱','省下','结论'].map(text=>el('th',{textContent:text})))]),
         el('tbody',{},view.investments.map(r=>el('tr',{},[el('td',{textContent:`${translateGameText(r.label)}${r.source&&!r.label.startsWith(r.source)?`（${r.source}）`:''}`}),
           el('td',{textContent:`${fmt(r.gold)} 金币`}),el('td',{textContent:hours(r.paidHours)}),el('td',{textContent:hours(r.savedHours)}),
-          el('td',{textContent:r.funding?'筹资中':r.project?'进行中（阶段装备）':!r.worth?'不值得':r.advice?'最省，需你手动制作':r.manual?'值得，需手动，有更省的':!r.cheapest?'有更省的':r.affordable?'值得，可做':'值得，待筹资'})])))])]:
+          el('td',{textContent:r.funding?'筹资中':r.project?'进行中（阶段装备）':!r.worth?'不值得':r.advice?'最好，需你手动制作':!r.cheapest?'有更好的':r.affordable?'值得，可做':'值得，待筹资'})])))])]:
       [el('p',{className:'muted',textContent:'暂无能提升在用装备的投资（或缺少金币收入估算）'})]);
     const perks=view.perks,mastery=view.mastery;
     set('[data-plan-points]',[
@@ -2913,7 +2913,7 @@ import {itemLabel, packQty} from '../planner/items.js';
       (growth.ahead?.length?`\n领先，等其他技能追上：${growth.ahead.map(s=>`${NAMES[s.skill]} ${s.level}`).join('、')}`:'')+
       (growth.alternatives?.length?`\n后续候选（完成后重评）：${growth.alternatives.map(g=>`${NAMES[g.skill]} → ${g.target}`).join('、')}`:'')+
       (growth.deferred.length?`\n生长／条件等待：${growth.deferred.map(s=>NAMES[s.skill]).join('、')}`:'')+
-      '\n范围内按价值选（速度、其他技能用得上的解锁、收入）；下一档原料的技能落后时先练原料技能。防御／生命自然提升；装备强化按投资表的停点（值得且是该位置最省的升级），逐次确认。':
+      '\n范围内按价值选（速度、其他技能用得上的解锁、收入）；下一档原料的技能落后时先练原料技能。防御／生命自然提升；装备强化按投资表的停点（值得且是该位置的首选），逐次确认。':
       trainer.mode==='experience'?'允许偏科；计入供料与旅行时间，以总经验效率选路线。农业仍在后台合批处理。':
       trainer.mode==='mastery'?(trainer.goal?.mastery?translateGameText(trainer.goal.reason)+'\n':'')+
         '每项补到下一档后继续下一项；本轮前六项顺序固定，刷新后继续。传说品质与种植任务跳过；买来的成品与世界 Boss 奖励不计入。缺同品质材料时继续采集、偷窃或打怪等待产出，市场报价同时进行。':

@@ -58,7 +58,7 @@ test('end to end: an epic pan the table calls not worth it (gold earns slowly) i
   market.setPriceFeed({generatedAt: new Date(clock).toISOString(), items}, clock);
   const goal = {skill: 'cooking', target: 65, recipes: {cooking: 61}, budget: {coins: 0, items: {}}, development: true};
   const row = planner.investmentOptions(p, 'melee', goal).find(r => r.id === 363 + 3 * R);
-  assert.equal(row?.worth, false, JSON.stringify(row));
+  assert.ok(!row?.worth, JSON.stringify(row));
   const plan = planner.plan(p, goal, 'melee');
   assert.ok(!(plan?.intent?.t === 'marketBuy' && plan.intent.itemId === 363 + 3 * R), JSON.stringify([plan?.intent, plan?.reason]));
 });

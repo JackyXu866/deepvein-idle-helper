@@ -97,6 +97,10 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
     // slot (a rarer copy, another piece) pays back better.
     const row=rows?.find(r=>r.slot===slot&&r.kind==='enhance'&&r.current===itemId);
     if(rows) {
+      // The slot shows one choice: another route in its place means enhancing
+      // the worn piece is not it.
+      const pick=rows.find(r=>r.slot===slot&&r.cheapest);
+      if(!row&&pick){deferredReason=`${pick.label} 比强化更划算`;continue;}
       if(!row?.worth) {
         deferredReason=row?`${row.label} 不回本：预计 ${row.gold.toLocaleString()} 金币（含失败重来，约 ${(row.paid/3600).toFixed(1)} 小时赚取），`+
           `使用期内只省约 ${(row.saved/3600).toFixed(1)} 小时`:deferredReason;

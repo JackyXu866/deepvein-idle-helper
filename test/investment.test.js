@@ -43,7 +43,7 @@ test('options: one cheapest worthwhile route per slot; small gains are not worth
   const rows = planner.investmentOptions(p, 'melee', null);
   const weapon = rows.find(r => r.slot === 'weapon' && r.kind === 'enhance');
   assert.ok(weapon?.worth, JSON.stringify(weapon));
-  assert.ok(weapon.toPlus >= 1 && weapon.toPlus <= 5);
+  assert.ok(weapon.toPlus >= 1);
   assert.equal(weapon.affordable, false, '20k gold does not cover it');
   // A small gain (+0.3% from a helm enhancement) is worth it only when the time
   // it saves over its use period (to the next tier, at most 30 days) repays it.
@@ -52,8 +52,9 @@ test('options: one cheapest worthwhile route per slot; small gains are not worth
     assert.ok(helmet.useSeconds <= 30 * 86400);
     assert.equal(helmet.worth, helmet.saved >= helmet.paid * 1.2, JSON.stringify(helmet));
   }
+  // One row per slot (a manual legendary beside it only as advice).
   for (const slot of new Set(rows.map(r => r.slot)))
-    assert.ok(rows.filter(r => r.slot === slot && r.cheapest).length <= 1);
+    assert.equal(rows.filter(r => r.slot === slot && !r.advice).length, 1, slot);
   assert.ok(rows.every((r, i) => i === 0 || rows[i - 1].net >= r.net), 'best first');
 });
 

@@ -13,6 +13,15 @@ export {USE_CAP_SECONDS} from './gear.js';
 // on while the improvement is still worth it at the latest prices.
 export const FUNDING_CHECK_SECONDS=3600;
 const CACHE_SECONDS=60;
+// A slot's choice among its routes: the largest net saving, except that a
+// stronger piece (larger gain: higher quality or +N) within this share of it
+// is preferred, since near-equal savings favour the piece that lasts.
+export const NEAR_NET=.9;
+export function slotChoice(rows) {
+  const top=rows.reduce((a,r)=>!a||r.net>a.net?r:a,null);
+  if(!top||!(top.net>0))return top;
+  return rows.filter(r=>r.net>=top.net*NEAR_NET).reduce((a,r)=>r.gain>a.gain||r.gain===a.gain&&r.net>a.net?r:a);
+}
 
 // Expected gold and shards to take an item from its current +N to `toPlus`.
 // A failed attempt resets it to +0, so step k costs (g + (1-s)·E_k)/s, where
@@ -320,11 +329,7 @@ export function createInvestments(data,planner) {
       for(const s of starts.filter(s=>s.worn||s.cost.source==='已持有')) {
         const line=s.id%data.plusScale;ownedPlus.set(line,Math.max(ownedPlus.get(line)??-1,plusOf(data,s.id)));
       }
-      // One row per line (piece and quality): worn, held, made, bought or bred
-      // all end in the same piece, so only the line's best route is a choice.
-      // A route only the player can make (legendary by hand) keeps its own row
-      // as advice, and only when it beats the line's best automatic route.
-      const best=new Map();
+      const cands=[]; // every route and stopping point; the slot keeps one (below)
       for(const start of starts) {
         const from=plusOf(data,start.id),line=start.id%data.plusScale;
         if(!start.worn&&start.cost.source!=='已持有'&&ownedPlus.get(line)>=from)continue;
@@ -332,7 +337,6 @@ export function createInvestments(data,planner) {
         if(!(worth(p,style,ctx,slot,line+ENHANCEMENT_MAX*data.plusScale)>floor))continue;
         const ladder=from<ENHANCEMENT_MAX?enhancementLadder(data,planner,p,start.id):[];
         const held=start.cost.source==='已持有'||start.worn;
-        let top=null;
         for(let to=start.worn?from+1:from;to<=ENHANCEMENT_MAX;to++) {
           const step=to===from?{gold:0,shards:0}:ladder[to],target=line+to*data.plusScale;
           if(!Number.isFinite(step?.gold)||!(worth(p,style,ctx,slot,target)>floor))continue;
@@ -343,37 +347,36 @@ export function createInvestments(data,planner) {
           const row=priced(kind,target,label,{...start.cost,gold},{start:start.id,toPlus:to,
             ...(to>from?{acquireGold:Math.round(start.cost.gold),coins:Math.round(step.gold),shards:Math.ceil(step.shards)}:{}),
             ...(start.cost.manual?{manual:start.cost.manual}:{}),...(start.cost.supply?{supply:start.cost.supply}:{})});
-          if(row&&(!top||row.net>top.net))top=row;
+          if(row)cands.push(row);
         }
-        const key=`${line}:${top?.manual?'manual':'auto'}`;
-        if(top&&(!best.has(key)||top.net>best.get(key).net))best.set(key,top);
       }
-      for(const [key,row] of best)if(row.manual&&row.net<=(best.get(key.replace('manual','auto'))?.net??-Infinity))best.delete(key);
-      // The plan tab and the picks need only a slot's best few.
-      rows.push(...[...best.values()].sort((a,b)=>b.net-a.net).filter((r,i)=>i<6||r.kind==='enhance'));
-      if(owned!=null&&!rows.some(r=>r.slot===slot&&r.kind==='owned'&&r.id===owned)) {
+      if(owned!=null&&!cands.some(r=>r.kind==='owned'&&r.id===owned)) {
         // Free and one bank trip: put on even when the formulas see no gain
         // (an amulet's luck), as the owned swap does.
         const row=priced('owned',owned,`换 ${itemLabel(data,owned)}`,{gold:0,seconds:0,source:'已持有'},{start:owned,toPlus:plusOf(data,owned)});
-        rows.push(row?{...row,worth:true}:{slot,kind:'owned',id:owned,start:owned,toPlus:plusOf(data,owned),label:`换 ${itemLabel(data,owned)}`,
+        cands.push(row?{...row,worth:true}:{slot,kind:'owned',id:owned,start:owned,toPlus:plusOf(data,owned),label:`换 ${itemLabel(data,owned)}`,
           current,source:'已持有',gold:0,seconds:0,gain:0,useSeconds:useSeconds(owned),paid:0,saved:0,net:0,worth:true});
       }
       // The piece the stage-gear project is making, on the same terms.
-      const project=goal?.upgrade?.slot===slot?goal.upgrade.id:null;
-      if(project!=null&&!rows.some(r=>r.slot===slot&&(r.start??r.id)===project)) {
-        const row=priced('project',project,`阶段装备 ${itemLabel(data,project)}`,acquire(p,project,coinRate),{start:project,toPlus:plusOf(data,project)});
-        if(row)rows.push(row);
+      const projectId=goal?.upgrade?.slot===slot?goal.upgrade.id:null;
+      let project=cands.find(r=>projectId!=null&&(r.start??r.id)===projectId)??null;
+      if(projectId!=null&&!project) {
+        project=priced('project',projectId,`阶段装备 ${itemLabel(data,projectId)}`,acquire(p,projectId,coinRate),{start:projectId,toPlus:plusOf(data,projectId)});
+        if(project)cands.push(project);
       }
+      // One row per slot: every route (worn, held, made, bought, bred; any
+      // quality, any +k) ends in the one piece the slot wears. A held piece is
+      // put on first (free, one bank trip), so it is the pick. Else the pick is
+      // the slot's choice among automatic routes worth doing. A piece only the
+      // player can make (legendary, by hand) is never the pick: when the choice
+      // among all routes is one, it is shown beside the pick as advice. With
+      // nothing worth doing, the slot's choice is shown as not worth it.
+      const worthy=cands.filter(r=>r.worth),auto=r=>!r.manual;
+      const pick=slotChoice(cands.filter(r=>r.kind==='owned'&&r.worth))??slotChoice(worthy.filter(auto));
+      const top=slotChoice(worthy),advice=pick?.kind!=='owned'&&top?.manual?top:null;
+      const shown=new Set([pick??slotChoice(cands),advice,project].filter(Boolean));
+      for(const row of shown){row.cheapest=row===pick;row.advice=row===advice;rows.push(row);}
     }
-    // A held piece is put on first (free, one bank trip), so it is the slot's
-    // pick. A piece only the player can make (legendary, by hand) is never
-    // the pick: when it would save the most, the table marks it as advice.
-    const auto=r=>!r.manual;
-    for(const row of rows)row.cheapest=row.worth&&auto(row)&&(row.kind==='owned'||
-      !rows.some(o=>o!==row&&o.slot===row.slot&&auto(o)&&(o.kind==='owned'||o.worth&&o.net>row.net)));
-    for(const row of rows)row.advice=!!row.manual&&row.worth&&
-      !rows.some(o=>o!==row&&o.slot===row.slot&&(o.kind==='owned'||o.worth&&o.net>row.net));
-    // Each slot: its rows best first, a few per line kept for the plan tab.
     return rows.sort((a,b)=>b.net-a.net);
   }
   // The time wearing `id` in place of the worn piece in `slot` saves over its

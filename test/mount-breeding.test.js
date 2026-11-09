@@ -6,6 +6,7 @@ import {validateIntent} from '../src/runtime/intents.js';
 import {acknowledged} from '../src/runtime/trainer.js';
 import {planEnhancement} from '../src/planner/enhancement.js';
 import {action} from '../src/planner/result.js';
+import {slotChoice} from '../src/planner/investment.js';
 
 // Market asks on 2026-11-05 (7-day averages; legendary's lowest ask 240M).
 const ASKS = {328: 20000, 1328: 177000, 2328: 1770000, 3328: 18500000, 4328: 240000000};
@@ -108,20 +109,27 @@ test('a mount of the quality already worn is never bred or bought again at its +
   const {planner, p} = walker({equipment: {mount: 43328}});
   const rows = planner.investmentOptions(p, 'melee', null).filter(r => r.slot === 'mount');
   assert.ok(!rows.some(r => r.start === 3328 && r.kind !== 'enhance'), JSON.stringify(rows.map(r => r.label)));
-  assert.ok(rows.some(r => r.kind === 'enhance' && r.start === 43328), 'the worn epic is enhanced instead');
+  assert.equal(rows.filter(r => !r.advice).length, 1, 'the slot\'s one choice');
 });
 
-test('one row per mount line: the worn, a held copy and the market\'s enhanced copies are one choice', () => {
+test('one row per slot: worn, held, bought and bred mounts of every quality are one choice', () => {
   // 2026-11-09: epic +4 worn, a spare epic +0 in the bank, epic +15 and legendary +10 on sale:
-  // five rows for two lines (three epic, two legendary).
-  const plus = id => 3328 + id * 10000;
+  // the mount slot had five rows (three epic, two legendary).
   const {planner, d, p} = walker({equipment: {mount: 43328}, bank: {3328: 1},
-    asks: {...ASKS, [plus(15)]: 45000000, [4328 + 10 * 10000]: 220000000}});
+    asks: {...ASKS, [3328 + 15 * 10000]: 45000000, [4328 + 10 * 10000]: 220000000}});
   assert.equal(d.plusScale, 10000);
-  const rows = planner.investmentOptions(p, 'melee', null).filter(r => r.slot === 'mount' && !r.manual && r.kind !== 'owned');
-  const lines = rows.map(r => r.id % d.plusScale);
-  assert.equal(new Set(lines).size, lines.length, JSON.stringify(rows.map(r => r.label)));
-  assert.ok(!rows.some(r => r.start === 3328), 'the held +0 costs more to raise than the worn +4: not shown');
+  const rows = planner.investmentOptions(p, 'melee', null).filter(r => r.slot === 'mount');
+  assert.equal(rows.length, 1, JSON.stringify(rows.map(r => r.label)));
+  assert.equal(rows[0].cheapest, rows[0].worth);
+});
+
+test('a slot\'s choice: the largest net saving, or a stronger piece within 10% of it', () => {
+  const a = {net: 100, gain: .5}, b = {net: 95, gain: .8}, c = {net: 80, gain: 1};
+  assert.equal(slotChoice([a, b, c]), b, 'b is within 10% and stronger; c is not within 10%');
+  assert.equal(slotChoice([a, c]), a);
+  const lose = {net: -5, gain: 2}, less = {net: -1, gain: .1};
+  assert.equal(slotChoice([lose, less]), less, 'nothing pays: the smallest loss is shown');
+  assert.equal(slotChoice([]), null);
 });
 
 test('end to end: the plan\'s gear step starts the breeding chain the table picked', () => {
