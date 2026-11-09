@@ -111,6 +111,19 @@ test('a mount of the quality already worn is never bred or bought again at its +
   assert.ok(rows.some(r => r.kind === 'enhance' && r.start === 43328), 'the worn epic is enhanced instead');
 });
 
+test('one row per mount line: the worn, a held copy and the market\'s enhanced copies are one choice', () => {
+  // 2026-11-09: epic +4 worn, a spare epic +0 in the bank, epic +15 and legendary +10 on sale:
+  // five rows for two lines (three epic, two legendary).
+  const plus = id => 3328 + id * 10000;
+  const {planner, d, p} = walker({equipment: {mount: 43328}, bank: {3328: 1},
+    asks: {...ASKS, [plus(15)]: 45000000, [4328 + 10 * 10000]: 220000000}});
+  assert.equal(d.plusScale, 10000);
+  const rows = planner.investmentOptions(p, 'melee', null).filter(r => r.slot === 'mount' && !r.manual && r.kind !== 'owned');
+  const lines = rows.map(r => r.id % d.plusScale);
+  assert.equal(new Set(lines).size, lines.length, JSON.stringify(rows.map(r => r.label)));
+  assert.ok(!rows.some(r => r.start === 3328), 'the held +0 costs more to raise than the worn +4: not shown');
+});
+
 test('end to end: the plan\'s gear step starts the breeding chain the table picked', () => {
   // No mount on the market: ten thousand merchant horses (200M) bred up to a legendary.
   const {planner, d, p} = walker({asks: {}});

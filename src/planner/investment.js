@@ -320,7 +320,11 @@ export function createInvestments(data,planner) {
       for(const s of starts.filter(s=>s.worn||s.cost.source==='已持有')) {
         const line=s.id%data.plusScale;ownedPlus.set(line,Math.max(ownedPlus.get(line)??-1,plusOf(data,s.id)));
       }
-      const best=new Map(); // per line (piece and quality): its best row
+      // One row per line (piece and quality): worn, held, made, bought or bred
+      // all end in the same piece, so only the line's best route is a choice.
+      // A route only the player can make (legendary by hand) keeps its own row
+      // as advice, and only when it beats the line's best automatic route.
+      const best=new Map();
       for(const start of starts) {
         const from=plusOf(data,start.id),line=start.id%data.plusScale;
         if(!start.worn&&start.cost.source!=='已持有'&&ownedPlus.get(line)>=from)continue;
@@ -341,9 +345,10 @@ export function createInvestments(data,planner) {
             ...(start.cost.manual?{manual:start.cost.manual}:{}),...(start.cost.supply?{supply:start.cost.supply}:{})});
           if(row&&(!top||row.net>top.net))top=row;
         }
-        const key=start.worn?'worn':`${line}:${start.cost.source}`;
+        const key=`${line}:${top?.manual?'manual':'auto'}`;
         if(top&&(!best.has(key)||top.net>best.get(key).net))best.set(key,top);
       }
+      for(const [key,row] of best)if(row.manual&&row.net<=(best.get(key.replace('manual','auto'))?.net??-Infinity))best.delete(key);
       // The plan tab and the picks need only a slot's best few.
       rows.push(...[...best.values()].sort((a,b)=>b.net-a.net).filter((r,i)=>i<6||r.kind==='enhance'));
       if(owned!=null&&!rows.some(r=>r.slot===slot&&r.kind==='owned'&&r.id===owned)) {
