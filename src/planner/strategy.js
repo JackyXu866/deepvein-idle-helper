@@ -39,7 +39,12 @@ export function createStrategy(data, planner) {
   }
   // Where a candidate's rate comes from: 'measured', 'simulated', 'averaged'
   // (learnt earlier, see learn) or 'formula'.
-  const rateSource=(p,key)=>{const m=usableMeasurement(p,key);
+  // Gathering is priced by the game's formula alone: its output is the
+  // expected count (rarity.js's exact factors), and an observed stretch only
+  // adds luck. Crafting and combat keep the learnt efficiency.
+  const gathering=key=>{const job=key.startsWith('job:')&&jobs.find(j=>j.id===Number(key.split(':')[1]));
+    return !!job&&!job.inputs.length;};
+  const rateSource=(p,key)=>{if(gathering(key))return 'formula';const m=usableMeasurement(p,key);
     return m?m.simulated?'simulated':'measured':efficiency[key]?'averaged':'formula';};
   // Day-averaged efficiency per task: observed ÷ formula XP (and gold) per
   // working second, from measurements and engine simulations, weighted by
@@ -86,7 +91,7 @@ export function createStrategy(data, planner) {
   // not imply faster material production. A simulation that died marks the
   // route worthless now, whatever the average says.
   function calibrated(p,key,e,lv) {
-    if(formulaOnly)return e;
+    if(formulaOnly||gathering(key))return e;
     const m=usableMeasurement(p,key,lv);
     if(m?.deaths)return {...e,xp:0,coins:0,measured:true};
     if(m)learn(p,key,m,e);
