@@ -43,21 +43,23 @@ export function createSpecialization(data,planner) {
           if(saleQty>=minSale)break;
         }
         if(saleQty<minSale)saleQty=0;
-        if(saleQty&&multiplier>1) {
-          const estimate=planner.routeEstimate(p,c.recipeId,50*multiplier,{style,ignoreStock:true,completeTrips:true,buyInputs:true});
-          if(!Number.isFinite(estimate.seconds)||estimate.seconds>1800||estimate.unlocks?.length)continue;
-          c={...c,estimate,rate:estimate.rate};actions=50*multiplier;
-        }
+        // The output of the batches a sale takes (one, or as many as reach a
+        // lot worth listing), priced per batch: the rate stays one batch's
+        // value over one batch's time. (Re-estimating 50 actions per batch
+        // while counting a whole batch's output once made yew logs, held back
+        // by a fletching stage, look worth 3.2M an hour instead of 0.7M.)
+        const batches=saleQty>0?multiplier:1;
+        let lot=0;
         // Protected potions, seeds, food reserves and gear are not sale income.
         if(saleQty>0) {
           const quote=planner.marketOpportunity?.(p,itemId,saleQty);
-          if(quote?.qty===saleQty&&Number.isFinite(quote.net)&&quote.net>0){proceeds=quote.net;saleItems.push(itemId);}
+          if(quote?.qty===saleQty&&Number.isFinite(quote.net)&&quote.net>0){lot=quote.net;saleItems.push(itemId);}
         }
-        // What the batch makes beyond the sale (kept as working stock) is worth
-        // what it would sell for too, as held stock is charged when used.
-        // (The batch makes qty, or qty x multiplier once re-sized to sell.)
-        const made=saleQty>0?qty*multiplier:qty,kept=Math.max(0,made-(proceeds>0?saleQty:0));
-        if(kept>0)proceeds+=kept*((planner.stockValue??planner.saleValue)(p,itemId,Math.max(1,Math.round(kept)))??0);
+        // What the batches make beyond the sale (kept as working stock) is
+        // worth what it would sell for too, as held stock is charged when used.
+        const made=qty*batches,kept=Math.max(0,made-(lot>0?saleQty:0));
+        if(kept>0)lot+=kept*((planner.stockValue??planner.saleValue)(p,itemId,Math.max(1,Math.round(kept)))??0);
+        proceeds+=lot/batches;
         // Gathered quality output (legendary included) and the bonus drop count
         // at market value; quality ore is sold (marketQuality), the rest kept.
         if(c.qualityPerAction&&actions>0) {
