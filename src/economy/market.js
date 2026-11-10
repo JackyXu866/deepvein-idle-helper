@@ -59,9 +59,9 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   // Planning valuations only; every actual order re-checks the live book.
   let feed=null;
   const feedTtl=900000;
-  // Several days of feed prices and observed trades (market-history.js). Only
-  // the page records and saves it (`historyStorage`, its own key, never the
-  // planning ledger); the Worker reads the copy handed over with the runtime.
+  // The week's trades seen in live books and their median (market-history.js).
+  // Only the page records and saves it (`historyStorage`, its own key, never
+  // the planning ledger); the Worker reads the copy handed over with the runtime.
   const history=createMarketHistory({now});
   let historySavedAt=-Infinity;
   if(historyStorage)try {history.load(historyStorage.getItem(MARKET_HISTORY_KEY));}catch{}
@@ -70,16 +70,18 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     historySavedAt=now();
     try {historyStorage.setItem(MARKET_HISTORY_KEY,history.text());}catch{}
   }
-  // Every item's hourly book price (price-series.js): its week's median checks
-  // the feed's average for items whose live book was never read. Recorded by
-  // the page (IndexedDB, `seriesStore`); the Worker gets the medians.
+  // Every item's hourly prices (price-series.js): the typical book price checks
+  // the feed's average for items whose live book was never read, and both it
+  // and the typical bid cap spikes. Recorded by the page (IndexedDB,
+  // `seriesStore`); the Worker gets the medians.
   const series=createPriceSeries({now,store:seriesStore});
-  // A price more than 20% above both the week's and the last day's average is
-  // a spike: valuations of future output use that ceiling instead (a real bid
-  // is still sold into at its price). Without history the price stands.
+  // A price more than 20% above its typical level (the higher of the week's
+  // and the last day's median) is a spike: valuations of future output use
+  // that ceiling instead (a real bid is still sold into at its price).
+  // Without half a day of samples the price stands.
   const spikeMargin=1.2;
   function steady(id,price,side) {
-    const typical=Math.max(history.averagePrice(id,{side})??0,history.averagePrice(id,{side,hours:24})??0);
+    const typical=side==='bid'?series.typicalBid(id):series.bookMedian(id);
     return typical>0&&price>typical*spikeMargin?Math.floor(typical*spikeMargin):price;
   }
   let need=null,recentOwned=[],reviewOrderId=null,status=salesEnabled?
@@ -352,12 +354,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
       items[id]={ask:price(row.lowestSell),askQty:amount(row.sellQty),bid:price(row.highestBuy),bidQty:amount(row.buyQty),avg:price(Math.round(row.avg7d??0)),vol:amount(row.vol7d)};
     }
     feed={at,items};
-    // History keeps tradable ids, ordinary items before their quality and
-    // enhancement variants, sampled at the feed's own time.
-    const kept=Object.entries(items).map(([key,row])=>[Number(key),row]).filter(([id])=>
-      !!data.items[planner.base(id)]&&tradableBase(data,planner.base(id))).sort(([a],[b])=>
-      (a!==planner.base(a))-(b!==planner.base(b))||a-b);
-    if(history.recordFeed(kept,generated))saveHistory(true);
+    // Sampled at the feed's own time.
     series.record(items,generated);
     return true;
   }
@@ -1254,13 +1251,13 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   const summary=()=>`${status}${buybackSummary()}${feedSummary()}；成交净收入 ${state?.income??0}，采购支出 ${state?.spent??0}，自有挂单 ${Object.keys(state?.owned??{}).length}；近一小时补药承诺 ${potionBudgetSpent()}`+
     (procurement?.enabled?`；按收益／节时采购，无固定金币底线和小时限额；近一小时承诺 ${purchaseSpent()}`:'');
   function runtime(value) {
-    if(value) {({saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status}=value);if('buyback' in value)buyback=value.buyback;if('feed' in value)feed=value.feed;if(value.history)history.adopt(value.history);if(value.bookMedians)series.adopt(value.bookMedians);state=playerId===null?null:playerState(playerId);}
-    return {saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status,buyback,feed,history:history.state(),bookMedians:series.medians()};
+    if(value) {({saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status}=value);if('buyback' in value)buyback=value.buyback;if('feed' in value)feed=value.feed;if(value.history)history.adopt(value.history);if(value.priceMedians)series.adopt(value.priceMedians);state=playerId===null?null:playerState(playerId);}
+    return {saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status,buyback,feed,history:history.state(),priceMedians:series.medians()};
   }
   // deepveinDebug(): the store's size and age, and each watched sale item at a glance.
-  const historyReport=()=>({...history.summary(),series:series.summary(),watched:Object.fromEntries(watched.map(id=>[itemName(data,id),history.describe(id)]))});
+  const historyReport=()=>({...history.summary(),series:series.summary(),watched:Object.fromEntries(watched.map(id=>[itemName(data,id),{...history.describe(id),...series.describe(id)}]))});
   return {runtime,receive,next,sale,loadSeries:series.load,bookMedian:series.bookMedian,purchase,restockPotion,restockIngredient,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setBuyback,setPriceFeed,unitValue,askPrice,closed,sells,saleable,tradeRows,tradeAnomalies:()=>tradeScan.anomalies,priceFeedAge:()=>feed?now()-feed.at:null,
-    averagePrice:history.averagePrice,dailyVolume:history.dailyVolume,priceTrend:history.priceTrend,historyReport,
+    dailyVolume:history.dailyVolume,historyReport,
     configureProcurement,equipmentPurchase,foodPurchase,buffFood,potionDose,marketBuyPrice,surplusValue,watchPurchases:scan,
     purchaseAllowance:(p,goal)=>{select(p);return purchaseAllowance(p,goal);}};
 }

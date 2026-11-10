@@ -73,8 +73,8 @@ Every file under `src/` and what it owns. Before writing logic, find the module 
 
 **`economy/`**
 - `market.js`: quotes and the price feed, buying, selling (day-average pricing, batching), the market ledger, the closed-market rule, whether stock is ever sold (`sells`).
-- `market-history.js`: several days of prices and trades per item.
-- `price-series.js`: every listed item's book price (lowest ask, else best bid) once an hour from the public feed; the week in memory gives each item its median (`bookMedian`), thirty days on disk (IndexedDB `deepvein-price-series`, the page only); the Worker gets the medians with the market runtime.
+- `market-history.js`: the week's trades seen in live books per item and their median (`tradeMedian`), at most 400 ids (a book read evicts the id seen longest ago).
+- `price-series.js`: the one record of feed prices: every listed item's book price (lowest ask, else best bid) and best bid once an hour; the week in memory gives each item its typical book price (`bookMedian`) and bid (`typicalBid`), each the higher of the week's and the last day's median (12 samples at least); thirty days on disk (IndexedDB `deepvein-price-series`, the page only); the Worker gets the medians with the market runtime. A price over 1.2x its typical level is a spike, capped there when valuing future output (`steady` in market.js).
 - `economy.js`: maintenance at task boundaries: the gear step, enhancing and the page switch, sales and deposits.
 - `wiring.js`: connects the planner's market hooks, alike on the page and in the Worker.
 
