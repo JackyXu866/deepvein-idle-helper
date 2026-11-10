@@ -38,6 +38,9 @@ test('a week\'s average more than twice the lowest ask is a freak trade: the ask
   // 2026-11-09: a Voidmelon seed (yew's bonus drop) averaged 1,061,038 while asked at 1,800.
   const seed = desk({lowestSell: 1800, sellQty: 3, highestBuy: null, buyQty: 0, avg7d: 1061038, vol7d: 68});
   assert.ok(seed.market.unitValue(seed.p, seed.item, 1) <= 1800, 'valued at the ask at most, not the average');
+  // 2026-11-10: the same seed with no ask left, bid at 1,000.
+  const bidOnly = desk({lowestSell: null, sellQty: 0, highestBuy: 1000, buyQty: 5, avg7d: 1016281, vol7d: 71});
+  assert.ok(bidOnly.market.unitValue(bidOnly.p, bidOnly.item, 1) <= 1000, 'no ask: valued at the bid, not the average');
   const fair = desk({...liquid, lowestSell: 100, avg7d: 190});
   assert.ok(fair.market.unitValue(fair.p, fair.item, 1) > 150, 'within twice the ask: the average (190, less tax) stands');
 });
