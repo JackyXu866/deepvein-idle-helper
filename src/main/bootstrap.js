@@ -12,6 +12,7 @@ import {HOUSE_ACTIONS} from '../planner/housing.js';
 import {NAMES, createPlanner} from '../planner/planner.js';
 import {createEconomy} from '../economy/economy.js';
 import {createMarket} from '../economy/market.js';
+import {indexedDbStore} from '../economy/price-series.js';
 import {createNativeBossJoinCapture} from '../runtime/world-boss.js';
 import {HISTORY_SIZE, MODE_LABELS, SOFT_ACTIONS, Trainer, acknowledged, isGuildRefusal} from '../runtime/trainer.js';
 import {CLIENT_ASSET, refreshGameData} from '../data/public-tables.js';
@@ -76,7 +77,9 @@ import {itemLabel, packQty} from '../planner/items.js';
   const enhancementStore=enhancementStorage(localStorage);
   planner.enhancementTraining=createEnhancementTraining(GAME_DATA,planner,enhancementStore);
   let economy=createEconomy(GAME_DATA,planner,{autoSell,capacitySales,sellCrafted});
-  const market=createMarket(GAME_DATA,planner,{now:()=>Date.now(),storage:localStorage,historyStorage:localStorage,autoSell,capacitySales});
+  const market=createMarket(GAME_DATA,planner,{now:()=>Date.now(),storage:localStorage,historyStorage:localStorage,
+    seriesStore:indexedDbStore(window.indexedDB),autoSell,capacitySales});
+  market.loadSeries().catch(()=>{});
   const procurementKey='deepvein-procurement-v1';
   let procurement;
   try {procurement=market.configureProcurement(JSON.parse(localStorage.getItem(procurementKey)||'{}'));}

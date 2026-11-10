@@ -134,7 +134,7 @@ export function runPlanning(data,input,inspectOnly=false) {
 // stay, and a query the page has already answered is not asked again.
 export function mergeMarketRuntime(page,worker) {
   if(!page||!worker)return worker;
-  if(page.playerId!==worker.playerId)return {...worker,history:page.history??worker.history};
+  if(page.playerId!==worker.playerId)return {...worker,history:page.history??worker.history,bookMedians:page.bookMedians??worker.bookMedians};
   const newest=(a,b)=>(b?.at??-Infinity)>(a?.at??-Infinity)?b:a;
   const byNewest=(mine,theirs)=>{const out=new Map(theirs);for(const [id,v]of mine??[])out.set(id,newest(out.get(id),v));return out;};
   const quotes=byNewest(page.quotes,worker.quotes),tops=byNewest(page.tops,worker.tops);
@@ -143,8 +143,8 @@ export function mergeMarketRuntime(page,worker) {
   for(const [id,r]of page.requests??[])requests.set(id,r);
   const bookRequests=new Map(worker.bookRequests);
   for(const [id,r]of page.bookRequests??[])bookRequests.set(id,r);
-  // Only the page records market history; the Worker's copy is the one it was handed.
-  return {...worker,quotes,tops,requests,bookRequests,feed:newest(worker.feed,page.feed),history:page.history??worker.history,
+  // Only the page records market history and the price series; the Worker's copy is the one it was handed.
+  return {...worker,quotes,tops,requests,bookRequests,feed:newest(worker.feed,page.feed),history:page.history??worker.history,bookMedians:page.bookMedians??worker.bookMedians,
     lastQuery:Math.max(page.lastQuery??-Infinity,worker.lastQuery??-Infinity),lastSync:Math.max(page.lastSync??-Infinity,worker.lastSync??-Infinity)};
 }
 export function applyPlanning(trainer,planner,economy,market,result,storage) {

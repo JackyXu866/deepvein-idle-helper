@@ -6,6 +6,7 @@ import {expectedEnhancement} from '../planner/investment.js';
 import {goldToSeconds, maxPrice, pays, secondsToGold} from '../planner/gold.js';
 import {bankTripSeconds, dayTicks as dayTicksOf, playerQueued, distance, itemLabel, itemName, merchantPrice, minListPrice, netProceeds, plusOf, rarityOf, reachableQty, shopPrice, stockQty, tradableBase} from '../planner/items.js';
 import {MARKET_HISTORY_KEY, createMarketHistory} from './market-history.js';
+import {createPriceSeries} from './price-series.js';
 
 // Price grid (client Nb/Vn/ih/Zm; refusal 'market-price-step'): a price must be
 // a multiple of a step that grows with it: 1 below 100, then 2, 5 or 10 times
@@ -29,7 +30,7 @@ export function priceUp(price) {
 
 // Limit orders can rest after a partial fill. Track only orders we submitted;
 // inventory removed into escrow is not evidence of a sale or realized income.
-export function createMarket(data,planner,{now=Date.now,storage=null,historyStorage=null,autoSell=false,capacitySales=false}={}) {
+export function createMarket(data,planner,{now=Date.now,storage=null,historyStorage=null,seriesStore=null,autoSell=false,capacitySales=false}={}) {
   const key='deepvein-market-v1',ttl=15000,waitMs=4000,coolMs=30000;
   // One cadence for the helper's own listings: reviewed (re-priced, merged,
   // giving up a slot) and one sale per item every three hours. Thirty minutes
@@ -69,6 +70,10 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     historySavedAt=now();
     try {historyStorage.setItem(MARKET_HISTORY_KEY,history.text());}catch{}
   }
+  // Every item's hourly book price (price-series.js): its week's median checks
+  // the feed's average for items whose live book was never read. Recorded by
+  // the page (IndexedDB, `seriesStore`); the Worker gets the medians.
+  const series=createPriceSeries({now,store:seriesStore});
   // A price more than 20% above both the week's and the last day's average is
   // a spike: valuations of future output use that ceiling instead (a real bid
   // is still sold into at its price). Without history the price stands.
@@ -353,6 +358,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
       !!data.items[planner.base(id)]&&tradableBase(data,planner.base(id))).sort(([a],[b])=>
       (a!==planner.base(a))-(b!==planner.base(b))||a-b);
     if(history.recordFeed(kept,generated))saveHistory(true);
+    series.record(items,generated);
     return true;
   }
   const feedFresh=()=>!!feed&&now()-feed.at<feedTtl;
@@ -708,19 +714,19 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   // week's trades the book showed (history.tradeMedian) is replaced by that
   // median. One Bogskin chaps sold for 120,000,000 among trades of 600-3,600
   // made its 7-day average 1,072,910, and a listing went up at 1,060,000.
-  // Nor more than twice what the book shows: anyone can buy at the lowest
-  // ask, so a price far above it is a freak trade's; and without a median, an
-  // average more than twice the best bid (no ask) is not trusted either. The
-  // book's price then stands in. A Voidmelon seed (a yew bonus drop, never
-  // sold, so its book never read) "averaged" about 1,000,000 while asked at
-  // 1,800, later bid at 1,000 with no ask, which made yew look worth 3.2M/h
-  // instead of about 0.7M/h.
+  // Nor more than twice what the book shows, which then stands in. With a
+  // trade median, the lowest ask (anyone can buy at it). Without one, the
+  // week's median of the hourly book price (price-series.js: lowest ask, else
+  // best bid), else the current book. A Voidmelon seed (a yew bonus drop,
+  // never sold, so its book never read) "averaged" about 1,000,000 while asked
+  // at 1,800, later bid at 1,000 with no ask, which made yew look worth
+  // 3.2M/h instead of about 0.7M/h.
   const MIN_WEEK_VOLUME=7,OUTLIER=2;
   const marketPrice=id=>{const row=feedRow(id);
     let price=(row?.vol>=MIN_WEEK_VOLUME?row.avg:null)??history.tradePrice(id)??null;
     const median=history.tradeMedian(id);
     if(price>0&&median>0&&(price>median*OUTLIER||price*OUTLIER<median))price=median;
-    const book=row?.ask>0?row.ask:median>0?null:row?.bid>0?row.bid:null;
+    const book=median>0?(row?.ask>0?row.ask:null):series.bookMedian(id)??(row?.ask>0?row.ask:row?.bid>0?row.bid:null);
     if(price>0&&book>0&&price>book*OUTLIER)price=book;
     return price>0?Math.min(price,shopPrice(data,id)??Infinity):price;};
   // Units the market takes a day: the feed's 7-day volume, else what was watched.
@@ -1248,12 +1254,12 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   const summary=()=>`${status}${buybackSummary()}${feedSummary()}；成交净收入 ${state?.income??0}，采购支出 ${state?.spent??0}，自有挂单 ${Object.keys(state?.owned??{}).length}；近一小时补药承诺 ${potionBudgetSpent()}`+
     (procurement?.enabled?`；按收益／节时采购，无固定金币底线和小时限额；近一小时承诺 ${purchaseSpent()}`:'');
   function runtime(value) {
-    if(value) {({saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status}=value);if('buyback' in value)buyback=value.buyback;if('feed' in value)feed=value.feed;if(value.history)history.adopt(value.history);state=playerId===null?null:playerState(playerId);}
-    return {saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status,buyback,feed,history:history.state()};
+    if(value) {({saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status}=value);if('buyback' in value)buyback=value.buyback;if('feed' in value)feed=value.feed;if(value.history)history.adopt(value.history);if(value.bookMedians)series.adopt(value.bookMedians);state=playerId===null?null:playerState(playerId);}
+    return {saved,savedText,storageReadable,playerId,orders,ordersKnown,revision,taxBp,snapshotTick,quotes,requests,cooldowns,lastQuery,lastSync,procurement,tops,bookRequests,equipmentScan,foodScan,watched,potionWatched,watchCursor,priorityItem,salesEnabled,capacitySalesEnabled,need,recentOwned,reviewOrderId,status,buyback,feed,history:history.state(),bookMedians:series.medians()};
   }
   // deepveinDebug(): the store's size and age, and each watched sale item at a glance.
-  const historyReport=()=>({...history.summary(),watched:Object.fromEntries(watched.map(id=>[itemName(data,id),history.describe(id)]))});
-  return {runtime,receive,next,sale,purchase,restockPotion,restockIngredient,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setBuyback,setPriceFeed,unitValue,askPrice,closed,sells,saleable,tradeRows,tradeAnomalies:()=>tradeScan.anomalies,priceFeedAge:()=>feed?now()-feed.at:null,
+  const historyReport=()=>({...history.summary(),series:series.summary(),watched:Object.fromEntries(watched.map(id=>[itemName(data,id),history.describe(id)]))});
+  return {runtime,receive,next,sale,loadSeries:series.load,bookMedian:series.bookMedian,purchase,restockPotion,restockIngredient,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setBuyback,setPriceFeed,unitValue,askPrice,closed,sells,saleable,tradeRows,tradeAnomalies:()=>tradeScan.anomalies,priceFeedAge:()=>feed?now()-feed.at:null,
     averagePrice:history.averagePrice,dailyVolume:history.dailyVolume,priceTrend:history.priceTrend,historyReport,
     configureProcurement,equipmentPurchase,foodPurchase,buffFood,potionDose,marketBuyPrice,surplusValue,watchPurchases:scan,
     purchaseAllowance:(p,goal)=>{select(p);return purchaseAllowance(p,goal);}};
