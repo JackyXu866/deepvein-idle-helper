@@ -1,6 +1,6 @@
 {
   "name": "deepvein-idle-helper",
-  "version": "0.14.21",
+  "version": "0.14.22",
   "private": true,
   "description": "Deep Vein Idle userscript, built from src/ modules",
   "type": "module",

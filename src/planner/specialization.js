@@ -46,8 +46,8 @@ export function createSpecialization(data,planner) {
         // The output of the batches a sale takes (one, or as many as reach a
         // lot worth listing), priced per batch: the rate stays one batch's
         // value over one batch's time. (Re-estimating 50 actions per batch
-        // while counting a whole batch's output once made yew logs, held back
-        // by a fletching stage, look worth 3.2M an hour instead of 0.7M.)
+        // while counting a whole batch's output could make yew logs, held back
+        // by a fletching stage, look worth 2.4M an hour instead of 0.7M.)
         const batches=saleQty>0?multiplier:1;
         let lot=0;
         // Protected potions, seeds, food reserves and gear are not sale income.

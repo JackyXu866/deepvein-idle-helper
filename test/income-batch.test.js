@@ -7,8 +7,8 @@ import {makePlanner, player} from './helpers.js';
 
 // 2026-11-09: a fletching stage held back the bank's yew logs, so a sale took
 // two or three batches. The gold table re-estimated 50 actions a batch but
-// counted a whole batch's logs (about 450 actions) for each: yew showed 3.2M
-// an hour instead of about 0.7M, and gold was earned there instead of mining.
+// counted a whole batch's logs (about 450 actions) for each: yew could show
+// 2.4M an hour instead of about 0.7M.
 function yewRate(reserved) {
   const planner = makePlanner(), d = planner.data, clock = 1_000_000_000;
   const market = createMarket(d, planner, {autoSell: true, now: () => clock});

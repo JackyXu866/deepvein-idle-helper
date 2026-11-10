@@ -708,11 +708,17 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   // week's trades the book showed (history.tradeMedian) is replaced by that
   // median. One Bogskin chaps sold for 120,000,000 among trades of 600-3,600
   // made its 7-day average 1,072,910, and a listing went up at 1,060,000.
+  // Nor more than twice the lowest ask: anyone can buy at that ask, so a price
+  // far above it is a freak trade's, and the ask stands in. A Voidmelon seed
+  // (a yew bonus drop, never sold, so its book never read) "averaged"
+  // 1,061,038 while asked at 1,800, which made yew look worth 3.2M/h
+  // instead of about 0.7M/h.
   const MIN_WEEK_VOLUME=7,OUTLIER=2;
   const marketPrice=id=>{const row=feedRow(id);
     let price=(row?.vol>=MIN_WEEK_VOLUME?row.avg:null)??history.tradePrice(id)??null;
     const median=history.tradeMedian(id);
     if(price>0&&median>0&&(price>median*OUTLIER||price*OUTLIER<median))price=median;
+    if(price>0&&row?.ask>0&&price>row.ask*OUTLIER)price=row.ask;
     return price>0?Math.min(price,shopPrice(data,id)??Infinity):price;};
   // Units the market takes a day: the feed's 7-day volume, else what was watched.
   const dailyTurnover=id=>{const v=feedRow(id)?.vol;return v>0?v/7:history.dailyVolume(id);};

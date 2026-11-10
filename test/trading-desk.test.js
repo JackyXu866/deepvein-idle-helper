@@ -31,8 +31,15 @@ test('a listing well under the market price of a liquid item is a trade; thin or
   const thin = desk({...liquid, vol7d: 3});
   assert.equal(thin.market.tradeRows(thin.p).length, 0, 'three trades a week prove no price');
   const absurd = desk({...liquid, avg7d: 100000});
-  assert.equal(absurd.market.tradeRows(absurd.p).length, 0, 'over 5x the cost: shown, not traded');
-  assert.equal(absurd.market.tradeAnomalies().length, 1);
+  assert.equal(absurd.market.tradeRows(absurd.p).length, 0, 'an average a thousand times the ask is a freak trade, not a price');
+});
+
+test('a week\'s average more than twice the lowest ask is a freak trade: the ask stands in', () => {
+  // 2026-11-09: a Voidmelon seed (yew's bonus drop) averaged 1,061,038 while asked at 1,800.
+  const seed = desk({lowestSell: 1800, sellQty: 3, highestBuy: null, buyQty: 0, avg7d: 1061038, vol7d: 68});
+  assert.ok(seed.market.unitValue(seed.p, seed.item, 1) <= 1800, 'valued at the ask at most, not the average');
+  const fair = desk({...liquid, lowestSell: 100, avg7d: 190});
+  assert.ok(fair.market.unitValue(fair.p, fair.item, 1) > 150, 'within twice the ask: the average (190, less tax) stands');
 });
 
 test('the desk buys at a stop, then lists the goods by the sale rule, even with everyday selling off', () => {
