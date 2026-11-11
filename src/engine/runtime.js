@@ -81,9 +81,11 @@ export function simulate(api, you, activity, {hours = 1, seed = 1, foodItemId = 
     foodMaxTier: 4, foodPerTrip: -1, eatAt: .5, ironman: false, brewTier: {},
     // A new character's values (client 1.0.12xx new-player record) for state
     // the engine copies whole: skill bosses, alchemy, decorations, attacks.
-    skillboss: null, skillbossBurn: {}, skillbossFeedTicks: {}, skillbossFed: {}, toolSkins: [], toolSkinsOff: [],
+    // skillbossPending: client index-B2g2JEXj (2026-11-10) copies it with .map.
+    skillboss: null, skillbossPending: [], skillbossBurn: {}, skillbossFeedTicks: {}, skillbossFed: {}, toolSkins: [], toolSkinsOff: [],
     bossMarks: [], decosOwned: [], houseTrophies: {}, houseDecos: {}, attacks: [], attack: null, alchemyLog: {},
     alchemy: {carry: {house: 0, boss: 0, enhance: 0, xp: 0}, energy: 0, energyTick: start}, masterySkills: {}, masteryOther: null,
+    masteryPage: 1, masteryAway: {},
     contract: null, order: null, foodKeepFree: 0, plotChoice: {},
     ...copy,
     // The engine reads every perk and slot directly; a missing key would turn
