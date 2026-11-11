@@ -22,7 +22,9 @@ export const foodReserve=p=>Math.max(WORKING_STOCK,foodCarry(p)*3);
 // taken at the most, not added).
 function plansOf(planner,p,goal) {
   const development=(goal?.development||goal?.quest)&&planner.developmentRuntime?.();
-  return [...new Set([goal,...goal?.reservedGoals??[],...planner.parkedGoals?.()??[],
+  // The player's savings target is a standing plan: its gold is always kept.
+  const savings=planner.savingsTarget>0?[{budget:{coins:planner.savingsTarget,items:{}}}]:[];
+  return [...new Set([goal,...goal?.reservedGoals??[],...planner.parkedGoals?.()??[],...savings,
     ...(development?.owner===p.id?[development.focus,...Object.values(development.parked)]:[])])].filter(Boolean);
 }
 // The coins every spender leaves alone (buying, housing, maintenance, the

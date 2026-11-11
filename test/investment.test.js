@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {expectedEnhancement} from '../src/planner/investment.js';
 import {PAYBACK_MARGIN, byReturn, payback, secondsSaved} from '../src/planner/gold.js';
 import {planEnhancement} from '../src/planner/enhancement.js';
+import {coinReserve} from '../src/planner/inventory.js';
 import {makePlanner, player} from './helpers.js';
 
 function fighter(coins = 20000) {
@@ -74,6 +75,25 @@ test('funding: a worthwhile unaffordable step is funded on the best gold job, re
   // Rich enough: nothing to fund.
   const rich = fighter(5_000_000);
   assert.equal(rich.planner.fundingGoal(rich.p, 'melee', {}, null), null);
+});
+
+test('a savings target is funded first, then kept: gear is funded and bought only from the gold above it', () => {
+  // 2026-11-10: the player buys from stronger players, often cheaper than the market.
+  const {planner, p} = fighter(5_000_000);
+  assert.equal(planner.fundingGoal(p, 'melee', {}, null), null, 'rich enough for every pick');
+  planner.savingsTarget = 20_000_000;
+  const saving = planner.fundingGoal(p, 'melee', {}, null);
+  assert.equal(saving?.funding.key, 'savings');
+  assert.equal(saving.funding.gold, 20_000_000);
+  assert.ok(saving.rate.coins > 0, 'on the best gold job');
+  assert.equal(coinReserve(planner, p, null), 20_000_000, 'every spender keeps it, whatever the goal');
+  // Met: kept; a gear pick is funded on top of it, never paid out of it.
+  const met = {...p, coins: 21_000_000};
+  const gear = planner.fundingGoal(met, 'melee', {}, null);
+  const head = planner.investmentOptions(met, 'melee', null).filter(r => r.cheapest && r.gold > 0).sort(byReturn)[0];
+  assert.equal(head.affordable, head.gold <= 1_000_000, 'only the 1M above the target is spendable');
+  if (!head.affordable) assert.equal(gear?.funding.gold, head.gold + 20_000_000, 'funded on top of the savings');
+  assert.equal(coinReserve(planner, met, null), 20_000_000);
 });
 
 test('funding goes down the slots\' picks by return per gold, and waits while the head is affordable', () => {

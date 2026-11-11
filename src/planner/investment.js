@@ -453,7 +453,8 @@ export function createInvestments(data,planner) {
       try {entry={key,tick:p.lastTick,rows:compute(p,style,goal)};} finally {computing=false;}
       cache=[entry,...kept].slice(0,4);
     }
-    return entry.rows.map(row=>({...row,affordable:row.gold<=p.coins,project:goal?.upgrade?.slot===row.slot&&goal.upgrade.id===row.id}));
+    const spendable=p.coins-(planner.savingsTarget??0);
+    return entry.rows.map(row=>({...row,affordable:row.gold<=spendable,project:goal?.upgrade?.slot===row.slot&&goal.upgrade.id===row.id}));
   }
   const fundingKey=row=>`${row.kind}:${row.id}`;
   // How gold is earned whenever gold is needed (funding, a plan short of
@@ -473,15 +474,29 @@ export function createInvestments(data,planner) {
   // only while the improvement is still worth it at the latest prices.
   // Funded in the gold's order (byReturn): the head of the queue; while the
   // head is affordable it is being bought or made, and nothing is funded past it.
+  // The player's savings target (planner.savingsTarget, set on the panel in
+  // M: gold kept for buying from other players, often cheaper than the
+  // market) is funded the same way, first; once met it stays reserved
+  // (inventory.js plansOf), and gear is affordable only from what lies above it.
   function fundingGoal(p,style,deferred={},goal=null) {
+    const savings=planner.savingsTarget??0,ticks=Math.ceil(FUNDING_CHECK_SECONDS*1000/data.tickMs);
+    if(savings>0&&p.coins<savings) {
+      const choice=earningGoal(p,style,deferred);
+      if(!choice)return null;
+      const label=`攒钱目标 ${(savings/1e6).toFixed(1)}M`;
+      return {...choice,target:planner.thresholds.length,funding:{key:'savings',gold:savings,label,until:p.lastTick+ticks},
+        budget:{...choice.budget,coins:Math.max(choice.budget?.coins??0,savings)},horizon:FUNDING_CHECK_SECONDS,
+        reason:`${label}（现有 ${(p.coins/1e6).toFixed(1)}M）：做金币最高的工作直到攒够；攒够后这笔钱一直保留，不被买装备、强化等花掉`};
+    }
     const row=options(p,style,goal).filter(r=>r.cheapest&&r.gold>0).sort(byReturn)[0];
     if(!row||row.affordable)return null;
     const choice=earningGoal(p,style,deferred);
     if(!choice)return null;
-    const ticks=Math.ceil(FUNDING_CHECK_SECONDS*1000/data.tickMs);
-    return {...choice,target:planner.thresholds.length,funding:{key:fundingKey(row),gold:row.gold,label:row.label,until:p.lastTick+ticks},
-      budget:{...choice.budget,coins:Math.max(choice.budget?.coins??0,row.gold)},horizon:FUNDING_CHECK_SECONDS,
-      reason:`筹资：${row.label} 约 ${row.gold.toLocaleString()} 金币（含失败重来），按 ${Math.round(row.useSeconds/3600)} 小时使用期可省约 `+
+    // On top of the savings target: the coins to hold are both.
+    const gold=row.gold+savings;
+    return {...choice,target:planner.thresholds.length,funding:{key:fundingKey(row),gold,label:row.label,until:p.lastTick+ticks},
+      budget:{...choice.budget,coins:Math.max(choice.budget?.coins??0,gold)},horizon:FUNDING_CHECK_SECONDS,
+      reason:`筹资：${row.label} 约 ${row.gold.toLocaleString()} 金币（含失败重来）${savings>0?`，另保留攒钱目标 ${(savings/1e6).toFixed(1)}M`:''}，按 ${Math.round(row.useSeconds/3600)} 小时使用期可省约 `+
         `${(row.saved/3600).toFixed(1)} 小时，赚这笔钱约 ${(row.paid/3600).toFixed(1)} 小时；做金币最高的工作直到凑够，每小时按最新价格复核一次是否仍值得`};
   }
   function runtime(value) {

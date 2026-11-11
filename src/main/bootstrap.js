@@ -74,6 +74,12 @@ import {itemLabel, packQty} from '../planner/items.js';
   let profitFloor=0;
   try {profitFloor=validProfitFloor(Number(localStorage.getItem(profitFloorKey)));}catch{}
   planner.profitFloor=profitFloor;
+  // Savings target (攒钱目标), in coins; set on the overview in M.
+  const savingsKey='deepvein-savings-target-v1';
+  const validSavings=value=>Number.isFinite(value)&&value>0?Math.min(1e10,Math.floor(value)):0;
+  let savingsTarget=0;
+  try {savingsTarget=validSavings(Number(localStorage.getItem(savingsKey)));}catch{}
+  planner.savingsTarget=savingsTarget;
   const enhancementStore=enhancementStorage(localStorage);
   planner.enhancementTraining=createEnhancementTraining(GAME_DATA,planner,enhancementStore);
   let economy=createEconomy(GAME_DATA,planner,{autoSell,capacitySales,sellCrafted});
@@ -271,7 +277,7 @@ import {itemLabel, packQty} from '../planner/items.js';
     const url=URL.createObjectURL(new Blob([PLANNING_WORKER_SOURCE],{type:'text/javascript'}));
     try{return new Worker(url);}finally{URL.revokeObjectURL(url);}
   }):null;
-  const planningSettings=()=>({autoSell,capacitySales,sellCrafted,autoFallback,autoHousing,automation,potionRestock,profitFloor,hotFollow:trainer.getHotFollow()});
+  const planningSettings=()=>({autoSell,capacitySales,sellCrafted,autoFallback,autoHousing,automation,potionRestock,profitFloor,savingsTarget,hotFollow:trainer.getHotFollow()});
   function planningStorage() {
     return Object.fromEntries(PLANNING_STORAGE_KEYS.map(key=>[key,localStorage.getItem(key)]));
   }
@@ -295,7 +301,7 @@ import {itemLabel, packQty} from '../planner/items.js';
     trainer.mainMonsterId,trainer.player?.skills,trainer.player?.bank,trainer.player?.pack,trainer.player?.equipment,
     trainer.player?.plots,trainer.goal,planner.farmingPreference(),
     !!panel?.querySelector('[data-economy-details]')?.open,!!panel?.querySelector('[data-equipment-details]')?.open,
-    planDetailsWanted(),profitFloor]);
+    planDetailsWanted(),profitFloor,savingsTarget]);
   // A result is discarded when the state changed while it was computed. Should
   // that repeat (something keeps changing), say what and plan on the page once,
   // so the helper never sits idle on discarded results.
@@ -1625,6 +1631,11 @@ import {itemLabel, packQty} from '../planner/items.js';
               <p data-reason></p>
             </div>
             <div class="card">
+              <div class="card-heading"><strong>攒钱</strong><span data-savings-status>未设置</span></div>
+              <label>攒到（M 金币）<input type="number" min="0" step="0.1" inputmode="decimal" data-savings aria-label="攒钱目标（M 金币）"></label>
+              <p class="fine-print">和筹资买装备同一套规则：没攒够时做金币效率最高的工作，攒够后这笔钱一直保留，不被买装备、强化等花掉，买装备只用多出来的钱。每日任务照常先做。0 为不攒。</p>
+            </div>
+            <div class="card">
               <div class="card-heading"><strong>农田</strong><span data-farm-fields>等待田地状态</span></div>
               <div class="farm-counts">
                 <div class="farm-count-item"><b data-farm-ready>—</b><span>待收获</span></div>
@@ -1953,6 +1964,7 @@ import {itemLabel, packQty} from '../planner/items.js';
       render();
     };
     panel.querySelector('[data-profit-floor]').onchange=event=>setProfitFloor(Number(event.currentTarget.value));
+    panel.querySelector('[data-savings]').onchange=event=>setSavingsTarget(Number(event.currentTarget.value)*1e6);
     panel.querySelector('[data-main-trade]').onchange=event=>{
       if(trainer.mode==='business'){++startCheck;checking=false;}
       trainer.setMainTrade(event.currentTarget.value);
@@ -2572,6 +2584,14 @@ import {itemLabel, packQty} from '../planner/items.js';
     catch {trainer.log('最低收益设置无法保存，刷新后恢复为不限制');}
     render();
   }
+  function setSavingsTarget(value) {
+    savingsTarget=validSavings(value);planner.savingsTarget=savingsTarget;
+    try {localStorage.setItem(savingsKey,String(savingsTarget));}
+    catch {trainer.log('攒钱目标无法保存，刷新后恢复为不攒');}
+    // A new target is weighed at once, not at the end of the current funding hour.
+    if(trainer.goal?.funding)trainer.goal={...trainer.goal,funding:{...trainer.goal.funding,until:0}};
+    trainer.nextAction=0;render();pump();
+  }
   const fmt=n=>Number.isFinite(n)?Math.round(n).toLocaleString('zh-CN'):'—';
   const el=(tag,props={},children=[])=>{const node=Object.assign(document.createElement(tag),props);node.append(...children);return node;};
   // Rebuild a container only when its content changed (render runs every second).
@@ -2711,6 +2731,10 @@ import {itemLabel, packQty} from '../planner/items.js';
     panel.querySelector('[data-profit-floor-controls]').hidden=trainer.mode!=='experience';
     const floorInput=panel.querySelector('[data-profit-floor]');
     if(document.activeElement!==floorInput)floorInput.value=String(profitFloor);
+    const savingsInput=panel.querySelector('[data-savings]'),inM=n=>`${(n/1e6).toFixed(1)}M`;
+    if(document.activeElement!==savingsInput)savingsInput.value=savingsTarget?String(savingsTarget/1e6):'';
+    panel.querySelector('[data-savings-status]').textContent=!savingsTarget?'未设置':!p?`目标 ${inM(savingsTarget)}`:
+      p.coins>=savingsTarget?`已攒够 ${inM(p.coins)} / ${inM(savingsTarget)}，保留中`:`${inM(p.coins)} / ${inM(savingsTarget)}，还差 ${inM(savingsTarget-p.coins)}`;
     if(planDetailsWanted()) {
       let view=null;
       try{view=background?planningView?.plan??null:p?planView(GAME_DATA,planner,trainer,p,{boss:trainer.boss.status()}):null;}catch{view=null;}
