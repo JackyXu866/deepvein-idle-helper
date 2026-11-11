@@ -20,7 +20,7 @@ import {createTownOrders} from './town-orders.js';
 import {createHousing} from './housing.js';
 import {perkOverview} from './perks.js';
 import {chooseFallback} from './fallback.js';
-import {createInvestments, expectedEnhancement} from './investment.js';
+import {attemptProtection, createInvestments, expectedEnhancement} from './investment.js';
 import {mountSupplyStep} from './mounts.js';
 import {slotsFor} from './gear.js';
 import {FORGE_LADDER, createCollectionMastery, forgePoints, forgeReached} from './collection.js';
@@ -491,7 +491,7 @@ export function createPlanner(data) {
     if(plus(copy.id)>=t.toPlus)return null;
     const q=enhanceQuote(data,api,p,copy.id);
     if(p.coins<q.gold||api.count(p,data.shardId)<q.shards)return null;
-    return action({t:'enhance',itemId:copy.id,toPlus:plus(copy.id)+1,once:true,...(copy.slot?{worn:copy.slot}:{})},
+    return action({t:'enhance',itemId:copy.id,toPlus:plus(copy.id)+1,once:true,...(copy.slot?{worn:copy.slot}:{}),...attemptProtection(data,api,p,copy.id)},
       `补精通 · 强化记录 ${itemLabel(data,copy.id)} → +${plus(copy.id)+1}`,
       `目标 +${t.toPlus}，${per}（含强化期间工作页加成损失${t.saving>0?`，已扣在用装备变强省下的约 ${Math.round(t.saving).toLocaleString()} 金币`:''}）；比当前收藏更划算，强化在后台进行`);
   }

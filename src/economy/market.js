@@ -2,7 +2,7 @@ import {autoUsableMaterial, buyableItem, pricePerEffect, rarityPower, usableQual
 import {action, waiting} from '../planner/result.js';
 import {POTIONS, foodEffects, foodHealing} from '../planner/supplies.js';
 import {ENHANCEMENT_MAX, coinReserve, enhanceQuote, inventoryBudget, reviewInventory, saleProtectionReason} from '../planner/inventory.js';
-import {expectedEnhancement} from '../planner/investment.js';
+import {attemptProtection, expectedEnhancement} from '../planner/investment.js';
 import {goldToSeconds, maxPrice, pays, secondsToGold} from '../planner/gold.js';
 import {bankTripSeconds, dayTicks as dayTicksOf, playerQueued, distance, itemLabel, itemName, merchantPrice, minListPrice, netProceeds, plusOf, rarityOf, reachableQty, shopPrice, stockQty, tradableBase} from '../planner/items.js';
 import {MARKET_HISTORY_KEY, createMarketHistory} from './market-history.js';
@@ -1127,7 +1127,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
         const quote=enhanceQuote(data,planner,p,held.id);
         if(!(quote.chance>0)||p.coins-coinReserve(planner,p,goal)<quote.gold||quantity(p,data.shardId)<quote.shards){status='倒卖强化：金币或碎片不足，等待';continue;}
         status=`倒卖强化 ${labelOf(held.id)} → +${t.toPlus}`;
-        return action({t:'enhance',itemId:held.id,toPlus:plusOf(data,held.id)+1,once:true},
+        return action({t:'enhance',itemId:held.id,toPlus:plusOf(data,held.id)+1,once:true,...attemptProtection(data,planner,p,held.id)},
           `倒卖强化 · ${labelOf(held.id)} → +${plusOf(data,held.id)+1}`,`目标 +${t.toPlus} 后按市场价出售`);
       }
       // Resell at the sale rule's price, a tenth of a day's turnover at a time.

@@ -2,6 +2,7 @@ import {gearRequirementOf, professionSkill, statsDominate} from './professions.j
 import {fitsSlot, shieldless} from './gear.js';
 import {ENHANCEMENT_BASELINE, ENHANCEMENT_MAX, enhanceQuote} from './inventory.js';
 import {heldIds, itemLabel, plusOf} from './items.js';
+import {attemptProtection} from './investment.js';
 
 // Marks an attempt before sending, so a refresh or an unconfirmed command is
 // never sent twice. Whether to try again after a failure (back to +0) is the
@@ -153,12 +154,13 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
   const budget={coins:otherCoins+quote.gold,items:{...goal?.budget?.items,[data.shardId]:otherShards+quote.shards}};
   const enhancement={itemId,slot,toPlus:quote.toPlus,quote,gold:quote.gold,shards:quote.shards};
   const label=`${slot?'强化在用装备':'强化仓库装备（变强后换上）'} · ${itemLabel(data,itemId%data.plusScale)} +${quote.toPlus}`;
+  const protection=attemptProtection(data,planner,p,itemId);
   const reason=`本次成功率 ${(quote.chance*100).toFixed(0)}%；消耗 ${quote.gold} 金币、${quote.shards} 碎片，获得 ${quote.xp} 强化经验；`+
-    (quote.chance<1?'失败会回到 +0；':'')+
-    `保留其它计划预算，按投资表强化到 +${chosen.toPlus}；逐级确认，失败回到 +0 后按投资表重新判断是否再试`;
+    (quote.chance<1?protection.protectFrom!=null?'失败用掉 1 张保护卷轴、掉 1 级（比回到 +0 重来省）；':'失败会回到 +0；':'')+
+    `保留其它计划预算，按投资表强化到 +${chosen.toPlus}；逐级确认，失败后按投资表重新判断是否再试`;
   const result={intent:null,label,reason,enhancement,budget};
   if(p.coins<budget.coins)return {...result,needs:{itemId:data.coinId,quantity:budget.coins},reason:`准备强化金币：需要 ${budget.coins}，当前 ${p.coins}；${reason}`};
   if(planner.count(p,data.shardId)<budget.items[data.shardId])return {...result,
     needs:{itemId:data.shardId,quantity:budget.items[data.shardId]},reason:`准备强化碎片：需要 ${budget.items[data.shardId]}，当前 ${planner.count(p,data.shardId)}；${reason}`};
-  return {...result,intent:{t:'enhance',itemId,toPlus:quote.toPlus,once:true,...(slot?{worn:slot}:{})}};
+  return {...result,intent:{t:'enhance',itemId,toPlus:quote.toPlus,once:true,...(slot?{worn:slot}:{}),...protection}};
 }

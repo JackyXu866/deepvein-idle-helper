@@ -23,25 +23,53 @@ export function slotChoice(rows) {
   return rows.filter(r=>r.net>=top.net*NEAR_NET).reduce((a,r)=>r.gain>a.gain||r.gain===a.gain&&r.net>a.net?r:a);
 }
 
-// Expected gold and shards to take an item from its current +N to `toPlus`.
-// A failed attempt resets it to +0, so step k costs (g + (1-s)·E_k)/s, where
-// E_k is the expected cost of rebuilding +k from +0 (client 1.0.1189 odds).
+// A failed attempt resets the item to +0, unless it is protected (client BO,
+// old rules while enhanceRedesign is off): from +2 up, with a Protection
+// scroll held, the failure takes one scroll and drops one level instead.
+// Each step is protected when that is cheaper: step k costs, unprotected,
+// (g + (1-s)·R_k)/s, where R_k rebuilds +k from +0, and protected
+// (g + (1-s)·(scroll + T_{k-1}))/s, where T_{k-1} climbs back from +k-1.
+// Scrolls are priced at their market value and only while some are held (the
+// helper does not buy them); their value is in `gold`, their count in
+// `scrolls`. 2026-11-10: without it, a legendary mount +0 to +20 priced at
+// 258 billion while one sold for 400M.
+export const PROTECTION_SCROLL=359,PROTECT_FROM=2;
 export function expectedEnhancement(data,planner,p,itemId,toPlus) {
-  return enhancementLadder(data,planner,p,itemId,toPlus)[toPlus]??{gold:0,shards:0};
+  return enhancementLadder(data,planner,p,itemId,toPlus)[toPlus]??{gold:0,shards:0,scrolls:0};
 }
 // The same expected cost to every +k from the item's +N up to `toMax`, in one
 // pass (index k; below the item's +N, nothing): what the table reads.
+// `protect[k]`: whether the attempt at +k is protected.
 export function enhancementLadder(data,planner,p,itemId,toMax=ENHANCEMENT_MAX) {
-  const base=itemId%data.plusScale,from=plusOf(data,itemId),out=[];
-  let gold=0,shards=0,fromGold=0,fromShards=0;
+  const base=itemId%data.plusScale,from=plusOf(data,itemId),out=[];out.protect=[];
+  // At their market value: both are kept from sale (stockValue would say 0),
+  // yet a scroll used is one fewer to sell or one more to buy.
+  const scroll=(planner.count?.(p,PROTECTION_SCROLL)??0)>0?planner.saleValue?.(p,PROTECTION_SCROLL,1)??0:null;
+  const shardValue=planner.saleValue?.(p,data.shardId,1)??0;
+  const value=x=>x.gold+x.shards*shardValue+x.scrolls*(scroll??0);
+  let built={gold:0,shards:0,scrolls:0},start=null,below=null;
   for(let k=0;k<toMax;k++) {
     const quote=enhanceQuote(data,planner,p,base+k*data.plusScale),s=quote.chance;
-    if(!(s>0)){for(let j=Math.max(k,from)+1;j<=toMax;j++)out[j]={gold:Infinity,shards:Infinity};break;}
-    gold+=(quote.gold+(1-s)*gold)/s;shards+=(quote.shards+(1-s)*shards)/s;
-    if(k+1===from){fromGold=gold;fromShards=shards;}
-    if(k+1>from)out[k+1]={gold:gold-fromGold,shards:shards-fromShards};
+    if(!(s>0)){for(let j=Math.max(k,from)+1;j<=toMax;j++)out[j]={gold:Infinity,shards:Infinity,scrolls:0};break;}
+    let step={gold:(quote.gold+(1-s)*built.gold)/s,shards:(quote.shards+(1-s)*built.shards)/s,scrolls:(1-s)*built.scrolls/s};
+    if(scroll!=null&&k>=PROTECT_FROM&&below) {
+      const kept={gold:(quote.gold+(1-s)*below.gold)/s,shards:(quote.shards+(1-s)*below.shards)/s,scrolls:(1-s)*(1+below.scrolls)/s};
+      if(value(kept)<value(step)){step=kept;out.protect[k]=true;}
+    }
+    if(k===from)start={...built};
+    built={gold:built.gold+step.gold,shards:built.shards+step.shards,scrolls:built.scrolls+step.scrolls};below=step;
+    if(k+1>from) {
+      const scrolls=built.scrolls-start.scrolls;
+      out[k+1]={gold:built.gold-start.gold+scrolls*(scroll??0),shards:built.shards-start.shards,scrolls};
+    }
   }
   return out;
+}
+// The enhance command's protection for one attempt on `itemId`: protectFrom at
+// its +N when the ladder protects that step, else nothing.
+export function attemptProtection(data,planner,p,itemId) {
+  const n=plusOf(data,itemId);
+  return enhancementLadder(data,planner,p,itemId,n+1).protect[n]?{protectFrom:n}:{};
 }
 
 export function createInvestments(data,planner) {
