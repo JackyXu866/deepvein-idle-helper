@@ -254,6 +254,7 @@ export const GAME_LABELS_ZH={
   "Potato seed": "土豆种子",
   "Pouch of gems": "宝石袋",
   "Protection scroll": "保护卷轴",
+  "Pure coal": "纯煤炭",
   "Rare": "稀有",
   "Relic stall": "遗物摊",
   "Reliquary vestry": "圣物储藏室",

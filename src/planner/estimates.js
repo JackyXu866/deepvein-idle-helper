@@ -12,7 +12,9 @@ export function workEstimate(data, job, skillLevel, options={}) {
   const burn=failure(job.burn), caught=failure(job.caught), success=1-burn-caught;
   // A stun ending at tick t+s suppresses s-1 subsequent trials.
   const ticks=Math.max(1,job.baseTicks/speed)+caught*Math.max(0,(job.caught?.stunTicks??0)-1);
-  const randomRarity=!job.inputs.length&&job.output.itemId!==data.coinId;
+  // A plain job (client `plain`: Pure coal) is always common; luck never makes
+  // its output rarer. It counts its own XP and output as common only.
+  const randomRarity=!job.inputs.length&&job.output.itemId!==data.coinId&&!job.plain;
   // One roll against every threshold, scaled by (1+luck)×bonuses: rarityFactor
   // (rarity.js) is that whole product. Without it: luck alone.
   const rolled=rarityOdds(data,options.rarityFactor??1+(options.luck??0));
