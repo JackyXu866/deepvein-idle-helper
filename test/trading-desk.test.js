@@ -87,6 +87,9 @@ test('a piece worth more at +N is bought, then enhanced one step at a time towar
   const row = market.tradeRows(p).find(r => r.kind === 'enhance');
   assert.equal(row?.toPlus, 3, JSON.stringify(market.tradeRows(p)));
   market.next(p);
+  // First the book of the piece it becomes: nobody sells a +3 cheaper.
+  market.receive({tick: 100001, m: [{t: 'marketDepth', itemId: blade + 3 * P, bids: [], asks: [{price: 59000, qty: 1}], trades: []}]});
+  market.next(p);
   market.receive({tick: 100001, m: [{t: 'marketDepth', itemId: blade, bids: [], asks: [{price: 1000, qty: 5}], trades: []}]});
   const plan = market.next(p);
   assert.deepEqual(plan?.intent, {t: 'marketBuy', itemId: blade, qty: 1, price: 1000});
@@ -95,4 +98,27 @@ test('a piece worth more at +N is bought, then enhanced one step at a time towar
   market.receive({tick: 100010, m: [{t: 'snapshot', you: after, orders: []}]});
   market.next(after);
   assert.deepEqual(market.next(after)?.intent, {t: 'enhance', itemId: blade, toPlus: 1, once: true}, 'enhanced beside the work');
+});
+
+test('no piece is bought to enhance when the piece it becomes is already on sale under the resale price', () => {
+  // 2026-11-10: an epic Scale quiver bought to make +5 against a 3.9M average
+  // while eleven +5s sat at 2.45M; it was listed at 2.4M, under its cost.
+  const planner = makePlanner(), d = planner.data, P = d.plusScale;
+  planner.coinRate = () => 100;
+  const blade = d.gear.find(g => g.slot === 'weapon' && d.items[g.itemId].name.startsWith('Cobalt blade')).itemId;
+  let clock = 1_000_000_000;
+  const market = createMarket(d, planner, {autoSell: false, now: () => clock});
+  const p = player(planner, {lastTick: 100000, coins: 10_000_000, x: d.banks[0].x, y: d.banks[0].y, route: null, path: null, activity: 'idle',
+    levels: {enhancing: 60}, bank: {[d.shardId]: 5000}});
+  market.receive({tick: 100000, m: [{t: 'welcome', you: p, orders: []}]});
+  market.configureProcurement({enabled: true});
+  market.setPriceFeed({generatedAt: new Date(clock).toISOString(), items: {
+    [blade]: {lowestSell: 1000, sellQty: 5, avg7d: 1200, vol7d: 70},
+    [blade + 3 * P]: {avg7d: 60000, vol7d: 70}}}, clock);
+  assert.deepEqual(market.next(p)?.intent ?? market.query(p), {t: 'marketDepth', itemId: blade + 3 * P}, 'the +3 book is read first');
+  market.receive({tick: 100001, m: [{t: 'marketDepth', itemId: blade + 3 * P, bids: [], asks: [{price: 30000, qty: 11}], trades: []}]});
+  assert.equal(market.next(p)?.intent?.t, undefined, 'eleven +3s at half the average: not bought');
+  clock += 60000;
+  assert.equal(market.next(p)?.intent?.t, undefined);
+  assert.notEqual(market.query(p)?.itemId, blade + 3 * P, 'set aside: its book is not read again within the hour');
 });

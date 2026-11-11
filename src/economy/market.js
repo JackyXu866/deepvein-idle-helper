@@ -1147,17 +1147,25 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     const allowance=purchaseAllowance(p,goal),open=Object.values(trades).reduce((n,t)=>n+t.cost,0);
     // At most half the allowance in open trades, a fifth in any one.
     const room=Math.min(allowance*TRADE_SHARE-open,allowance*.2);
-    const row=tradeRows(p).find(r=>r.ask*r.qty<=room&&!trades[r.kind==='enhance'?`line:${lineOf(r.id)}`:`id:${r.id}`]&&
+    const skips=state.tradeSkips??={},skipKey=r=>`${r.kind}:${r.id}:${r.sellId}`;
+    for(const [key,until]of Object.entries(skips))if(!(until>now()))delete skips[key];
+    const row=tradeRows(p).find(r=>r.ask*r.qty<=room&&!trades[r.kind==='enhance'?`line:${lineOf(r.id)}`:`id:${r.id}`]&&!skips[skipKey(r)]&&
       (r.kind!=='enhance'||quantity(p,data.shardId)>=expectedEnhancement(data,planner,p,r.id,r.toPlus).shards));
     if(!row)return null;
     // A resale lists no lower than 90% of the market price: buy only when no
-    // seller would be left under that after this purchase, or it never sells.
-    if(row.kind==='flip') {
-      const book=quote(row.id);
-      if(book.waiting)return wait('倒卖：核对实时卖盘');
-      if(book.fallback)return null;
-      const floor=Math.ceil(marketPrice(row.id)*FAIR),under=book.asks.filter(a=>a.price<floor).reduce((n,a)=>n+a.qty,0);
-      if(under>row.qty){status=`倒卖：${labelOf(row.id)} 低价卖单共 ${under}，买不完，转卖时会被压价，跳过`;return null;}
+    // seller of what is resold would be left under that after this purchase,
+    // or it never sells (a flip buys those asks itself; an enhancement buys a
+    // lower piece, so any ask of the piece it becomes counts). 2026-11-10: an
+    // epic Scale quiver was bought to make +5 at an expected 2.5M against a
+    // 3.9M average, while eleven +5s were on sale at 2.45M; it went up at 2.4M.
+    // A trade set aside waits an hour (a new feed), not a book read a minute.
+    const book=quote(row.sellId);
+    if(book.waiting)return wait('倒卖：核对实时卖盘');
+    if(book.fallback)return null;
+    const floor=Math.ceil(marketPrice(row.sellId)*FAIR),under=book.asks.filter(a=>a.price<floor).reduce((n,a)=>n+a.qty,0);
+    if(under>(row.kind==='flip'?row.qty:0)) {
+      skips[skipKey(row)]=now()+3600000;persist();
+      status=`倒卖：${labelOf(row.sellId)} 低于市场价九成的卖单共 ${under}，转卖时会被压价，跳过一小时`;return null;
     }
     const result=buy(p,row.id,row.qty,goal,row.kind==='enhance'?'倒卖：买入后强化':'倒卖：低于市场价买入',
       row.kind==='enhance'?`买入后强化到 +${row.toPlus}（期望花费含失败重来），按市场价卖出，预计每件赚约 ${Math.round(row.unit)} 金币`:
