@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {PROTECTION_SCROLL, attemptProtection, enhancementLadder, expectedEnhancement} from '../src/planner/investment.js';
+import {PROTECTION_SCROLL, attemptProtection, enhancementLadder, expectedEnhancement, scrollShortfall} from '../src/planner/investment.js';
 import {enhanceQuote} from '../src/planner/inventory.js';
 import {makePlanner, player} from './helpers.js';
 
@@ -40,6 +40,21 @@ test('a protected step costs (g + (1-s)(scroll + the step below)) / s', () => {
   // gold includes the scrolls' value: (g + (1-s)(800k + below)) / s
   assert.ok(Math.abs(here.gold - (q.gold + (1 - s) * (800000 + below.gold)) / s) < 1e-3 * here.gold, `${here.gold}`);
   assert.ok(Math.abs(here.shards - (q.shards + (1 - s) * below.shards) / s) < 1e-6 * here.shards);
+});
+
+test('with no scroll held, scrolls are priced at their ask and the climb\'s scrolls are bought before a protected step', () => {
+  const {planner, d, p} = setup(0);
+  planner.marketAsk = (_p, id) => id === PROTECTION_SCROLL ? 1_000_000 : null;
+  const ten = amulet % d.plusScale + 10 * d.plusScale;
+  const ladder = enhancementLadder(d, planner, p, ten, 15);
+  assert.ok(ladder.protect[10], 'priced with bought scrolls');
+  const want = scrollShortfall(d, planner, p, ten, 15);
+  assert.equal(want, Math.max(1, Math.ceil(ladder[15].scrolls)));
+  assert.deepEqual(attemptProtection(d, planner, p, ten), {}, 'never sent without a scroll: the game would stop');
+  assert.equal(scrollShortfall(d, planner, {...p, bank: {[PROTECTION_SCROLL]: 1}}, ten, 15), 0, 'one held: go on');
+  assert.equal(scrollShortfall(d, planner, p, amulet % d.plusScale, 1), 0, 'an unprotected step needs none');
+  planner.marketAsk = () => null;
+  assert.equal(scrollShortfall(d, planner, p, ten, 15), 0, 'none on sale: priced and run unprotected');
 });
 
 test('the enhance command carries protectFrom on a protected step, and nothing without scrolls', () => {

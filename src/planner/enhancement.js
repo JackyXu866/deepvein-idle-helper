@@ -2,7 +2,7 @@ import {gearRequirementOf, professionSkill, statsDominate} from './professions.j
 import {fitsSlot, shieldless} from './gear.js';
 import {ENHANCEMENT_BASELINE, ENHANCEMENT_MAX, enhanceQuote} from './inventory.js';
 import {heldIds, itemLabel, plusOf} from './items.js';
-import {attemptProtection} from './investment.js';
+import {PROTECTION_SCROLL, attemptProtection, scrollShortfall} from './investment.js';
 
 // Marks an attempt before sending, so a refresh or an unconfirmed command is
 // never sent twice. Whether to try again after a failure (back to +0) is the
@@ -162,5 +162,9 @@ export function planEnhancement(data,planner,p,style='magic',goal=null) {
   if(p.coins<budget.coins)return {...result,needs:{itemId:data.coinId,quantity:budget.coins},reason:`准备强化金币：需要 ${budget.coins}，当前 ${p.coins}；${reason}`};
   if(planner.count(p,data.shardId)<budget.items[data.shardId])return {...result,
     needs:{itemId:data.shardId,quantity:budget.items[data.shardId]},reason:`准备强化碎片：需要 ${budget.items[data.shardId]}，当前 ${planner.count(p,data.shardId)}；${reason}`};
+  // A protected step with no scroll held: the climb's scrolls are bought first.
+  const scrolls=scrollShortfall(data,planner,p,itemId,chosen.toPlus);
+  if(scrolls>0)return {...result,budget:{...budget,items:{...budget.items,[PROTECTION_SCROLL]:scrolls}},
+    needs:{itemId:PROTECTION_SCROLL,quantity:scrolls},reason:`准备保护卷轴：强化到 +${chosen.toPlus} 预计用 ${scrolls} 张，手上没有；${reason}`};
   return {...result,intent:{t:'enhance',itemId,toPlus:quote.toPlus,once:true,...(slot?{worn:slot}:{}),...protection}};
 }

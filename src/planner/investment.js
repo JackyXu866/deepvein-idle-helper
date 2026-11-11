@@ -43,8 +43,10 @@ export function expectedEnhancement(data,planner,p,itemId,toPlus) {
 export function enhancementLadder(data,planner,p,itemId,toMax=ENHANCEMENT_MAX) {
   const base=itemId%data.plusScale,from=plusOf(data,itemId),out=[];out.protect=[];
   // At their market value: both are kept from sale (stockValue would say 0),
-  // yet a scroll used is one fewer to sell or one more to buy.
-  const scroll=(planner.count?.(p,PROTECTION_SCROLL)??0)>0?planner.saleValue?.(p,PROTECTION_SCROLL,1)??0:null;
+  // yet a scroll used is one fewer to sell; without one held, at its ask
+  // (bought before the step, scrollShortfall); with no ask either, none.
+  const held=(planner.count?.(p,PROTECTION_SCROLL)??0)>0,ask=held?null:planner.marketAsk?.(p,PROTECTION_SCROLL);
+  const scroll=held?planner.saleValue?.(p,PROTECTION_SCROLL,1)??0:ask>0?ask:null;
   const shardValue=planner.saleValue?.(p,data.shardId,1)??0;
   const value=x=>x.gold+x.shards*shardValue+x.scrolls*(scroll??0);
   let built={gold:0,shards:0,scrolls:0},start=null,below=null;
@@ -66,10 +68,19 @@ export function enhancementLadder(data,planner,p,itemId,toMax=ENHANCEMENT_MAX) {
   return out;
 }
 // The enhance command's protection for one attempt on `itemId`: protectFrom at
-// its +N when the ladder protects that step, else nothing.
+// its +N when the ladder protects that step and a scroll is held (the game
+// stops a protected enhance with none), else nothing.
 export function attemptProtection(data,planner,p,itemId) {
   const n=plusOf(data,itemId);
-  return enhancementLadder(data,planner,p,itemId,n+1).protect[n]?{protectFrom:n}:{};
+  return (planner.count?.(p,PROTECTION_SCROLL)??0)>0&&enhancementLadder(data,planner,p,itemId,n+1).protect[n]?{protectFrom:n}:{};
+}
+// Scrolls to buy before the next attempt on `itemId` toward `toPlus`: when its
+// step is protected and none is held, the climb's expected scrolls (at least
+// one); else 0. Every enhancing path asks this before its attempt.
+export function scrollShortfall(data,planner,p,itemId,toPlus) {
+  if((planner.count?.(p,PROTECTION_SCROLL)??0)>0)return 0;
+  const n=plusOf(data,itemId),ladder=enhancementLadder(data,planner,p,itemId,Math.max(n+1,toPlus));
+  return ladder.protect[n]?Math.max(1,Math.ceil(ladder[Math.max(n+1,toPlus)]?.scrolls??1)):0;
 }
 
 export function createInvestments(data,planner) {
