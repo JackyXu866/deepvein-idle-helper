@@ -15,7 +15,7 @@ export const SWITCH_MARGIN=1.1;
 export const outscores=(candidate,current)=>candidate>current*SWITCH_MARGIN;
 // Bumped whenever the work or combat formula gains a bonus it used to leave
 // to the learnt efficiency.
-export const FORMULA_VERSION=2;
+export const FORMULA_VERSION=3;
 
 // A rolling comparison of attainable routes, including their self-supply work.
 // Gold is a constraint from an actual planned expense, never an XP conversion.

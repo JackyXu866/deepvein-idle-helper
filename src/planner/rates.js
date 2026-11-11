@@ -7,8 +7,35 @@ import {rarityFactor, toolSlotFor} from './rarity.js';
 import {houseBonus} from './house-bonus.js';
 import {WORK_PAGE, pageRanks} from './mastery-pages.js';
 import {GATHER_SKILLS, masteryLift} from '../engine/mastery-rules.js';
+import {brewPower} from './supplies.js';
 
 export {toolSlotFor};
+
+// The game's XP multiplier on every action (client JX and fm for work, Xpo
+// for combat): the XP-gain mastery (+0.5% a rank), the elixir (+10%), the
+// Vein Blessing (+5%), the guild bonus, and for work with no inputs the
+// gatherer's brew (+10%), for mining, fishing, woodcutting and farming the
+// packed (+5%) and hearty (+10%) lunches, and for work each piece of a boss
+// set whose skills include it (+2%, +2% more for all three). The town event
+// and the hot-skill window are left out: they last hours, and hot-follow
+// weighs the window itself. (Without it, every rate learnt from the game
+// was about 1.5x the formula: the XP mastery alone is +31% at 62 ranks.)
+const LUNCH_SKILLS=['mining','fishing','woodcutting','farming'];
+const BOSS_SETS=[{items:[741,742,743],skills:['mining','smithing']},{items:[744,745,746],skills:['fishing','cooking']},
+  {items:[747,748,749],skills:['woodcutting','fletching']}];
+function bossSetXp(data,equipment,skill) {
+  const pieces=['helmet','body','legs'].filter(slot=>{const id=equipment?.[slot];
+    return Number.isFinite(id)&&BOSS_SETS.some(set=>set.items.includes(id%data.rarityScale)&&set.skills.includes(skill));}).length;
+  return pieces*.02+(pieces===3?.02:0);
+}
+export function xpLift(data,p,skill,{work=false,gathering=false}={}) {
+  const brew=kind=>brewPower(data,p,kind);
+  let lift=(1+.1*brew('elixir'))*((p.brews?.blessing??0)>p.lastTick?1.05:1)*(1+(p.guildBonus??0))*
+    masteryLift(pageRanks(p,WORK_PAGE),'xp');
+  if(gathering)lift*=1+.1*brew('gatherer');
+  if(gathering&&LUNCH_SKILLS.includes(skill))lift*=(1+.05*brew('packed-lunch'))*(1+.1*brew('hearty-lunch'));
+  return work?lift*(1+bossSetXp(data,p.equipment,skill)):lift;
+}
 
 // Tool bonus, perks, the house room and mastery speeding the skill (the work
 // page's ranks), and the quality factor (rarity.js: tool and amulet luck,
@@ -21,7 +48,8 @@ export function workInputs(data,planner,p,job,equipment=p.equipment,quality=0) {
   return {toolBonus:planner.equipmentStats(tool)?.bonus??0,quick:p.perks?.quick??0,hands:p.perks?.hands??0,
     home:houseBonus(data,p,['gatherSpeed','craftSpeed'],job.skill),
     mastery:masteryLift(pageRanks(p,WORK_PAGE),GATHER_SKILLS.includes(job.skill)?'gather':'craft'),
-    luck:rarity.luck,rarityFactor:rarity.factor};
+    luck:rarity.luck,rarityFactor:rarity.factor,
+    xpLift:xpLift(data,{...p,equipment},job.skill,{work:true,gathering:!job.inputs.length})};
 }
 export const formulaWork=(data,planner,p,job,lv=planner.levels(p),equipment=p.equipment)=>
   workEstimate(data,job,lv[job.skill],workInputs(data,planner,p,job,equipment));
@@ -42,7 +70,7 @@ export function combatStats(data,planner,p,profession,equipment=p.equipment,lv=p
   const sum=k=>gear.reduce((n,g)=>n+(k==='defence'||!g.style||g.style===style?1:-1)*(g[k]??0),0);
   const rarity=rarityFactor(data,planner,p,style,{equipment,...qualityOf(quality)}),ranks=pageRanks(p,WORK_PAGE);
   return {style,level:lv[style],accuracy:sum('accuracy'),strength:sum('strength'),defence:sum('defence'),
-    defenceLevel:lv.defence,speed:weapon?.speed??5,twoHanded:weapon?.twoHanded,luck:rarity.luck,
+    defenceLevel:lv.defence,speed:weapon?.speed??5,twoHanded:weapon?.twoHanded,luck:rarity.luck,xpLift:xpLift(data,p,style),
     damageLift:(1+houseBonus(data,p,'dmg',style))*masteryLift(ranks,'maxhit'),accuracyLift:masteryLift(ranks,'accuracy'),
     rarity:{factor:rarity.factor,dropFactor:rarity.dropFactor}};
 }

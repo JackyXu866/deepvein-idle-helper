@@ -17,7 +17,8 @@ export function workEstimate(data, job, skillLevel, options={}) {
   // (rarity.js) is that whole product. Without it: luck alone.
   const rolled=rarityOdds(data,options.rarityFactor??1+(options.luck??0));
   const probabilities=randomRarity?rolled:[1,0,0,0,0];
-  const xp=success*probabilities.reduce((sum,p,i)=>sum+p*Math.round(job.xp*data.rarityXp[i]),0);
+  // XP per action: the quality's XP times the game's multiplier (rates.js xpLift).
+  const xp=success*probabilities.reduce((sum,p,i)=>sum+p*Math.round(job.xp*data.rarityXp[i]*(options.xpLift??1)),0);
   return {seconds:ticks*data.tickMs/1000,success,burn,caught,xp,
     commonOutput:success*probabilities[0]*job.output.qty,
     // Expected output of each quality per action, and of the bonus drop.
@@ -63,8 +64,9 @@ export function combatEstimate(data, monster, stats) {
   // prevent an enemy attack. No regeneration or damage-reduction buffs counted.
   const damage=seconds/(monster.speed*data.tickMs/1000)*enemyHit*(monster.maxHit+1)/2;
   const shards=Math.min(.2,.08+monster.level*.0013)*(1+Math.floor(monster.level/30));
-  return {seconds,attacks,maxHit,hitChance,effectiveDefence,enemyHit,damage,mainXp:monster.xp,
-    xp:monster.xp+2*Math.max(1,Math.floor(monster.xp/3)),shards,
+  const xpLift=stats.xpLift??1;
+  return {seconds,attacks,maxHit,hitChance,effectiveDefence,enemyHit,damage,mainXp:monster.xp*xpLift,
+    xp:(monster.xp+2*Math.max(1,Math.floor(monster.xp/3)))*xpLift,shards,
     coins:(monster.gold[0]+monster.gold[1])/2,drops:combatDrops(data,monster,stats.rarity??stats.luck??0,shards)};
 }
 
