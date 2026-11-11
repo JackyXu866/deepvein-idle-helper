@@ -2,15 +2,22 @@ import {spentPoints, totalCost} from '../engine/mastery-rules.js';
 import {action} from './result.js';
 
 // Mastery pages (client 1.0.1210): a second page, bought once, spends the same
-// collection points again; switching is free and, since 1.0.1213, has no
-// cooldown (the game only suggests the better page; it never switches itself).
+// collection points again; switching is free. The active page's ranks are in
+// `masteries`; the others in `masteryAway` by page number (client
+// index-B2g2JEXj, up to three pages; earlier clients kept the one other page
+// in `masteryOther`). The game now also switches by itself to a page a skill
+// is linked to (`masterySkills`) when a route or enhancing starts, but never
+// back for a skill linked to none (2026-11-10: enhancing linked to page 2 left
+// the account on page 2 while mining, and the helper, reading `masteryOther`,
+// saw one page and spent work points on page 2).
 // The helper keeps page 1 for work and page 2 for enhancing only: enhancing is
 // priced with page 2's odds, and runs only while page 2 is active.
 export const WORK_PAGE=1,ENHANCE_PAGE=2;
 // Enhance odds: +0.25% per rank, capped at x1.5 (200 ranks).
 export const ENHANCE_PER_RANK=.0025,ENHANCE_RANK_CAP=200;
-export const hasEnhancePage=p=>p?.masteryOther!=null;
-export const pageRanks=(p,page)=>((p?.masteryPage??WORK_PAGE)===page?p?.masteries:p?.masteryOther)??{};
+const away=(p,page)=>p?.masteryAway?p.masteryAway[page]:p?.masteryOther;
+export const hasEnhancePage=p=>(p?.masteryPage??WORK_PAGE)===ENHANCE_PAGE||away(p,ENHANCE_PAGE)!=null;
+export const pageRanks=(p,page)=>((p?.masteryPage??WORK_PAGE)===page?p?.masteries:away(p,page))??{};
 // The enhance ranks enhancing runs with: page 2 holds every point there (as
 // many ranks as the points spent on either page buy, up to the cap; points
 // earned later count once they are spent); without a second page, the one

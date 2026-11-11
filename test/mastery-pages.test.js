@@ -32,6 +32,20 @@ test('the helper switches to page 2 to enhance and back to page 1 after, with no
   assert.equal(pageStep({masteries: work, masteryPage: 1, masteryOther: null}, true), null, 'no second page');
 });
 
+test('the current client keeps other pages in masteryAway: page 2 is seen, work ranks read, and the helper switches back', () => {
+  // 2026-11-10 live state: page 2 active while mining (enhancing is linked to page 2).
+  const live = {masteryPage: 2, masteries: {enhance: 93}, masteryAway: {1: {xp: 62, gather: 38, craft: 48, move: 24, maxhit: 3, rare: 13}},
+    masterySkills: {enhancing: 2}, lastTick: 100000};
+  assert.deepEqual(pageStep(live, false).intent, {t: 'masteryPage', page: 1}, 'no enhancing wanted: back to the work page');
+  assert.equal(validateIntent(makePlanner().data, live, {t: 'masteryPage', page: 1}), true);
+  const planner = makePlanner(), tracks = ['xp', 'gather', 'craft', 'move', 'hp', 'maxhit', 'accuracy', 'rare', 'enhance'];
+  const choice = planner.masteryPlan(player(planner, live), null, {earned: 30000, tracks});
+  assert.deepEqual(Object.keys(choice?.intent?.ranks ?? {}), ['enhance'], 'page 2 gets enhance ranks only');
+  const work = {...live, masteryPage: 1, masteries: live.masteryAway[1], masteryAway: {2: {enhance: 93}}};
+  assert.equal(pageStep(work, true).intent.page, 2, 'page 2 is still known from page 1');
+  assert.equal(pageStep({...work, masteryAway: {}}, true), null, 'no second page bought');
+});
+
 test('page 2 buys enhance ranks only; page 1 never buys enhance', () => {
   const planner = makePlanner(), tracks = ['xp', 'gather', 'craft', 'move', 'hp', 'maxhit', 'accuracy', 'rare', 'enhance'];
   const p = player(planner, {masteries: {}, masteryPage: 2, masteryOther: work});
