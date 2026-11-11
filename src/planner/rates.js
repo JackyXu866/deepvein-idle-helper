@@ -1,6 +1,5 @@
 // The game formulas' inputs for one job or fight, with a given set of
-// equipment. strategy.estimateWork calibrates these with measurements; gear
-// comparisons use the formula on both sides of a swap.
+// equipment: every rate the planner uses (strategy.js adds only the death check).
 import {professionSkill} from './professions.js';
 import {combatEstimate, workEstimate} from './estimates.js';
 import {rarityFactor, toolSlotFor} from './rarity.js';
@@ -18,7 +17,7 @@ export {toolSlotFor};
 // packed (+5%) and hearty (+10%) lunches, and for work each piece of a boss
 // set whose skills include it (+2%, +2% more for all three). The town event
 // and the hot-skill window are left out: they last hours, and hot-follow
-// weighs the window itself. (Without it, every rate learnt from the game
+// weighs the window itself. (Without it, every rate measured in the game
 // was about 1.5x the formula: the XP mastery alone is +31% at 62 ranks.)
 const LUNCH_SKILLS=['mining','fishing','woodcutting','farming'];
 const BOSS_SETS=[{items:[741,742,743],skills:['mining','smithing']},{items:[744,745,746],skills:['fishing','cooking']},

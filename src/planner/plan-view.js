@@ -67,10 +67,10 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
       run.recipeId === c.recipeId && run.rarity === (c.rarity ?? 0));
     const rows = list.map(c => ({key: keyOf(c), label: label(c), skill: c.skill, skillName: NAMES[c.skill] ?? c.skill, xpH: c.rate.xp * 3600,
       // Gold as the gold table prices it; a job absent from it earns nothing there.
-      coinsH: (priced.get(keyOf(c)) ?? 0) * 3600, source: planner.rateSource?.(p, keyOf(c)) ?? 'formula', chosen: chosen(c)}));
+      coinsH: (priced.get(keyOf(c)) ?? 0) * 3600, chosen: chosen(c)}));
     const incomeView = income.map(r => ({key: r.key, label: `${label(r)}${r.goldRate ? '（金币效率）' : r.oneOff ? '（库存批次，一次性）' : ''}`,
       skill: r.skill, skillName: NAMES[r.skill] ?? r.skill, xpH: r.xp * 3600, coinsH: r.coins * 3600,
-      source: planner.rateSource?.(p, r.key) ?? 'formula', chosen: chosen(r), goldRate: !!r.goldRate, oneOff: r.oneOff}));
+      chosen: chosen(r), goldRate: !!r.goldRate, oneOff: r.oneOff}));
     frontier = profitFrontier(rows);
     const top = (sorted, keep) => {
       const shown = sorted.slice(0, 8), chosen = keep.find(r => r.chosen);
@@ -87,7 +87,7 @@ export function planView(data, planner, trainer, p, {boss = null, engineApi = nu
       xpBasis = ratings.basis;
       const rated = ratings.rows.map(r => {const key = jobKey(r.recipeId, r.rarity);
         return {key, label: label(r), skill: xpSkill, skillName: NAMES[xpSkill] ?? xpSkill, xpH: r.xp * 3600,
-          coinsH: (priced.get(key) ?? 0) * 3600, source: planner.rateSource?.(p, key) ?? 'formula',
+          coinsH: (priced.get(key) ?? 0) * 3600,
           chosen: r.recipeId === ratings.chosen.recipeId && r.rarity === ratings.chosen.rarity};});
       xpCandidates = top(rated, rated);
     } else {

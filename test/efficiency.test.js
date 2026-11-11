@@ -1,59 +1,38 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {equipmentKey, jobKey, levelsKey} from '../src/planner/keys.js';
+import {COMBAT_SKILLS, combatKey, equipmentKey, jobKey, levelsKey} from '../src/planner/keys.js';
 import {buffKey} from '../src/planner/supplies.js';
 import {makePlanner, player} from './helpers.js';
 
-// A measured route at `ratio` times the formula's XP rate, over `seconds`.
-function measure(planner, p, job, ratio, seconds) {
-  const formula = planner.byFormula(() => planner.estimateWork(p, job));
+// Every rate is the game's formula (the expected value); a measurement or an
+// engine simulation only marks a route that died in this state.
+function record(planner, p, key, skills, extra) {
   const lv = planner.levels(p);
-  return {[jobKey(job.id)]: {equipmentKey: equipmentKey(p), levelsKey: levelsKey([job.skill], s => lv[s]),
-    buffKey: buffKey(planner.data, p), seconds, travelSeconds: 0, samples: 10,
-    xp: formula.xp / formula.seconds * seconds * ratio, coins: 0}};
+  return {[key]: {equipmentKey: equipmentKey(p), levelsKey: levelsKey(skills, s => lv[s]),
+    buffKey: buffKey(planner.data, p), seconds: 3600, travelSeconds: 0, samples: 10, xp: 1e9, coins: 0, ...extra}};
 }
 
-test('a task keeps its learnt efficiency after a level-up, and one short sample barely moves it', () => {
+test('a measured stretch moves no rate: gathering, crafting and fights are the formula', () => {
   const planner = makePlanner(), d = planner.data;
-  const job = d.jobs.find(j => j.skill === 'smithing' && j.levelReq === 1 && j.inputs.length);
-  const p = player(planner, {levels: {smithing: 20}, lastTick: 1000});
-  planner.setMeasurements(measure(planner, p, job, 1.5, 3600));
-  const ratio = p => planner.estimateWork(p, job).xp / planner.byFormula(() => planner.estimateWork(p, job)).xp;
-  assert.ok(Math.abs(ratio(p) - 1.5) < 1e-9, 'learnt from an hour of smithing');
-
-  const levelled = player(planner, {levels: {smithing: 21}, lastTick: 1100});
-  planner.setMeasurements({});
-  assert.ok(Math.abs(ratio(levelled) - 1.5) < 1e-9, 'a level-up keeps it instead of the bare formula');
-  assert.equal(planner.rateSource(levelled, jobKey(job.id)), 'averaged');
-
-  planner.setMeasurements(measure(planner, levelled, job, .5, 60));
-  const after = ratio(levelled);
-  assert.ok(after > 1.45 && after < 1.5, `a noisy minute barely moves it: ${after}`);
+  const p = player(planner, {levels: {mining: 20, smithing: 20}, lastTick: 1000});
+  for (const job of [d.jobs.find(j => j.skill === 'mining' && j.levelReq === 1 && !j.inputs.length),
+    d.jobs.find(j => j.skill === 'smithing' && j.levelReq === 1 && j.inputs.length)]) {
+    const formula = planner.byFormula(() => planner.estimateWork(p, job));
+    planner.setMeasurements(record(planner, p, jobKey(job.id), [job.skill]));
+    assert.deepEqual(planner.estimateWork(p, job), formula, job.skill);
+  }
 });
 
-test('the efficiency fades with a one-day half-life and survives a planner restart', () => {
-  const planner = makePlanner(), d = planner.data, tickPerDay = 86400000 / d.tickMs;
-  const job = d.jobs.find(j => j.skill === 'smithing' && j.levelReq === 1 && j.inputs.length);
-  const p = player(planner, {levels: {smithing: 20}, lastTick: 1000});
-  planner.setMeasurements(measure(planner, p, job, 2, 3600));
-  planner.estimateWork(p, job);
-  const saved = planner.runtime().efficiency;
-  const fresh = makePlanner();
-  fresh.runtime({...fresh.runtime(), efficiency: JSON.parse(JSON.stringify(saved))});
-  const later = player(fresh, {levels: {smithing: 20}, lastTick: 1000 + tickPerDay});
-  // After the restart the session's measurement starts again: 10 minutes so far.
-  fresh.setMeasurements(measure(fresh, later, job, 1, 600));
-  const ratio = fresh.estimateWork(later, job).xp / fresh.byFormula(() => fresh.estimateWork(later, job)).xp;
-  // A day later the old hour weighs half (1800 s) against 600 new seconds.
-  assert.ok(Math.abs(ratio - (2 * 1800 + 600) / 2400) < 1e-9, `${ratio}`);
-});
-
-test('gathering is the game formula alone: a lucky or slow stretch does not move it', () => {
+test('a route that died in this state is worthless; at another level it is the formula again', () => {
   const planner = makePlanner(), d = planner.data;
-  const job = d.jobs.find(j => j.skill === 'mining' && j.levelReq === 1 && !j.inputs.length);
-  const p = player(planner, {levels: {mining: 20}, lastTick: 1000});
-  planner.setMeasurements(measure(planner, p, job, 1.5, 3600));
-  const formula = planner.byFormula(() => planner.estimateWork(p, job));
-  assert.equal(planner.estimateWork(p, job).xp, formula.xp);
-  assert.equal(planner.rateSource(p, jobKey(job.id)), 'formula');
+  const weapon = d.gear.find(g => g.slot === 'weapon' && !g.magic && !g.ranged && (g.levelReq ?? 1) <= 1)?.itemId;
+  const p = player(planner, {levels: {melee: 30, hitpoints: 30, defence: 30}, lastTick: 1000, equipment: {weapon}});
+  const fights = q => planner.combatOptions(q, 'melee');
+  const safe = fights(p)[0];
+  assert.ok(safe?.xp > 0, 'a fight the formula calls safe');
+  planner.setMeasurements(record(planner, p, combatKey(safe.monster.id), COMBAT_SKILLS, {deaths: 1, simulated: true}));
+  assert.equal(fights(p).find(o => o.monster.id === safe.monster.id).xp, 0, 'it died in this state');
+  assert.ok(planner.byFormula(() => fights(p)).find(o => o.monster.id === safe.monster.id).xp > 0, 'gear comparisons skip the check');
+  const stronger = player(planner, {levels: {melee: 31, hitpoints: 30, defence: 30}, lastTick: 1000, equipment: {weapon}});
+  assert.ok(fights(stronger).find(o => o.monster.id === safe.monster.id).xp > 0, 'a level later the record no longer applies');
 });

@@ -87,7 +87,7 @@ export function createPlanner(data) {
   // `foodItemId`: price with this food (a gear swap keeps the worn gear's
   // food; choosing it again for every piece rated was most of the gear table).
   function combatTiming(p,m,stats,{horizon=strategy.horizon,excludeFoodIds=[],foodItemId=0}={}) {
-    const estimate=strategy.calibratedCombat(p,m,stats),zone=zones.find(z=>z.monsterId===m.id);
+    const estimate=strategy.fightEstimate(p,m,stats),zone=zones.find(z=>z.monsterId===m.id);
     const supplies=combatSupplies(data,api,p,estimate,{zone,monster:m,foodItemId,excludeFoodIds,horizon,
       supplyCost:id=>strategy.supplyCost(p,id)});
     const unitCost=strategy.supplyCost(p,supplies.foodItemId);
@@ -1817,7 +1817,7 @@ export function createPlanner(data) {
   const strategy=createStrategy(data,api);
   api.crafting=createCrafting(data,api);
   Object.assign(api,{inputCost:createInputCost(data,api),chooseGoal:strategy.chooseGoal,routeEstimate:strategy.routeEstimate,ownedGold:strategy.ownedGold,walkPerAction,combatOptions:strategy.combatOptions,
-    candidates:strategy.candidates,estimateWork:strategy.estimateWork,setMeasurements:strategy.setMeasurements,byFormula:strategy.byFormula,rateSource:strategy.rateSource,routeMeasurement:strategy.routeMeasurement,
+    candidates:strategy.candidates,estimateWork:strategy.estimateWork,setMeasurements:strategy.setMeasurements,byFormula:strategy.byFormula,routeMeasurement:strategy.routeMeasurement,
     gearScore,combatRate,combatFood,combatChoice,dropSeconds,bonusSource,bonusSeconds,batchRating,stageRating,incomeRows,coinRate,stageSupply,stageCraftCount,questQualitySets,recipeRatings:()=>recipeRatings,
     // What one unit would sell for, net of tax: the market's sale layers, else the merchant.
     saleValue:(p,id,qty=1)=>api.marketUnitValue?.(p,id,qty)??merchantPrice(data,id),
@@ -1849,8 +1849,8 @@ export function createPlanner(data) {
     masteryTargets:(p,style)=>mastery.targets(p,style),masteryPrice,
     masteryPlan:(p,goal,options)=>masteryPlan.choose(p,goal,options),masteryForgeWanted:(p,style,goal)=>!!goal?.mastery&&!!mastery.forgeNext(p,style,goal),
     runtime(value) {
-      if(value) {({farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote}=value);farmPolicy=value.farmPolicy??null;specialization.runtime(value.specialization);growth.runtime(value.development);housing.runtime(value.housing);investments.runtime(value.investments);mastery.runtime(value.mastery);if(value.efficiency)strategy.efficiencyRuntime(value.efficiency);if('incomeRates' in value)incomeRates=value.incomeRates;}
-      return {farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote,farmPolicy,specialization:specialization.runtime(),development:growth.runtime(),housing:housing.runtime(),investments:investments.runtime(),mastery:mastery.runtime(),efficiency:strategy.efficiencyRuntime(),incomeRates};
+      if(value) {({farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote}=value);farmPolicy=value.farmPolicy??null;specialization.runtime(value.specialization);growth.runtime(value.development);housing.runtime(value.housing);investments.runtime(value.investments);mastery.runtime(value.mastery);if('incomeRates' in value)incomeRates=value.incomeRates;}
+      return {farmingChoice,farmSearch,farmPlayerId,farmRetryAt,farmDelayReason,farmTarget,farmTargetReason,farmQuote,farmPolicy,specialization:specialization.runtime(),development:growth.runtime(),housing:housing.runtime(),investments:investments.runtime(),mastery:mastery.runtime(),incomeRates};
     },
     selectGoal(p,served,deferred,style,mode='balanced',mainTrade='auto',mainJobId=null,mainMonsterId=null) {
       if(mode!=='business'&&mode!=='balanced'&&!(mode==='experience'&&this.profitFloor>0))this.watchMarket?.(p,[]);

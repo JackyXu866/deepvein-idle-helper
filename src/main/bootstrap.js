@@ -465,15 +465,12 @@ import {itemLabel, packQty} from '../planner/items.js';
         const saved=JSON.parse(localStorage.getItem(metricsKey)||'null');
         if(saved?.playerId===metricsPlayer) {
           trainer.telemetry.restore(saved.metrics);
-          // The day-averaged task efficiency outlives the session (strategy.js).
-          if(saved.efficiency)planner.runtime({...planner.runtime(),efficiency:saved.efficiency});
         }
       } catch { /* A malformed local report is ignored. */ }
     }
     if(!force&&Date.now()-lastMetricsSave<60000)return;
     lastMetricsSave=Date.now();
-    try{localStorage.setItem(metricsKey,JSON.stringify({playerId:metricsPlayer,metrics:trainer.telemetry.summary(),
-      efficiency:planner.runtime().efficiency}));}
+    try{localStorage.setItem(metricsKey,JSON.stringify({playerId:metricsPlayer,metrics:trainer.telemetry.summary()}));}
     catch { /* On-screen measurements remain available without storage. */ }
   }
   // The saved profession, set quietly: loading the page is not choosing one.
@@ -1584,9 +1581,6 @@ import {itemLabel, packQty} from '../planner/items.js';
       .plan-table th:first-child, .plan-table td:first-child { text-align: left; white-space: normal; }
       .plan-table th { color: var(--ink-muted); font-weight: 600; }
       .plan-table tr[data-chosen="true"] td { color: var(--brass-bright); font-weight: 700; }
-      .plan-source { font-size: 10px; padding: 0 4px; border-radius: 3px; border: 1px solid var(--edge); color: var(--ink-muted); }
-      .plan-source[data-source="simulated"] { border-color: #c79352; color: var(--brass-bright); }
-      .plan-source[data-source="measured"] { border-color: #6fae6f; color: #9fd49f; }
       .suggestions { display: grid; gap: 4px; }
       .suggestions button { text-align: left; font-size: 11px; padding: 4px 6px; }
       .suggestions button[aria-pressed="true"] { border-color: #c79352; color: var(--brass-bright); }
@@ -1678,7 +1672,7 @@ import {itemLabel, packQty} from '../planner/items.js';
             <div class="card">
               <div class="card-heading"><strong>候选比较</strong><span data-plan-basis></span></div>
               <div data-plan-candidates class="plan-scroll"></div>
-              <p class="fine-print">每小时数值已含供料与往返。来源：引擎＝游戏自身引擎按当前角色模拟；实测＝本次运行测得；公式＝估算。★ 为当前选择；优先级更高的每日任务、Boss、值得做的城镇订单会先执行。</p>
+              <p class="fine-print">每小时数值按游戏公式（期望值）计算，已含供料与往返；某条路线在当前装备、等级和药水下实测或引擎模拟会死亡时记为 0。★ 为当前选择；优先级更高的每日任务、Boss、值得做的城镇订单会先执行。</p>
             </div>
             <div class="card">
               <div class="card-heading"><strong>投资（金币换时间）</strong><span data-plan-funding class="muted"></span></div>
@@ -2578,7 +2572,6 @@ import {itemLabel, packQty} from '../planner/items.js';
     catch {trainer.log('最低收益设置无法保存，刷新后恢复为不限制');}
     render();
   }
-  const SOURCE_LABELS={simulated:'引擎',measured:'实测',averaged:'平均',formula:'公式'};
   const fmt=n=>Number.isFinite(n)?Math.round(n).toLocaleString('zh-CN'):'—';
   const el=(tag,props={},children=[])=>{const node=Object.assign(document.createElement(tag),props);node.append(...children);return node;};
   // Rebuild a container only when its content changed (render runs every second).
@@ -2604,16 +2597,15 @@ import {itemLabel, packQty} from '../planner/items.js';
     const table=(title,columns,list,cells)=>[el('p',{className:'label',textContent:title}),list.length?
       el('table',{className:'plan-table'},[el('thead',{},[el('tr',{},columns.map(text=>el('th',{textContent:text})))]),
         el('tbody',{},list.map(c=>{
-          const row=el('tr',{},[el('td',{textContent:`${c.chosen?'★ ':''}${translateGameText(c.label)}`}),...cells(c).map(text=>el('td',{textContent:text})),
-            el('td',{},[el('span',{className:'plan-source',textContent:SOURCE_LABELS[c.source]??c.source})])]);
-          row.dataset.chosen=String(c.chosen);row.lastChild.firstChild.dataset.source=c.source;return row;
+          const row=el('tr',{},[el('td',{textContent:`${c.chosen?'★ ':''}${translateGameText(c.label)}`}),...cells(c).map(text=>el('td',{textContent:text}))]);
+          row.dataset.chosen=String(c.chosen);return row;
         }))]):el('p',{className:'muted',textContent:'暂无可比较的工作（等级、装备或供料条件不足）'})];
     fill('[data-plan-candidates]',JSON.stringify([view.xpSkill,view.xpAcross,view.xpCandidates,view.goldCandidates]),()=>[
-      ...(view.xpAcross?table('经验优先：全部技能按经验/时比较',['任务','技能','经验/时','来源'],view.xpCandidates,
+      ...(view.xpAcross?table('经验优先：全部技能按经验/时比较',['任务','技能','经验/时'],view.xpCandidates,
         c=>[c.skillName,fmt(c.xpH)]):
-        view.xpSkill?table(`${view.xpSkillName}：同技能内按经验/时比较${view.xpBasis==='stage'?'（选配方所用：整阶段，含采集原料）':view.xpBasis==='batch'?'（选配方所用：本批）':''}`,['任务','经验/时','金币/时','来源'],view.xpCandidates,
+        view.xpSkill?table(`${view.xpSkillName}：同技能内按经验/时比较${view.xpBasis==='stage'?'（选配方所用：整阶段，含采集原料）':view.xpBasis==='batch'?'（选配方所用：本批）':''}`,['任务','经验/时','金币/时'],view.xpCandidates,
           c=>[fmt(c.xpH),fmt(c.coinsH)]):[]),
-      ...table('全部技能按金币/时比较',['任务','技能','金币/时','来源'],view.goldCandidates,c=>[c.skillName,fmt(c.coinsH)])]);
+      ...table('全部技能按金币/时比较',['任务','技能','金币/时'],view.goldCandidates,c=>[c.skillName,fmt(c.coinsH)])]);
     fill('[data-plan-quests]',JSON.stringify(view.quests),()=>view.quests.length?view.quests.map(q=>el('p',{className:'muted',
       textContent:`${q.period==='daily'?'每日（必做）':'每周'} · ${translateGameText(q.title)} ${q.done}/${q.goal} · ${q.status}`+
         (q.seconds?` 约 ${Math.ceil(q.seconds/60)} 分钟`:'')+(q.buys?' · 含市场补料':'')})):

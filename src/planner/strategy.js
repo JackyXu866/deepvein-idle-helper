@@ -13,9 +13,6 @@ import {COMBAT_SKILLS, combatKey, equipmentKey, jobKey, levelsKey, usableSample}
 // to plan; a smaller gain is not worth the swap.
 export const SWITCH_MARGIN=1.1;
 export const outscores=(candidate,current)=>candidate>current*SWITCH_MARGIN;
-// Bumped whenever the work or combat formula gains a bonus it used to leave
-// to the learnt efficiency.
-export const FORMULA_VERSION=3;
 
 // A rolling comparison of attainable routes, including their self-supply work.
 // Gold is a constraint from an actual planned expense, never an XP conversion.
@@ -37,83 +34,35 @@ export function createStrategy(data, planner) {
     if (m.equipmentKey!==equipmentKey(p)||m.levelsKey!==levelsKey(job?[job.skill]:COMBAT_SKILLS,s=>lv[s])) return null;
     return m;
   }
-  // Where a candidate's rate comes from: 'measured', 'simulated', 'averaged'
-  // (learnt earlier, see learn) or 'formula'.
-  // Gathering is priced by the game's formula alone: its output is the
-  // expected count (rarity.js's exact factors), and an observed stretch only
-  // adds luck. Crafting and combat keep the learnt efficiency.
-  const gathering=key=>{const job=key.startsWith('job:')&&jobs.find(j=>j.id===Number(key.split(':')[1]));
-    return !!job&&!job.inputs.length;};
-  const rateSource=(p,key)=>{if(gathering(key))return 'formula';const m=usableMeasurement(p,key);
-    return m?m.simulated?'simulated':'measured':efficiency[key]?'averaged':'formula';};
-  // Day-averaged efficiency per task: observed ÷ formula XP (and gold) per
-  // working second, from measurements and engine simulations, weighted by
-  // the time observed and fading with a one-day half-life. Kept per task, not
-  // per level, gear or potion state, and across reloads, so every planner
-  // (Worker or page) sees the same steady rate: a level-up or an expiring
-  // potion no longer swaps a sample for the bare formula, and one noisy
-  // minute barely moves it. A simulation counts as ten minutes, once per state.
-  const EFFICIENCY_HALF_LIFE=86400,SIMULATED_WEIGHT=600,EFFICIENCY_RANGE=[.25,4];
-  let efficiency={_formula:FORMULA_VERSION};
-  function learn(p,key,m,e) {
-    const working=m.seconds-(m.travelSeconds??0);
-    if(m.deaths||!(working>0)||!(e.seconds>0))return;
-    const state=JSON.stringify([m.equipmentKey,m.levelsKey,m.buffKey,!!m.simulated]),row=efficiency[key];
-    // A measurement grows while its state lasts; a smaller one restarted (reload).
-    const same=row?.state===state,weight=m.simulated?(same?0:SIMULATED_WEIGHT):
-      same&&m.seconds>=row.seen?m.seconds-row.seen:m.seconds;
-    if(!(weight>0))return;
-    const now=p.lastTick*tick,kept=row?row.weight*.5**(Math.max(0,now-row.at)/EFFICIENCY_HALF_LIFE):0;
-    const ratio=(observed,formula)=>Number.isFinite(observed)&&formula>0?
-      Math.min(EFFICIENCY_RANGE[1],Math.max(EFFICIENCY_RANGE[0],observed/working/(formula/e.seconds))):null;
-    const mix=(old,next)=>next==null?old??null:old==null?next:(old*kept+next*weight)/(kept+weight);
-    efficiency[key]={xp:mix(row?.xp,ratio(m.xp??m.xpPerSecond*m.seconds,e.xp)),
-      coins:mix(row?.coins,ratio(m.coins??m.coinsPerSecond*m.seconds,e.coins)),
-      weight:kept+weight,at:now,state,seen:m.seconds};
-  }
-  // Ratios learnt against an older formula would count again what the formula
-  // now includes (house and mastery speed since v0.12.0): dropped, relearnt.
-  const efficiencyRuntime=value=>{
-    if(value!==undefined)efficiency=value&&typeof value==='object'&&value._formula===FORMULA_VERSION?value:{_formula:FORMULA_VERSION};
-    return efficiency;
-  };
-  // While set, every estimate is the game formula alone (see byFormula).
+  // Every rate is the game's formula (estimates.js with rates.js's inputs, the
+  // XP multiplier included): its output is the expected value, and an observed
+  // stretch only adds luck. Measurements and engine simulations decide one
+  // thing: a route that died in this state (gear, levels, potions) is
+  // worthless now. (Until v0.15.3 a learnt observed/formula ratio scaled the
+  // rates; it mostly stood in for the XP multiplier the formula then lacked.)
   let formulaOnly=false;
-  // Runs `fn` with estimates by the formula alone: both sides of a gear swap
-  // are then judged alike, since a measurement only exists for the worn set
-  // (and carries potions and house bonuses the formula leaves out).
+  // Runs `fn` without the death check: both sides of a gear swap are judged
+  // alike, since a measurement only exists for the worn set.
   function byFormula(fn) {
     const was=formulaOnly;formulaOnly=true;
     try{return fn();}finally{formulaOnly=was;}
   }
-  // The formula estimate scaled by the task's averaged efficiency. Observed
-  // travel is left out (each candidate adds its own); a faster XP rate does
-  // not imply faster material production. A simulation that died marks the
-  // route worthless now, whatever the average says.
-  function calibrated(p,key,e,lv) {
-    if(formulaOnly||gathering(key))return e;
-    const m=usableMeasurement(p,key,lv);
-    if(m?.deaths)return {...e,xp:0,coins:0,measured:true};
-    if(m)learn(p,key,m,e);
-    const row=efficiency[key];
-    if(!row)return e;
-    return {...e,xp:row.xp!=null?e.xp*row.xp:e.xp,coins:row.coins!=null?e.coins*row.coins:e.coins,measured:true};
+  function survived(p,key,e,lv) {
+    if(formulaOnly)return e;
+    return usableMeasurement(p,key,lv)?.deaths?{...e,xp:0,coins:0}:e;
   }
   function estimateWork(p,j,lv=planner.levels(p)) {
-    const key=jobKey(j.id,j.rarity);
-    // The quality factor is the game's exact one (rarity.js), not a sample.
-    return calibrated(p,key,workEstimate(data,j,lv[j.skill],workInputs(data,planner,p,j)),lv);
+    return survived(p,jobKey(j.id,j.rarity),workEstimate(data,j,lv[j.skill],workInputs(data,planner,p,j)),lv);
   }
-  // A fight's estimate calibrated by this account's measured efficiency (the
-  // formula alone inside byFormula, as gear comparisons need).
-  const calibratedCombat=(p,m,stats,lv=planner.levels(p))=>calibrated(p,combatKey(m.id),combatEstimate(data,m,stats),lv);
+  // A fight's estimate: the formula, worthless when it died in this state.
+  const fightEstimate=(p,m,stats,lv=planner.levels(p))=>survived(p,combatKey(m.id),combatEstimate(data,m,stats),lv);
   function combatOptions(p,profession='magic') {
     const lv=planner.levels(p);
     if (!matchesProfessionWeapon(planner.equipmentStats(p.equipment.weapon),profession)) return [];
     const stats=combatStats(data,planner,p,profession,p.equipment,lv);
     return data.monsters.filter(m=>combatSafe(lv,stats,m))
       .map(m=>({monster:m,zone:data.zones.find(z=>z.monsterId===m.id),
-        ...calibrated(p,combatKey(m.id),combatEstimate(data,m,stats),lv)}));
+        ...fightEstimate(p,m,stats,lv)}));
   }
   // Seconds to get one more unit of a supply (fight food): the shared input
   // cost's price (bought, or made with the XP credited), the one price every
@@ -409,6 +358,6 @@ export function createStrategy(data, planner) {
       `收益约 ${Math.round(coins*3600).toLocaleString()} 金币/时（金币效率表口径，含出售产物）；已计供料与旅行`};
     return goal;
   }
-  return {chooseGoal,candidates,routeEstimate,ownedGold,estimateWork,combatOptions,calibratedCombat,byFormula,setMeasurements,efficiencyRuntime,supplyCost,horizon,rateSource,
+  return {chooseGoal,candidates,routeEstimate,ownedGold,estimateWork,combatOptions,fightEstimate,byFormula,setMeasurements,supplyCost,horizon,
     routeMeasurement:(p,key)=>usableMeasurement(p,key)};
 }

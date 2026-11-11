@@ -67,8 +67,8 @@ export function runPlanning(data,input,inspectOnly=false) {
   planner.profitFloor=input.settings.profitFloor??0;
   planner.automation=input.settings.automation;
   planner.setHousingEnabled(input.settings.autoHousing!==false);
-  // The game's own engine (when loaded) calibrates every candidate; real
-  // measurements of the current route still take precedence.
+  // The game's own engine (when loaded) simulates candidates to catch fights that
+  // die; real measurements of the current route take precedence.
   // Milliseconds per phase, so a slow calculation names what was slow.
   const timings={},clock=()=>globalThis.performance?.now?.()??Date.now();
   const timed=(label,fn)=>{const start=clock();try{return fn();}finally{timings[label]=Math.round(clock()-start);}};
