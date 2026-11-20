@@ -9,7 +9,7 @@ import {action, waiting} from './result.js';
 import {RARITY_NAMES, qualityName, baseId, bankTripSeconds,merchantPrice, mountScale, seedVendorPrice, distance, itemLabel, itemName, nearBank as nearBankAt, nearestBank as nearestBankTo, heldIds, packCapacity, packFree, packQty, plusOf, qualityPrefix, rarityOf, withoutItem} from './items.js';
 import {createCrafting, finishTaskReason} from './crafting.js';
 import {combatSupplies, foodEligible} from './supplies.js';
-import {createStrategy, outscores} from './strategy.js';
+import {createStrategy, noteChoice, outscores, reviewDue} from './strategy.js';
 import {POTION_FLOOR, farmingStocks, harvestCrops, herbloreNeeds} from './farming.js';
 import {createEnhancementTraining, planEnhancement} from './enhancement.js';
 import {planConsumable} from './consumables.js';
@@ -1011,9 +1011,12 @@ export function createPlanner(data) {
         return stageRates.get(j);
       };
       const plainBest=stagePlan?choices.filter(j=>!j.rarity&&j.inputs.length&&!j.grow).sort((a,b)=>stageRate(b)-stageRate(a)||a.id-b.id)[0]:null;
+      // A better recipe replaces the running one only at the work review
+      // (strategy.js WORK_REVIEW_SECONDS); an impossible one goes at once.
+      const review=reviewDue(data,p,goal,skill);
       if(stagePlan&&plainBest&&goal.craftPreparation&&!goal.craftPreparation.rarity&&goal.craftPreparation.jobId!==plainBest.id) {
         const held=choices.find(j=>j.id===goal.craftPreparation.jobId&&!j.rarity);
-        if(!held||outscores(stageRate(plainBest),stageRate(held))) {
+        if(!held||review&&outscores(stageRate(plainBest),stageRate(held))) {
           delete goal.craftPreparation;
           if(goal.recipes?.[skill]===held?.id)delete goal.recipes[skill];
         }
@@ -1023,15 +1026,15 @@ export function createPlanner(data) {
       const cached=choices.find(j=>j.id===goal.recipes[skill]&&(j.rarity??0)===(goal.recipeRarities[skill]??0))??
         choices.find(j=>j.id===goal.recipes[skill]&&!j.rarity);
       const changed=goal.recipeLevels[skill]!=null&&goal.recipeLevels[skill]!==lv[skill];
-      const betterQuality=choices[0]?.rarity>0&&outscores(score(choices[0]),score(cached??choices[0]));
-      const betterSupply=cached?.inputs.length&&choices[0].inputs.some(i=>count(p,i.itemId)<i.qty*20&&
+      const betterQuality=review&&choices[0]?.rarity>0&&outscores(score(choices[0]),score(cached??choices[0]));
+      const betterSupply=review&&cached?.inputs.length&&choices[0].inputs.some(i=>count(p,i.itemId)<i.qty*20&&
         Number.isFinite(api.marketBuyPrice?.(p,i.itemId,Math.max(1,i.qty*20-count(p,i.itemId)))??Infinity))&&
         outscores(score(choices[0]),score(cached));
       // Stage plan: gather until the owned crafts of every quality cover the
       // stage, then craft them all, the higher qualities first (more XP each).
       // The saved recipe too gives way to one clearly better over the stage
       // (Shrimp, chosen earlier, kept while 9,946 Lobsters sat in the bank).
-      const cachedWeak=cached&&plainBest&&cached.id!==plainBest.id&&outscores(stageRate(plainBest),stageRate(cached));
+      const cachedWeak=review&&cached&&plainBest&&cached.id!==plainBest.id&&outscores(stageRate(plainBest),stageRate(cached));
       const stageBase=stagePlan?(prepared&&!prepared.rarity?prepared:
         cached&&!cached.rarity&&!changed&&!cachedWeak?cached:
         plainBest):null;
@@ -1040,7 +1043,7 @@ export function createPlanner(data) {
       const quality=stageReady?choices.filter(j=>j.rarity>0).sort((a,b)=>score(b)-score(a))[0]:null;
       // A level-up re-weighs the recipes; the saved one stays unless another is
       // clearly better (it used to flip to whichever scored highest that minute).
-      const levelled=changed&&!goal.specialization&&(!cached||outscores(score(choices[0]),score(cached)));
+      const levelled=changed&&!goal.specialization&&(!cached||review&&outscores(score(choices[0]),score(cached)));
       const job=quality??stageBase??prepared??(betterQuality||betterSupply||levelled?choices[0]:(cached??choices[0]));
       // What the plan tab's XP table shows: the very ratings this choice used
       // (whole stage with its gathering for a stage plan, else the batch
@@ -1049,6 +1052,7 @@ export function createPlanner(data) {
         chosen:{recipeId:job.id,rarity:job.rarity??0},
         rows:(stagePlan?choices.filter(j=>!j.rarity&&j.inputs.length&&!j.grow).map(j=>({recipeId:j.id,rarity:0,xp:stageRate(j)})):
           choices.map(j=>({recipeId:j.id,rarity:j.rarity??0,xp:score(j)}))).sort((a,b)=>b.xp-a.xp)};
+      noteChoice(p,goal,skill,goal.recipes[skill]!==job.id||(goal.recipeRarities[skill]??0)!==(job.rarity??0));
       goal.recipeLevels[skill]=lv[skill];
       goal.recipes[skill]=job.id;
       goal.recipeRarities[skill]=job.rarity??0;
@@ -1317,8 +1321,10 @@ export function createPlanner(data) {
       const planned=requiredItem===null?choices.find(c=>c.monsterId===(goal.fixedMonsterId??goal.monsterId)):undefined;
       if(fixedMonster&&!planned)return blocked(`固定怪物 ${fixedMonster.name} 目前无法安全持续补给；等待食物或装备条件，不自动更换怪物`);
       if(goal.quest&&requiredItem===null&&!planned)return blocked('任务目标怪物目前无法安全有效击杀，先继续成长');
-      const selected=planned??(current&&!outscores(choices[0]?.score,current.score)?current:choices[0]);
+      // The running fight stays until the work review, then only for a clearly better one.
+      const selected=planned??(current&&(!reviewDue(data,p,goal,'combat')||!outscores(choices[0]?.score,current.score))?current:choices[0]);
       if (!selected) return blocked('所需材料的怪物目前过强，先提升其他战斗技能');
+      noteChoice(p,goal,'combat',selected!==current);
       const supplies=selected.supplies;
       const marketFood=api.marketFood?.(p,goal,supplies);
       if(marketFood) {

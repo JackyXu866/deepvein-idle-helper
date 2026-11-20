@@ -4,6 +4,7 @@ import {bankedGatheringLoad, finishTaskReason} from '../planner/crafting.js';
 import {POTIONS, POTION_TICKS, foodEffects} from '../planner/supplies.js';
 import {inventoryBudget, reserveWaitingGoals} from '../planner/inventory.js';
 import {MAIN_TRADES} from '../planner/specialization.js';
+import {WORK_REVIEW_SECONDS} from '../planner/strategy.js';
 import {HOUSE_ACTIONS, atHome, resumeIntent} from '../planner/housing.js';
 import {NAMES} from '../planner/planner.js';
 import {Telemetry} from './telemetry.js';
@@ -1133,7 +1134,8 @@ export class Trainer {
     const hotSelected=this.hotOverride(p);
     const hotStatus=this.hotFollowStatus(p);
     const hotActive=hotPreview.active||hotSelected||hotStatus.active||!!this.goal?.hot;
-    const goalTimeout=this.goal?.development||this.goal?.funding||this.goal?.quest?Infinity:600000;
+    // The work goal is reviewed every WORK_REVIEW_SECONDS (strategy.js), not every 10 minutes.
+    const goalTimeout=this.goal?.development||this.goal?.funding||this.goal?.quest?Infinity:WORK_REVIEW_SECONDS*1000;
     if (this.goal && !this.goal.hot && !equipmentProject(this.goal) && (this.bankedLoad||!this.planner.taskBoundary||this.planner.taskBoundary(p)) &&
       ((this.goal.quest?this.questOver(p,now):
         this.goal.funding?p.coins>=this.goal.funding.gold||p.lastTick>=this.goal.funding.until:

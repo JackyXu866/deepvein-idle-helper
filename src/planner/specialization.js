@@ -1,5 +1,5 @@
 import {matchesProfessionWeapon, professionSkill} from './professions.js';
-import {outscores} from './strategy.js';
+import {WORK_REVIEW_SECONDS, outscores} from './strategy.js';
 import {inventoryBudget, reviewInventory} from './inventory.js';
 import {packCapacity} from './items.js';
 import {marketQuality} from './quality.js';
@@ -120,7 +120,11 @@ export function createSpecialization(data,planner) {
         .sort((a,b)=>(b.mainXpRate??b.rate.xp)-(a.mainXpRate??a.rate.xp));
       best=earning[0]??candidates[0];
       const current=candidates.find(c=>c.recipeId!=null&&c.recipeId===focus.recipeId||c.monsterId!=null&&c.monsterId===focus.monsterId);
-      if(!earning.length&&current&&!outscores(best.mainXpRate??best.rate.xp,current.mainXpRate??current.rate.xp))best=current;
+      // The route in hand stays until the work review (strategy.js), then only for a clearly better one.
+      const same=c=>c.recipeId!=null&&c.recipeId===focus.recipeId||c.monsterId!=null&&c.monsterId===focus.monsterId;
+      const inHand=earning.length?earning.find(same):current;
+      if(inHand&&now-(focus.recipeSince??-Infinity)<WORK_REVIEW_SECONDS)best=inHand;
+      else if(!earning.length&&current&&!outscores(best.mainXpRate??best.rate.xp,current.mainXpRate??current.rate.xp))best=current;
       // A chosen profession remains valid even before its materials or starter
       // weapon are unlocked. Existing planning resolves that explicit dependency.
       best??=planner.growthChooseGoal(p,served,excluded,style);
@@ -138,6 +142,7 @@ export function createSpecialization(data,planner) {
         '按供料与往返后的主业经验选路线；无买单也不自动换主业')+
       (recipe?`；当前配方 ${recipe.name}`:'')+
       (!best.marketProceeds&&Number.isFinite(best.mainXpRate)?`，预计本业经验 ${(best.mainXpRate*60).toFixed(0)}/分`:'');
+    if(!temporary&&(focus.recipeId!==best.recipeId||focus.monsterId!==best.monsterId))focus.recipeSince=now;
     Object.assign(focus,{target,reason,...(!temporary?{recipeId:best.recipeId,monsterId:best.monsterId,rate:best.rate}:{})});
     planner.watchMarket?.(p,[best.output?.itemId,...watched].filter(Boolean),best.output?.itemId);
     const batch=best.batch??50;
@@ -218,7 +223,8 @@ export function createSpecialization(data,planner) {
     }).filter(Boolean);
     let best=choices[0];
     const current=choices.find(c=>c.skill===focus?.skill);
-    if(current&&(now-focus.since<1800||!outscores(best.rate.coins,current.rate.coins)))best=current;
+    // The trade in hand stays until the work review (strategy.js), then only for a clearly better one.
+    if(current&&(now-focus.since<WORK_REVIEW_SECONDS||!outscores(best.rate.coins,current.rate.coins)))best=current;
     if(!best) {
       focus=null;
       return null;

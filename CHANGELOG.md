@@ -2,6 +2,10 @@
 
 版本号由本 fork（[JackyXu866/deepvein-idle-helper](https://github.com/JackyXu866/deepvein-idle-helper)，分支 `modular-rewrite`）维护；v0.8.8 及更早的版本来自上游 [ljyoukong-cpu/deepvein-idle-helper](https://github.com/ljyoukong-cpu/deepvein-idle-helper)。
 
+## v0.16.1 — 2026-11-20
+
+- **换工作改为每 2 小时决定一次**。以前做满 10 分钟就会在批次结束时重新挑一次做什么；每一批还会重新比较配方、品质或打哪只怪，别的选项好 10% 就换。每换一次都是好几条指令。现在做什么每 2 小时复核一次：包括选哪个技能目标、本目标里的配方／品质／怪物、主业的路线，以及筹资的复核。两次复核之间一直做手上这个，除非它做不下去了（材料断了、打不过等）。每日任务照常随时插进来。
+
 ## v0.16.0 — 2026-11-20
 
 游戏发来"操作太频繁"的警告，这一版按警告大幅减少助手发给游戏的请求。

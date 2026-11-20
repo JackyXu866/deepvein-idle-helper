@@ -59,7 +59,7 @@ test('options: one cheapest worthwhile route per slot; small gains are not worth
   assert.ok(rows.every((r, i) => i === 0 || rows[i - 1].net >= r.net), 'best first');
 });
 
-test('funding: a worthwhile unaffordable step is funded on the best gold job, rechecked hourly until affordable', () => {
+test('funding: a worthwhile unaffordable step is funded on the best gold job, rechecked every two hours until affordable', () => {
   const {planner, d, p} = fighter();
   const goal = planner.fundingGoal(p, 'melee', {}, null);
   assert.ok(goal?.funding, 'funding goal');
@@ -67,7 +67,7 @@ test('funding: a worthwhile unaffordable step is funded on the best gold job, re
   assert.ok(goal.rate.coins > 0, 'a gold job');
   const rate = planner.incomeRows(p, 'melee').find(r => r.goldRate);
   assert.equal(goal.monsterId ?? goal.recipeId, rate.monsterId ?? rate.recipeId, 'the job that sets the gold rate the payback used');
-  assert.equal(goal.funding.until - p.lastTick, Math.ceil(3600 * 1000 / d.tickMs), 'rechecked after an hour');
+  assert.equal(goal.funding.until - p.lastTick, Math.ceil(7200 * 1000 / d.tickMs), 'rechecked after two hours (the work review)');
   assert.ok(goal.target > 99, 'ends on gold or the recheck, not on a level');
   // The recheck: still worth it and still short, so the same improvement goes on.
   const later = {...p, lastTick: goal.funding.until};

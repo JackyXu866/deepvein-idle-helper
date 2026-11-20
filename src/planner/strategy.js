@@ -13,6 +13,24 @@ import {COMBAT_SKILLS, combatKey, equipmentKey, jobKey, levelsKey, usableSample}
 // to plan; a smaller gain is not worth the swap.
 export const SWITCH_MARGIN=1.1;
 export const outscores=(candidate,current)=>candidate>current*SWITCH_MARGIN;
+// What to work on is reviewed every WORK_REVIEW_SECONDS (2026-11-20: the game
+// warned the account that it operated too often, and every switch is several
+// commands): the goal itself, and within it the recipe, quality or monster.
+// Between reviews the running choice stays unless it becomes impossible;
+// daily quests still interrupt at once.
+export const WORK_REVIEW_SECONDS=7200;
+// Whether the choice for `key` (a skill, or 'combat') may change now: never
+// chosen, or chosen a review ago. Choice ticks live on the goal.
+export const reviewDue=(data,p,goal,key)=>{
+  const at=goal?.choiceTicks?.[key];
+  return at==null||(p.lastTick-at)*data.tickMs/1000>=WORK_REVIEW_SECONDS;
+};
+// Records a new choice for `key` (unchanged choices keep their tick).
+export function noteChoice(p,goal,key,changed) {
+  if(!goal)return;
+  goal.choiceTicks??={};
+  if(changed||goal.choiceTicks[key]==null)goal.choiceTicks[key]=p.lastTick;
+}
 
 // A rolling comparison of attainable routes, including their self-supply work.
 // Gold is a constraint from an actual planned expense, never an XP conversion.

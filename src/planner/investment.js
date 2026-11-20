@@ -11,7 +11,8 @@ export {USE_CAP_SECONDS} from './gear.js';
 
 // A funding stretch on the best gold job is rechecked after this long: it goes
 // on while the improvement is still worth it at the latest prices.
-export const FUNDING_CHECK_SECONDS=3600;
+// (the work review, strategy.js WORK_REVIEW_SECONDS).
+export const FUNDING_CHECK_SECONDS=7200;
 const CACHE_SECONDS=60;
 // A slot's choice among its routes: the largest net saving, except that a
 // stronger piece (larger gain: higher quality or +N) within this share of it
@@ -497,7 +498,7 @@ export function createInvestments(data,planner) {
     return {...choice,target:planner.thresholds.length,funding:{key:fundingKey(row),gold,label:row.label,until:p.lastTick+ticks},
       budget:{...choice.budget,coins:Math.max(choice.budget?.coins??0,gold)},horizon:FUNDING_CHECK_SECONDS,
       reason:`筹资：${row.label} 约 ${row.gold.toLocaleString()} 金币（含失败重来）${savings>0?`，另保留攒钱目标 ${(savings/1e6).toFixed(1)}M`:''}，按 ${Math.round(row.useSeconds/3600)} 小时使用期可省约 `+
-        `${(row.saved/3600).toFixed(1)} 小时，赚这笔钱约 ${(row.paid/3600).toFixed(1)} 小时；做金币最高的工作直到凑够，每小时按最新价格复核一次是否仍值得`};
+        `${(row.saved/3600).toFixed(1)} 小时，赚这笔钱约 ${(row.paid/3600).toFixed(1)} 小时；做金币最高的工作直到凑够，每 2 小时按最新价格复核一次是否仍值得`};
   }
   function runtime(value) {
     if(value)cache=value.cache??null;
