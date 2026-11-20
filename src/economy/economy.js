@@ -1,11 +1,10 @@
 import {professionSkill} from '../planner/professions.js';
 import {finishTaskReason} from '../planner/crafting.js';
-import {secondsToGold} from '../planner/gold.js';
 import {action} from '../planner/result.js';
 import {dropEnhancementGold, inventoryBudget, reviewInventory} from '../planner/inventory.js';
 import {planEnhancement} from '../planner/enhancement.js';
 import {pageStep} from '../planner/mastery-pages.js';
-import {bankTripSeconds, nearestBank, packCapacity, packQty, packUsed} from '../planner/items.js';
+import {nearestBank, packCapacity, packQty, packUsed} from '../planner/items.js';
 
 // Items made by crafting skills (cooking, smithing, fletching, crafting).
 // Potions are protected separately and never sold.
@@ -160,14 +159,13 @@ export function createEconomy(data,planner,{autoSell=false,capacitySales=false,s
     const {capacitySale,profitItems,profitSale,rows}=saleRows(goal,inspected,capacity);
     const saleFlags=capacitySale?{capacitySale:true}:profitSale?{profitSale:true}:{};
     let deferredSale=null;
-    const profit=rows.reduce((n,i)=>n+i.sellFromBank*i.vendorUnit,0);
     const urgent=reserve.pressure||p.coins<reserve.coins;
-    // Small depot sales wait until a batch ends; clearing a productive route
-    // would restart its supply plan even when the counter is next to the job.
-    const detour=bankTripSeconds(data,p);
-    const detourWorth=profit>=Math.max(200,secondsToGold(detour,Math.max(1,planner.coinRate(p))));
+    // Sales never stop a task or walk it to the bank: they wait for the
+    // market's bank stop (market.errandOpen: where the route brings the
+    // character back itself, at most once every 30 minutes, every due sale
+    // together); a full bank or a plan short of coins sells at once.
     const idleAtBank=planner.nearBank(p)&&!p.route&&!p.path?.length;
-    if(rows.length&&(idleAtBank||urgent||detourWorth)) {
+    if(rows.length&&(urgent||(planner.errandOpen?.(p)??idleAtBank))) {
       const bankRows=rows.filter(i=>i.sellFromBank>0).sort((a,b)=>
         (reserve.pressure?Number(b.sellFromBank===b.bank)-Number(a.sellFromBank===a.bank):0)||
         b.sellFromBank*b.vendorUnit-a.sellFromBank*a.vendorUnit);

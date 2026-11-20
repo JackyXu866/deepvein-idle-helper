@@ -213,13 +213,23 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
       }
     }
   }
+  // Game requests (2026-11-20: the game warned the account that it operated too
+  // often; book reads every 1.5 s were most of it): at most one read every
+  // QUERY_GAP; watched books refreshed every BACKGROUND_TTL (the public feed,
+  // not a game request, values them meanwhile), the focus item every
+  // PRIORITY_TTL. A sale or purchase still reads its book right before acting.
+  // After the server refuses a request as too fast, no reads until quietUntil.
+  const QUERY_GAP=10000,BACKGROUND_TTL=300000,PRIORITY_TTL=60000;
+  let quietUntil=-Infinity;
+  const backOff=ms=>{quietUntil=Math.max(quietUntil,now()+ms);};
   function query(p) {
     select(p);
     if(closed(p))return null;
-    if((!ordersKnown||state.attempt)&&now()-lastSync>=5000) {
+    if(now()<quietUntil)return null;
+    if((!ordersKnown||state.attempt)&&now()-lastSync>=QUERY_GAP) {
       lastSync=now();return {t:'resync'};
     }
-    if(state.attempt||now()-lastQuery<1500)return null;
+    if(state.attempt||now()-lastQuery<QUERY_GAP)return null;
     for(const [itemId,request]of requests)if((request.background||request.potionBackground||request.review)&&
       request.sentAt!=null&&now()-request.sentAt>=waitMs) {
       requests.delete(itemId);cooldowns.set(itemId,now()+coolMs);
@@ -239,14 +249,14 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     if(!slots(p,'buy'))return null;
     const priorityQuote=quotes.get(priorityItem);
     if(priorityItem!==null&&!hasOrder(priorityItem)&&(cooldowns.get(priorityItem)??0)<=now()&&
-      (!priorityQuote||now()-priorityQuote.at>=8000)) {
+      (!priorityQuote||now()-priorityQuote.at>=PRIORITY_TTL)) {
       requests.set(priorityItem,{at:now(),sentAt:now(),background:true});lastQuery=now();
       return {t:'marketDepth',itemId:priorityItem};
     }
     const background=[...watched.map(itemId=>({itemId,potion:false})),...potionWatched.map(itemId=>({itemId,potion:true}))];
     for(let n=0;n<background.length;n++) {
       const {itemId,potion}=background[watchCursor++%background.length],current=quotes.get(itemId);
-      if((cooldowns.get(itemId)??0)>now()||hasOrder(itemId)||current&&now()-current.at<(potion?8000:ttl))continue;
+      if((cooldowns.get(itemId)??0)>now()||hasOrder(itemId)||current&&now()-current.at<BACKGROUND_TTL)continue;
       requests.set(itemId,{at:now(),sentAt:now(),...(potion?{potionBackground:true}:{background:true})});lastQuery=now();
       return {t:'marketDepth',itemId};
     }
@@ -383,12 +393,31 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
     if(current)return {fallback:true};
     return {waiting:true};
   }
+  // Bank errands (sales, listing reviews, trades) are done at one bank stop:
+  // never stopping a task or walking it to the bank, only where the route
+  // brought the character back itself (or it idles at the bank), and then
+  // every due errand within ERRAND_STOP_MS, at most once every ERRAND_GAP_MS.
+  // 2026-11-20: the game warned the account that it operated too often; each
+  // sale had stopped the route, sold and restarted it. Critical errands (the
+  // plan needs the goods or coins, a full bank) go at once.
+  const ERRAND_GAP_MS=30*60000,ERRAND_STOP_MS=10*60000;
+  function errandOpen(p) {
+    select(p);
+    if(!planner.nearBank(p)||p.path?.length&&!p.route)return false;
+    if(p.route&&p.route.phase!=='toBank'&&p.activity!=='banking')return false;
+    const since=now()-(state?.errandAt??-Infinity);
+    return since<ERRAND_STOP_MS||since>=ERRAND_GAP_MS;
+  }
+  function startErrand() {
+    if(state&&!(now()-(state.errandAt??-Infinity)<ERRAND_STOP_MS)){state.errandAt=now();persist();}
+  }
   function atBank(p,intent,label,critical=false) {
-    if(!critical&&!natural(p))return action(null,'市场交易待返仓','先完成当前任务，再处理盈余订单');
+    if(!critical&&!errandOpen(p))return action(null,'市场交易待返仓','等路线下次自己回到仓库时一起处理（每 30 分钟最多停一次）');
     if(!planner.nearBank(p)) {
       const bank=[...data.banks].sort((a,b)=>distance(p,a)-distance(p,b))[0];
       return action({t:'walk',...bank.approach},'市场交易 · 前往仓库',label);
     }
+    startErrand();
     if(p.route||p.path?.length)return action({t:'clearRoute'},'交易前停止路线并确认库存',label);
     return action(intent,label);
   }
@@ -1271,7 +1300,7 @@ export function createMarket(data,planner,{now=Date.now,storage=null,historyStor
   }
   // deepveinDebug(): the store's size and age, and each watched sale item at a glance.
   const historyReport=()=>({...history.summary(),series:series.summary(),watched:Object.fromEntries(watched.map(id=>[itemName(data,id),{...history.describe(id),...series.describe(id)}]))});
-  return {runtime,receive,next,sale,loadSeries:series.load,bookMedian:series.bookMedian,purchase,restockPotion,restockIngredient,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setBuyback,setPriceFeed,unitValue,askPrice,closed,sells,saleable,tradeRows,tradeAnomalies:()=>tradeScan.anomalies,priceFeedAge:()=>feed?now()-feed.at:null,
+  return {runtime,receive,next,sale,backOff,errandOpen,loadSeries:series.load,bookMedian:series.bookMedian,purchase,restockPotion,restockIngredient,potionStatus,potionBudgetSpent,query,watch,watchPotions,opportunity,listedQuantity,issued,confirmed,settled,rejected,summary,setAutoSell,setCapacitySales,setBuyback,setPriceFeed,unitValue,askPrice,closed,sells,saleable,tradeRows,tradeAnomalies:()=>tradeScan.anomalies,priceFeedAge:()=>feed?now()-feed.at:null,
     dailyVolume:history.dailyVolume,historyReport,
     configureProcurement,equipmentPurchase,foodPurchase,buffFood,potionDose,marketBuyPrice,surplusValue,watchPurchases:scan,
     purchaseAllowance:(p,goal)=>{select(p);return purchaseAllowance(p,goal);}};

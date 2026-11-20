@@ -32,7 +32,12 @@ export function isGuildRefusal(code) {return GUILD_REFUSALS.has(code);}
 // Rate limits ('too-fast', 'chat-too-fast', 'buy-donate-too-fast', ...): the
 // server dropped a request for coming too quickly; nothing happened.
 export const isRateRefusal=code=>typeof code==='string'&&/(^|-)too-fast$/.test(code);
-const RATE_REST_MS=10000;
+// Game requests, kept sparse (2026-11-20: the game warned the account that it
+// operated too often). A full state sync every SYNC_MS (the game pushes
+// changes anyway). A request the server refuses as too fast stops every
+// request for a rest that doubles with each refusal in the last hour, from a
+// minute up to RATE_REST_MAX_MS; market reads stay quiet as long.
+const SYNC_MS=60000,RATE_REST_MS=60000,RATE_REST_MAX_MS=15*60000;
 // Run-log entries kept (newest first). The page saves them (bootstrap
 // logKey), so a pause's reason survives the game reloading the tab.
 export const HISTORY_SIZE=30;
@@ -42,7 +47,7 @@ export const TRADE_GATE_REFUSALS=new Set(['email-needed','email-changed']);
 // Optional quest-board actions. Their refusal codes are not reviewed, so a
 // refusal disables the action for a while instead of pausing the helper.
 // Growth modes and their labels (the UI uses the same names).
-export const MODE_LABELS={balanced:'自主发展',experience:'经验优先',business:'主业经营',mastery:'补精通',assist:'只收菜＋蹭世界 Boss'};
+export const MODE_LABELS={balanced:'自主发展',experience:'经验优先',business:'主业经营',mastery:'补精通',assist:'只收菜'};
 export const SOFT_ACTIONS=new Set(['rerollQuest','goQuest','contract','buyPerk','masteryConfirm','masteryReset','masteryPage','setFallback','plantPref','plotChoice']);
 // How long a refused or unconfirmed optional action rests: six hours; ten
 // minutes for quest moves; a minute for the mastery page (switching is free).
@@ -553,8 +558,10 @@ export class Trainer {
           // and plan again; never a pause.
           if(this.pending&&MARKET_ACTIONS.has(this.pending.intent.t))this.market?.rejected(message.code);
           this.pending=null;this.resolution=null;this.plan=null;
-          this.syncAfter=this.snapshotSequence;this.nextSync=this.now()+RATE_REST_MS;this.nextAction=this.now()+RATE_REST_MS;
-          this.log(`服务器要求放慢（${message.code}）；${RATE_REST_MS/1000} 秒后同步再继续，不暂停`);
+          this.rateRefusals=[...(this.rateRefusals??[]).filter(at=>this.now()-at<3600000),this.now()];
+          const rest=Math.min(RATE_REST_MAX_MS,RATE_REST_MS*2**(this.rateRefusals.length-1));
+          this.syncAfter=this.snapshotSequence;this.nextSync=this.now()+rest;this.nextAction=this.now()+rest;this.market?.backOff?.(rest);
+          this.log(`服务器要求放慢（${message.code}，近一小时第 ${this.rateRefusals.length} 次）；停 ${Math.round(rest/60000)} 分钟后同步再继续，不暂停`);
           continue;
         }
         const deposit=this.pending??this.recentDeposit;
@@ -919,7 +926,7 @@ export class Trainer {
     // Background timers can fire less often than the sync interval.
     const ready=!this.awaitInitial&&this.snapshotSequence>this.syncAfter;
     if (now>=this.nextSync) {
-      this.syncAfter=this.snapshotSequence; this.nextSync=now+15000; this.lastSync=now;
+      this.syncAfter=this.snapshotSequence; this.nextSync=now+SYNC_MS; this.lastSync=now;
       this.send({t:'resync'});
     }
     if(this.resolution&&this.snapshotSequence>this.resolution.sequence){

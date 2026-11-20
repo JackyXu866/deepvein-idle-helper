@@ -111,7 +111,7 @@ import {itemLabel, packQty} from '../planner/items.js';
     experience:'比较供料与往返后的总经验效率，允许技能等级拉开差距。',
     business:'主业、具体工作与战斗目标均可自动或手选；指定目标不会因其他工作收益更高而被替换，仍可安排必要供料与换装。',
     mastery:'精通点数按“每点花多少金币”从最划算的开始：收藏下一档按补齐所需时间折成金币（时间按金币效率），强化记录（每档每品质首次到 +1～+15）按强化期望花费，含失败归零重来和强化期间工作页加成的损失。人去补最划算的收藏，强化在后台同时进行，只做比当前收藏更划算的强化记录。跳过传说与种植；只认亲自产出的收藏计数，购买成品不算。',
-    assist:'仅合批收菜、用现有种子补种与蹭世界 Boss；保留玩家队列，完成临时外出后继续原任务。'
+    assist:'仅合批收菜与用现有种子补种；世界 Boss 由游戏自动参加，助手等它结束；保留玩家队列，完成临时外出后继续原任务。'
   };
   const runKey='deepvein-balanced-trainer-session';
   const itemTargetKey='deepvein-item-target-v1:';
@@ -244,7 +244,7 @@ import {itemLabel, packQty} from '../planner/items.js';
                 scope.abort();nativeBossClick=null;
                 nativeHandoff={playerId,until:Date.now()+20*60000,endedAt:null};
                 trainer.boss.handOff('游戏的加入流程自己接手了赶路／补给，交给游戏完成本轮');
-                trainer.log('世界 Boss：游戏的加入流程自己赶路或补给，改为交给游戏完成本轮，按所选参战方式处理；不暂停');
+                trainer.log('世界 Boss：游戏的加入流程自己赶路或补给，改为交给游戏完成本轮；不暂停');
                 return;
               }
               trainer.pause('原生 Boss 流程执行了其他操作，已交还游戏处理');releaseLease();saveRun();
@@ -1651,14 +1651,9 @@ import {itemLabel, packQty} from '../planner/items.js';
               <p data-farming-note></p>
             </div>
             <div class="card">
-              <div class="card-heading"><strong>世界 Boss</strong><span>临时参与 · 原队列保留</span></div>
+              <div class="card-heading"><strong>世界 Boss</strong><span>游戏自动参加</span></div>
               <p data-boss class="muted"></p>
-              <button type="button" data-boss-retry hidden>重新尝试本轮 Boss</button>
-              <label>参战方式<select data-boss-participation aria-label="世界 Boss 参战方式"><option value="full">全程打到结束</option><option value="tag">确认有效伤害后离开</option></select></label>
-              <label>参战时段<span><input data-boss-start size="5" aria-label="开始时间" placeholder="00:00"> – <input data-boss-end size="5" aria-label="结束时间" placeholder="24:00"></span></label>
-              <label>每轮跳过概率 %<input data-boss-skip type="number" min="0" max="100" step="1" aria-label="每轮跳过概率"></label>
-              <p class="fine-print">本机时间；起止相同表示全天，可跨午夜。时段外不自动参加。每轮只抽一次是否跳过，刷新后保留。</p>
-              <p class="fine-print">离开模式须收到服务器确认的本人有效伤害。按游戏说明，命中过即可参与分配，金币随贡献变化；实际奖励以结束后的掉落记录为准。仅控制助手发起的参战。</p>
+              <p class="fine-print">助手不发起参战：由游戏自动参加（矿脉祝福），助手等本轮结束后继续原任务。</p>
             </div>
             <details data-progress-details>
               <summary>等级与运行收益</summary>
@@ -1837,26 +1832,13 @@ import {itemLabel, packQty} from '../planner/items.js';
     document.body.append(host);
     const saveAutomation=()=>{
       const read=selector=>panel.querySelector(selector).value;
-      automation=normalizeAutomation({...automation,bossStart:read('[data-boss-start]')||'00:00',bossEnd:read('[data-boss-end]')||'24:00',
-        skipPercent:read('[data-boss-skip]'),harvestMode:read('[data-harvest-mode]'),delayMin:read('[data-delay-min]'),delayMax:read('[data-delay-max]')});
+      automation=normalizeAutomation({...automation,harvestMode:read('[data-harvest-mode]'),delayMin:read('[data-delay-min]'),delayMax:read('[data-delay-max]')});
       trainer.boss.setAutomation(automation);planner.automation=automation;
       try {localStorage.setItem(automationKey,JSON.stringify(automation));}catch{trainer.log('Boss／收菜设置无法保存，本次修改仍在当前页面生效');}
       render();
     };
-    for(const selector of ['[data-boss-start]','[data-boss-end]','[data-boss-skip]','[data-harvest-mode]','[data-delay-min]','[data-delay-max]'])
+    for(const selector of ['[data-harvest-mode]','[data-delay-min]','[data-delay-max]'])
       panel.querySelector(selector).onchange=saveAutomation;
-    panel.querySelector('[data-boss-participation]').onchange=event=>{
-      const value=trainer.boss.setParticipation(event.currentTarget.value);
-      try {localStorage.setItem(bossParticipationKey,value);}catch{}
-      saveRun();render();
-    };
-    panel.querySelector('[data-boss-retry]').onclick=()=>{
-      if(!trainer.active||!trainer.boss.retrySkipped())return;
-      trainer.plan=null;trainer.nextAction=0;
-      trainer.syncAfter=trainer.snapshotSequence;trainer.nextSync=0;
-      trainer.log('重新检查本轮 Boss，先同步当前任务和队列');
-      saveRun();render();pump();
-    };
     const section=panel.querySelector('section'),dragHandle=panel.querySelector('.run-state');
     const positionKey='deepvein-helper-position-v1';
     let position=null,drag=null;
@@ -2870,9 +2852,7 @@ import {itemLabel, packQty} from '../planner/items.js';
     const stateCode=checking?'checking':trainer.recovery?'recovery':trainer.active?'running':p?'paused':'idle';
     panel.querySelector('[data-run-state]').setAttribute('data-state',stateCode);
     panel.querySelector('section').setAttribute('data-state',stateCode);
-    panel.querySelector('[data-boss-participation]').value=boss.participation;
-    for(const [selector,value] of [['[data-boss-start]',automation.bossStart],['[data-boss-end]',automation.bossEnd],['[data-boss-skip]',automation.skipPercent],
-      ['[data-harvest-mode]',automation.harvestMode],['[data-delay-min]',automation.delayMin],['[data-delay-max]',automation.delayMax]]) {
+    for(const [selector,value] of [['[data-harvest-mode]',automation.harvestMode],['[data-delay-min]',automation.delayMin],['[data-delay-max]',automation.delayMax]]) {
       const input=panel.querySelector(selector);
       if(input&&input!==panel.activeElement&&input.value!==String(value))input.value=String(value);
     }
@@ -2922,7 +2902,7 @@ import {itemLabel, packQty} from '../planner/items.js';
       `目标：${NAMES[trainer.goal.skill]} · ${trainer.goal.reason??`目标 ${trainer.goal.target} 级`}` :
       trainer.mode==='balanced'?'比较库存、供料、解锁与收入，选择下一项发展计划':
       trainer.mode==='experience'?'比较当前可执行路线的总经验效率，选择下一批工作':
-      trainer.mode==='assist'?'等待合批收菜、世界 Boss 或每日／每周任务；其余时间玩家自行安排原队列':
+      trainer.mode==='assist'?'等待合批收菜或每日／每周任务；世界 Boss 由游戏自动参加；其余时间玩家自行安排原队列':
       trainer.mainTrade!=='auto'?`指定主业：${mainTradeName}${selectedMainJob?` · ${selectedMainJob.name}`:selectedMainMonster?` · ${selectedMainMonster.name}`:''}；准备本业工作和必要供料`:'比较持续收入与市场需求，自动选择主业和必要供料';
     panel.querySelector('[data-activity]').textContent=`当前：${activity}`;
     panel.querySelector('[data-growth]').textContent=growth?
@@ -3025,14 +3005,12 @@ import {itemLabel, packQty} from '../planner/items.js';
     const bossPhase={saving:'确认保留原任务和队列',ready:'准备出发',moving:'正在前往',attacking:'等待参战确认',
       fighting:boss.recentActivity?(boss.hit?'已命中，近期收到参战回报':'近期收到参战回报，等待有效命中'):
         (boss.hit?'曾命中，等待新的参战回报':'等待新的参战回报'),dead:'本轮已阵亡，保留贡献并等待结束',
-      ended:'本轮结束，等待恢复原任务',resuming:'恢复原任务中',manual:'玩家正在参战，助手让行',native:boss.hit?'游戏的加入流程参战中，已命中':'已交给游戏的加入流程（补给、赶路、参战），按所选参战方式处理',watching:'等待可参与机会'};
+      ended:'本轮结束，等待恢复原任务',resuming:'恢复原任务中',manual:'玩家正在参战，助手让行',native:boss.hit?'游戏自动参加中，已命中':'游戏自动参加中（补给、赶路、参战），等本轮结束',watching:'由游戏自动参加'};
     const lastBoss=boss.lastResult;
     panel.querySelector('[data-boss]').textContent=boss.name?`世界 Boss：${boss.name} · ${boss.participated&&boss.phase==='watching'?'本轮已确认有效伤害并按策略离开，等待结算':
       boss.skipped?'本轮已跳过，可手动重新尝试':boss.policyReason??(boss.joinWait?`等待参战：${boss.joinWait}`:null)??bossPhase[boss.phase]??'等待状态'}`:
       lastBoss?`世界 Boss 上轮：${lastBoss.name} · ${lastBoss.hit?'服务器已确认命中':lastBoss.attackSent===true?'已请求加入，未收到有效命中确认':lastBoss.attackSent===false?'未请求加入':'旧版记录，加入请求未知'}；${lastBoss.reason}`:
       '世界 Boss：等待服务器公布';
-    panel.querySelector('[data-boss-retry]').hidden=!boss.skipped;
-    panel.querySelector('[data-boss-retry]').disabled=!trainer.active||!boss.skipped;
     panel.querySelector('[data-market]').textContent=marketText;
     panel.querySelector('[data-metrics]').textContent=`累计经验 ${Math.round(metrics.totalXp)} · 净金币 ${Math.round(metrics.netCoins)}\n`+
       `观测经验 ${Math.round(metrics.xpPerHour)}/时 · 净金币 ${Math.round(metrics.coinsPerHour)}/时\n`+

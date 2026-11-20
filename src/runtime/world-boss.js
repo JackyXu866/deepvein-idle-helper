@@ -281,25 +281,8 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
       // Right after the click the game has not set the work aside yet, so a
       // running route alone says nothing until the round is over or left.
       if(since!=null&&p.route&&!p.held&&!p.raidHeld){handed=null;external=false;externalUntil=null;return null;}
-      if(since==null){
-        // The game's join advances on its screen loop, which stops in a hidden
-        // tab: with no hit and the character standing still for 30 s, the
-        // helper walks over and attacks itself, keeping the set-aside work.
-        const quiet=now()-Math.max(handed.at??0,handed.activityAt??0)>30000;
-        if(!handed.hit&&quiet&&fresh&&boss&&!p.path?.length&&p.activity!=='walking'&&!p.route) {
-          const savedWork=p.held&&p.raidHeld&&p.queue?.length?copy(p.queue):null;
-          run={key:key(boss),round,name:boss.name,until:boss.until,playerId:p.id,stage:'ready',startedAt:now(),startTick:p.lastTick,
-            sentAt:now(),progressAt:now(),position:{x:p.x,y:p.y},origin:{x:p.x,y:p.y},beforeQueue:copy(p.queue??[]),
-            expectedQueue:savedWork,savedConfirmed:!!savedWork,hit:false,attackSent:false,lastActivityAt:null,tookOver:true};
-          handed=null;external=false;externalUntil=null;
-          return next(p,{interruptWalk});
-        }
-        if(participation==='tag'&&handed.hit){
-          handed.leftAt=now();
-          return action({t:'leaveWorldBoss'},'服务器已确认有效伤害，按所选参战方式离开；游戏随后恢复原任务');
-        }
-        return wait(handed.hit?'已命中 Boss，按所选参战方式等本轮结束':'已交给游戏自己的“加入”：补给、赶路、参战；按所选参战方式处理');
-      }
+      // The game's own join runs the round to its end; the helper only waits.
+      if(since==null)return wait(handed.hit?'已命中 Boss，游戏自动参加，等本轮结束':'游戏自动参加世界 Boss（补给、赶路、参战），等本轮结束');
       // The game resumes the set-aside work itself; a slow resume is finished here.
       if(!handed.resumed&&now()-since>8000&&!p.route&&p.held&&p.queue?.length){
         handed.resumed=true;return action({t:'startQueued',index:0},'游戏尚未恢复，续跑 Boss 前暂存的原任务；其余队列不变');
@@ -317,33 +300,11 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
     } else externalSeenAt=null;
     if(external||p.raidHeld)return wait('玩家正在参加世界 Boss，助手不接管也不收菜打断');
     joinWait=null;
-    if(!fresh||!boss||ignored===round)return null;
-    // The Vein Blessing joins every Boss by itself (the game's own join, on its
-    // bossAutoJoin message, handed over by the page): one join, the game's.
-    if(gameAutoJoins(p)) {
-      policyReason='矿脉祝福已开启自动参加：由游戏参加每一轮世界 Boss，助手的参战时段与跳过概率不生效；在游戏设置里关闭“自动参加世界首领”可改由助手决定';
-      return null;
-    }
-    // The player's time window and per-round skip chance (one draw per round).
-    const verdict=policy.boss(key(boss),settings);
-    policyReason=verdict==='outside'?`不在设定的参战时段（${settings.bossStart}–${settings.bossEnd}）`:
-      verdict==='skip'?`本轮按 ${settings.skipPercent}% 概率跳过`:null;
-    if(verdict!=='join')return null;
-    // Why a join waits, for the panel (cleared once it can go).
-    const hold=reason=>{joinWait=reason;return null;};
-    const remaining=boss.until==null?null:boss.until-currentTick(),steps=Math.max(0,distance(p,boss)-3);
-    if(remaining!==null&&remaining<Math.max(15,steps*2+10))return hold('本轮剩余时间不够赶到 Boss');
-    if(remaining===null&&steps>0)return hold('等待服务器公布本轮结束时间');
-    const walking=!p.route&&(p.path?.length||p.activity==='walking');
-    if(p.route?.errand)return hold('等收获补种跑完（中途打断会留下没补种的田）');
-    if(p.enhance)return hold('等本次强化结果');
-    if(p.held||!p.route&&p.queue?.length)return hold('游戏队列或搁置任务优先，等它处理完');
-    if(walking&&!interruptWalk)return hold('等玩家自己的行走结束');
-    joinWait=null;
-    if(p.route)return action({t:'setAside',raid:true},'临时保留当前任务的剩余份额和原队列，再参加世界 Boss');
-    if(distance(p,boss)<=3)return action({t:'attackWorldBoss'},'使用当前装备参加世界 Boss');
-    const tile=approachTile(p,boss,0);
-    return action({t:'walk',x:tile.x,y:tile.y},'前往世界 Boss 附近三格内的落脚点；不增加或覆盖玩家队列');
+    // The helper never joins a Boss itself (2026-11-20): the game joins every
+    // round on its own (the Vein Blessing's auto-join, handed over by the
+    // page); the helper waits that round out and resumes the work after.
+    policyReason=boss&&fresh?'世界 Boss 由游戏自动参加；助手不发起参战，只等本轮结束后继续原任务':null;
+    return null;
   }
   function issued(intent,p,reason){
     if(!intent||!p)return;
