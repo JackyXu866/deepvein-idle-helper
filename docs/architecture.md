@@ -80,7 +80,7 @@ Every file under `src/` and what it owns. Before writing logic, find the module 
 
 **`engine/`**
 - `extract.js`, `analyze.js`, `fingerprints.js`, `prepare.js`: find and extract the game's tick engine from the live client.
-- `runtime.js`: load, smoke-test and run the engine; simulated rates.
+- `runtime.js`: load, smoke-test and run the engine; simulated rates. A failed smoke test (a client update adding state its new character lacks) turns off the simulation only: the engine's pure counts (`countsApi`: mastery points, the track list) still drive every mastery purchase.
 - `mastery-rules.js`: mastery costs, limits, effect per rank, which skills gather speed serves.
 
 **`ui/`**

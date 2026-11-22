@@ -401,6 +401,14 @@ import {itemLabel, packQty} from '../planner/items.js';
       }
       engine.message='引擎模拟：正在从客户端提取并自检';render();
       const result=await idleRequest('engine',input);
+      // Simulation off, counts on: mastery points are still counted and spent.
+      if(!result.ok&&result.counts) {
+        const factory=input.factory??result.factory;
+        Object.assign(engine,{client,factory,ready:true,workerId:client});
+        if(result.factory)try{localStorage.setItem(engineKey,JSON.stringify({client,factory}));}catch{}
+        engine.message=`引擎模拟未启用：${result.error??'未知原因'}；沿用公式估算，精通点数照常计算`;
+        planningViewKey='';return;
+      }
       if(!result.ok) {
         try{if(cached?.client===client)localStorage.removeItem(engineKey);}catch{}
         engine.message=`引擎模拟未启用：${result.error??'未知原因'}${result.problems?.length?`（${result.problems.slice(0,3).join('；')}）`:''}；沿用公式估算`;

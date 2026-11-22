@@ -5,7 +5,7 @@ import {createEconomy} from '../economy/economy.js';
 import {createMarket} from '../economy/market.js';
 import {normalizeHotFollow} from '../runtime/hot-follow.js';
 import {Trainer} from '../runtime/trainer.js';
-import {engineApi, engineRates, engineReady, engineStatus, loadEngine, mergeRates} from '../engine/runtime.js';
+import {countsApi, engineRates, engineReady, engineStatus, loadEngine, mergeRates} from '../engine/runtime.js';
 import {same} from '../runtime/util.js';
 import {planView} from '../planner/plan-view.js';
 import {PLANNING_STORAGE_KEYS, enhancementStorage, wirePlanner} from '../economy/wiring.js';
@@ -79,13 +79,13 @@ export function runPlanning(data,input,inspectOnly=false) {
   planner.perkUsage=input.rates; // measured time per route: what this account actually does
   // Mastery points are counted by the engine; where they go, the mastery plan.
   // Computed once per planning run (the trainer and the panel ask the same).
-  if(engineApi()) {
+  if(countsApi()) {
     const purchases=new Map();
     planner.masteryPurchase=(p,goal)=>{
       const key=JSON.stringify([p.lastTick,p.masteries,p.masteryPage,goal?.mastery?.itemId,goal?.recipeId,goal?.monsterId,goal?.specialization]);
-      const count=engineApi()?.masteryEarnedPoints;
+      const count=countsApi()?.masteryEarnedPoints;
       if(!purchases.has(key))purchases.set(key,planner.masteryPlan(p,goal,{earned:typeof count==='function'?count(p):NaN,
-        tracks:engineApi().masteryTracks?.map(t=>t.id),style:input.trainer?.style??planner.styleHint,usage:input.rates}));
+        tracks:countsApi().masteryTracks?.map(t=>t.id),style:input.trainer?.style??planner.styleHint,usage:input.rates}));
       return purchases.get(key);
     };
   }
@@ -120,7 +120,7 @@ export function runPlanning(data,input,inspectOnly=false) {
     growth:trainer.mode==='balanced'?timed('发展状态',()=>planner.growthStatus(p,trainer.style,trainer.deferred)):null,
     business:trainer.mode==='business'?timed('主业状态',()=>planner.specializationStatus(p,trainer.style,trainer.mainTrade,trainer.mainJobId,trainer.mainMonsterId)):null,
     farming:timed('农田状态',()=>planner.farmStatus(p,reserveWaitingGoals(trainer.goal,trainer.waitingGoals))),
-    plan:input.details.plan?timed('计划页',()=>planView(data,planner,trainer,p,{boss:input.boss,engineApi:engineApi()})):null
+    plan:input.details.plan?timed('计划页',()=>planView(data,planner,trainer,p,{boss:input.boss,engineApi:countsApi()})):null
   };
   // Of which the income table (recomputed once per game minute).
   if(planner.incomeMs)timings['其中收益表']=planner.incomeMs;

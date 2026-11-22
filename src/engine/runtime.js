@@ -5,27 +5,42 @@ import {COMBAT_SKILLS, combatKey, equipmentKey as equipmentKeyOf, jobKey, levels
 // extracted from the public client (see extract.js); it scores candidate
 // activities by simulating them tick by tick from the real character state.
 
-let current = {id: null, ok: false, api: null, error: null};
+// `ok`: the simulation passed its smoke test. `counts`: the extracted engine,
+// kept even when the simulation fails, for its pure counts (mastery points):
+// a new state field the smoke test's character lacks (client updates added
+// skillbossPending, masteryAway, then spoilsHeld) used to switch the engine
+// off whole, and with it every mastery purchase (2026-11-10, 2026-11-21).
+let current = {id: null, ok: false, api: null, counts: null, error: null};
 const cache = new Map(); // calibration key -> simulated rate record
 const CACHE_LIMIT = 600;
 
 export function loadEngine({id, factory}) {
+  let api = null;
   try {
-    const api = new Function(factory)();
+    api = new Function(factory)();
     for (const k of ['tick', 'predict', 'startFight', 'startWork', 'createContext', 'maxHp', 'homeBank', 'combatTargetTile', 'hotSkill', 'levelXp'])
       if (typeof api[k] !== 'function') throw new Error(`engine missing ${k}`);
     if (api.tick.length !== 4 || !(api.world?.zones?.length > 0) || !(api.tickMs > 0)) throw new Error('engine shape check failed');
-    smokeTest(api);
-    current = {id, ok: true, api, error: null};
   } catch (error) {
-    current = {id, ok: false, api: null, error: String(error?.message ?? error).slice(0, 200)};
+    current = {id, ok: false, api: null, counts: null, error: String(error?.message ?? error).slice(0, 200)};
+    cache.clear();
+    return current;
+  }
+  const counts = typeof api.masteryEarnedPoints === 'function' ? api : null;
+  try {
+    smokeTest(api);
+    current = {id, ok: true, api, counts, error: null};
+  } catch (error) {
+    current = {id, ok: false, api: null, counts, error: String(error?.message ?? error).slice(0, 200)};
   }
   cache.clear();
   return current;
 }
-export const engineStatus = () => ({id: current.id, ok: current.ok, error: current.error, cached: cache.size});
+export const engineStatus = () => ({id: current.id, ok: current.ok, counts: !!current.counts, error: current.error, cached: cache.size});
 export const engineReady = () => current.ok;
 export const engineApi = () => current.ok ? current.api : null;
+// The engine's pure counts (mastery points, its track list), simulation or not.
+export const countsApi = () => current.counts;
 
 // A fresh level-30 fighter must kill the first monster in ten minutes.
 function smokeTest(api) {
@@ -81,8 +96,10 @@ export function simulate(api, you, activity, {hours = 1, seed = 1, foodItemId = 
     foodMaxTier: 4, foodPerTrip: -1, eatAt: .5, ironman: false, brewTier: {},
     // A new character's values (client 1.0.12xx new-player record) for state
     // the engine copies whole: skill bosses, alchemy, decorations, attacks.
-    // skillbossPending: client index-B2g2JEXj (2026-11-10) copies it with .map.
-    skillboss: null, skillbossPending: [], skillbossBurn: {}, skillbossFeedTicks: {}, skillbossFed: {}, toolSkins: [], toolSkinsOff: [],
+    // skillbossPending: client index-B2g2JEXj (2026-11-10) copies it with .map;
+    // spoilsHeld: client index-szBaIgSm (2026-11-21) with Object.entries; and
+    // its routes read skillSets (gear set per skill).
+    skillboss: null, skillbossPending: [], spoilsHeld: {}, skillSets: {}, gearSets: {}, skillbossBurn: {}, skillbossFeedTicks: {}, skillbossFed: {}, toolSkins: [], toolSkinsOff: [],
     bossMarks: [], decosOwned: [], houseTrophies: {}, houseDecos: {}, attacks: [], attack: null, alchemyLog: {},
     alchemy: {carry: {house: 0, boss: 0, enhance: 0, xp: 0}, energy: 0, energyTick: start}, masterySkills: {}, masteryOther: null,
     masteryPage: 1, masteryAway: {},

@@ -12,6 +12,8 @@ export function prepareEngine({id, source = null, factory = null}, parse) {
     factory = extracted.factory;
   }
   const status = loadEngine({id, factory});
-  return {id, ok: status.ok, error: status.error, problems: extracted?.problems.slice(0, 8) ?? [],
-    stats: extracted?.stats ?? null, factory: status.ok && extracted ? factory : undefined};
+  // `counts`: the simulation failed its smoke test but the engine's pure counts
+  // (mastery points) work; the page keeps the factory for those.
+  return {id, ok: status.ok, counts: !!status.counts, error: status.error, problems: extracted?.problems.slice(0, 8) ?? [],
+    stats: extracted?.stats ?? null, factory: (status.ok || status.counts) && extracted ? factory : undefined};
 }
