@@ -561,7 +561,10 @@ export function createPlanner(data) {
     if (farmSearch&&p.lastTick-farmSearch.started>farmSearch.maxTicks) {
       farmRetryAt=p.lastTick+Math.min(farmSearch.job.grow,600000/data.tickMs);farmSearch=null;farmQuote=null;
     }
-    if(!completedLoad&&!urgentHarvest&&finishTaskReason(data,p))
+    // An unlimited route has no batch end to wait for: a full ripe batch goes
+    // in (fullBatchDue), as the steps below already allow (2026-11-21: ten
+    // ripe fields waited behind an endless Magic logs route).
+    if(!completedLoad&&!urgentHarvest&&!fullBatchDue&&finishTaskReason(data,p))
       return deferFarm('先完成当前采集背包或制作批次，再合并收菜、补种及采种准备');
     // Reserve enough independent seeds for this whole planting/replacement
     // batch; mature plots of the chosen crop return their own seed.

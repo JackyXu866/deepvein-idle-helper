@@ -38,7 +38,7 @@ export const isRateRefusal=code=>typeof code==='string'&&/(^|-)too-fast$/.test(c
 // changes anyway). A request the server refuses as too fast stops every
 // request for a rest that doubles with each refusal in the last hour, from a
 // minute up to RATE_REST_MAX_MS; market reads stay quiet as long.
-const SYNC_MS=60000,RATE_REST_MS=60000,RATE_REST_MAX_MS=15*60000;
+const SYNC_MS=60000,STALE_MS=SYNC_MS*1.5,RATE_REST_MS=60000,RATE_REST_MAX_MS=15*60000;
 // Run-log entries kept (newest first). The page saves them (bootstrap
 // logKey), so a pause's reason survives the game reloading the tab.
 export const HISTORY_SIZE=30;
@@ -911,7 +911,9 @@ export class Trainer {
   tick() {
     if (!this.active&&!this.recovery) return;
     const now=this.now();
-    if (this.active&&now-(this.awaitInitial?this.startedAt:this.received)>45000) {
+    // No state for longer than a sync interval and a half: out of step. (At
+    // 45 s, below SYNC_MS since v0.16.0, it paused and restarted every minute.)
+    if (this.active&&now-(this.awaitInitial?this.startedAt:this.received)>STALE_MS) {
       this.pause('状态同步中；取得新状态后自动继续',true);
       this.recovery={playerId:this.player.id,lastTick:this.player.lastTick}; this.nextSync=0;
     }

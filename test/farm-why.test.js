@@ -93,6 +93,13 @@ test('with every stock met, ripe fields are still harvested and replanted at a t
   const busy = {...p, route: {jobId: d.jobs.find(j => j.skill === 'mining').id, siteId: 1, phase: 'working', limit: 0}};
   assert.equal(planner.harvest(busy, null, null, 'melee', false), null);
   assert.match(planner.farmStatus(busy).reason, /等当前任务结束或返仓/);
+  // 2026-11-21: an endless route has no batch end. Once every field has been
+  // ripe ten minutes, the full batch goes in anyway (the game's errand
+  // restores the route after).
+  const tenMinutes = 600000 / d.tickMs;
+  const ripeLong = Object.fromEntries(fields.map(s => [s.id, {seedItemId: herb.inputs[0].itemId, plantedAt: 1000 - herb.grow - tenMinutes - 10}]));
+  const endless = {...farmer(planner, top, ripeLong), bank: full, route: busy.route};
+  assert.equal(planner.harvest(endless, null, null, 'melee', false)?.intent?.errand, true, planner.farmStatus(endless).reason);
 });
 
 test('herbs are planned one unlock ahead once the current herb covers the way there', async () => {
