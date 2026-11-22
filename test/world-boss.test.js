@@ -82,6 +82,37 @@ test('an assumed outside raid with no sign of it for 2 minutes no longer holds t
   assert.notEqual(boss.status().phase, 'manual');
 });
 
+test('a start during the game\'s Boss join is not stopped by the set-aside task, which is resumed after', async () => {
+  // 2026-11-21: every reconnect during a Boss stopped on "虾（已搁置）" in the queue.
+  const {Trainer} = await import('../src/runtime/trainer.js');
+  const {makePlanner, player} = await import('./helpers.js');
+  const planner = makePlanner(), sent = [];
+  let clock = 1_000_000;
+  const t = new Trainer(planner.data, planner, intent => sent.push(intent), () => clock);
+  const queue = [{kind: 'job', jobId: 7, siteId: 3}];
+  const raiding = player(planner, {x: 120, y: 100, lastTick: 1000, route: null, queue, held: true, raidHeld: true, path: null});
+  Object.assign(t, {compatible: true, player: raiding});
+  t.boss.observe({tick: 1000, m: [{t: 'snapshot', you: raiding}]});
+  t.boss.observe({tick: 1001, m: [{t: 'bossRose', name: 'Vein colossus', x: 120, y: 100, until: 100000}]});
+  assert.equal(t.boss.ownsQueue(raiding), true, 'a raid set-aside is the game\'s join');
+  t.start(true);
+  assert.equal(t.active, true, 'started, not blocked by the held task');
+  assert.equal(t.queueBlocked, false);
+  // The round ends; the game leaves the task set aside: the helper resumes it.
+  t.boss.next(raiding);
+  t.boss.observe({tick: 1100, m: [{t: 'bossGone'}]});
+  clock += 9000;
+  const left = {...raiding, raidHeld: false};
+  assert.equal(t.boss.ownsQueue(left), true, 'still the handed round\'s work');
+  assert.deepEqual(t.boss.next(left)?.intent, {t: 'startQueued', index: 0});
+  // A task the player set aside without any Boss still stops a start.
+  const fresh = new Trainer(planner.data, planner, () => {}, () => clock);
+  Object.assign(fresh, {compatible: true, player: {...raiding, raidHeld: false}});
+  fresh.start(true);
+  assert.equal(fresh.active, false);
+  assert.equal(fresh.queueBlocked, true);
+});
+
 test('the scheduler sends no Boss command when a Boss rises', async () => {
   const {Trainer} = await import('../src/runtime/trainer.js');
   const {makePlanner, player} = await import('./helpers.js');

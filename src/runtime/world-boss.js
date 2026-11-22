@@ -206,6 +206,9 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
   // for a Boss; a player's walk in assist mode is left alone.
   function next(p,{interruptWalk=false}={}){
     if(!p)return null;
+    // Work the game set aside for a raid is the game's Boss join (the helper
+    // joins none itself): handed over, so it is waited out and resumed.
+    if(!run&&!handed&&p.raidHeld)handOff('游戏自动参加世界 Boss，已暂存原任务');
     if(external&&externalUntil!==null&&currentTick()>=externalUntil){external=false;externalUntil=null;}
     if(run&&p.id!==run.playerId){finish();return null;}
     if(run){
@@ -355,7 +358,10 @@ export function createWorldBoss(data,now=()=>Date.now(),{random=Math.random}={})
     queueNativeJoin(){if(run?.stage==='attacking'){run.nativeJoinPending=true;run.attackSent=false;}},
     nativeJoinSent(){if(run?.stage==='attacking'){run.nativeJoinPending=false;run.attackSent=true;run.sentAt=now();}},
     ownsRun:()=>!!run,handOff,gameAutoJoins,
-    ownsQueue:p=>run?.expectedQueue&&!run.savedConfirmed?acceptSaved(p):ownQueue(p),
+    // The set-aside work of a round the helper runs, or of the game's own join
+    // (a handed round, or a raid set-aside): a start never stops for it
+    // (2026-11-21: every reconnect during a Boss stopped on the held task).
+    ownsQueue:p=>run?(run.expectedQueue&&!run.savedConfirmed?acceptSaved(p):ownQueue(p)):!!p&&(p.raidHeld||!!handed&&p.held),
     ownsDeath:value=>lastDeath?.playerId===playerId&&lastDeath.tick===(typeof value==='number'?value:value?.tick),
     status:()=>({participation,name:boss?.name??run?.name??null,active:!!boss&&fresh&&
       (boss.until==null||currentTick()<boss.until),visible:fresh&&visibleBossId!=null&&visibleBossId===boss?.id,
