@@ -119,12 +119,24 @@ test('one investment table whoever reads it: the goal changes nothing but its pr
   assert.deepEqual(funding, panel);
 });
 
-test('business mode funds a worthwhile unaffordable improvement too', () => {
+// 2026-11-21: 主业经营 (woodcutting) was sent fishing to fund a pickaxe. It does
+// its trade only; the gold comes from it, and only its gear is valued.
+test('business mode never leaves its trade to fund an improvement', () => {
   const {planner, p} = fighter();
   const funded = planner.fundingGoal(p, 'melee', {}, null);
-  assert.ok(funded?.funding, 'something worth funding');
+  assert.ok(funded?.funding, 'something worth funding elsewhere');
   const chosen = planner.selectGoal(p, {}, {}, 'melee', 'business', 'auto');
-  assert.ok(chosen?.funding, JSON.stringify(chosen?.reason));
+  assert.ok(!chosen?.funding, JSON.stringify(chosen?.reason));
+});
+
+test('with a chosen trade, only the gear that trade uses is worth anything', () => {
+  const {planner, p} = fighter();
+  const slots = () => planner.investmentOptions(p, 'melee', null).filter(r => r.worth).map(r => r.slot);
+  assert.ok(slots().includes('pickaxe'), 'a mining history makes a pickaxe worth it');
+  planner.mainTradeFocus = 'woodcutting';
+  assert.ok(!slots().includes('pickaxe'), 'a woodcutter has no use for a pickaxe');
+  assert.equal(planner.timeShare(p, 'melee')('woodcutting'), 1);
+  planner.mainTradeFocus = null;
 });
 
 test('the sale review never sells the held piece the gear step would put on', async () => {

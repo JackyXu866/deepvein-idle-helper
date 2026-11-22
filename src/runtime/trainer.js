@@ -1041,6 +1041,9 @@ export class Trainer {
     if(this.acting()&&this.goal&&p.route?.zoneId!=null&&!p.held&&!p.raidHeld&&!p.queue?.length&&this.combatFoodPlan(p))
       return this.issue({intent:{t:'clearRoute'},label:'先停止战斗并保护传说食物',
         reason:'原生自动进食设置允许消耗传说食物，确认安全设置后继续当前成长目标'});
+    // 主业经营 with a chosen trade: the account's time goes to that trade, so gear
+    // is valued (bought, funded, enhanced) for it alone (investment.js shareOf).
+    this.planner.mainTradeFocus=this.mode==='business'&&this.mainTrade!=='auto'?(this.mainTrade==='combat'?'combat':this.mainTrade):null;
     if(this.mode==='balanced')this.planner.observeDevelopment?.(p,this.goal,this.style);
     const hotPreview=this.hotFollowStatus(p);
     const claim=hotPreview.active?null:this.planner.questClaim?.(p,this.style);

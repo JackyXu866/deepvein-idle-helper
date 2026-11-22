@@ -289,6 +289,9 @@ export function createInvestments(data,planner) {
   // each skill stands in for the time spent there (the combat style's XP for
   // fights).
   function shareOf(p,style) {
+    // 主业经营 with a chosen trade (planner.mainTradeFocus): all its time.
+    const focus=planner.mainTradeFocus??null;
+    if(focus)return skill=>skill===focus?1:0;
     const sums={};let total=0;
     for(const r of measured()){sums[r.skill]=(sums[r.skill]??0)+r.seconds;total+=r.seconds;}
     if(!(total>0)) {
@@ -441,7 +444,7 @@ export function createInvestments(data,planner) {
   let computing=false;
   function options(p,style,goal=null) {
     // The goal adds only its gear project's row.
-    const key=JSON.stringify([p.id,style,p.equipment,lvOf(p),goal?.upgrade?.slot??null,goal?.upgrade?.id??null,p.route?.jobId??null,p.route?.zoneId??null]);
+    const key=JSON.stringify([p.id,style,p.equipment,lvOf(p),goal?.upgrade?.slot??null,goal?.upgrade?.id??null,p.route?.jobId??null,p.route?.zoneId??null,planner.mainTradeFocus??null]);
     // Pricing a row can reach code that asks for the planned gear (held
     // materials), which reads this table: that inner ask sees no rows.
     if(computing)return [];
