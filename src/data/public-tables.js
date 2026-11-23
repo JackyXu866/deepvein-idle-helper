@@ -177,9 +177,9 @@ export function extractGameTables(source, parse, baseline) {
   // A site keeps the jobs of the work table only: retired ones, and the work
   // of other kinds of site (client 1.0.12xx skill bosses, alchemy cauldrons)
   // the helper does not plan, are left out.
-  const known=new Set(jobs.filter(j=>!j.retired).map(j=>j.id));
+  const known=new Set(jobs.filter(playableJob).map(j=>j.id));
   const updated={...baseline,items,banks,
-    jobs:jobs.filter(j=>!j.retired),
+    jobs:jobs.filter(playableJob),
     gear:[...one(['itemId','slot','bonus']),...one(['itemId','slot','accuracy','strength','defence'])],
     sites:one(['id','x','y','kind','jobIds']).map(s=>({...s,jobIds:s.jobIds.filter(id=>known.has(id))})).filter(s=>s.jobIds.length),
     zones:one(['id','monsterId','x','y','width','height']),
@@ -204,6 +204,14 @@ export function extractGameTables(source, parse, baseline) {
   return updated;
 }
 
+// Jobs the game refuses to start ("cannot-set-route", client n_ in
+// index-szBaIgSm): retired cooking recipes (stews, salted fish, lunches:
+// 69-85) and the alchemy flasks (600-604) while the client's alchemy is off.
+// Still in the work table, so they are left out here (2026-11-23: a Steel
+// flask was chosen for crafting XP, refused again and again, and paused the
+// helper).
+export const DISABLED_JOBS=new Set([...Array.from({length:17},(_,i)=>69+i),600,601,602,603,604]);
+export const playableJob=j=>!j.retired&&!DISABLED_JOBS.has(j.id);
 export async function refreshGameData(data,sources,pageUrl,{fetch:request,parse,storage,extract}={}) {
   const page=new URL(pageUrl),url=sources.filter(Boolean).map(s=>new URL(s,page))
     .find(u=>u.origin===page.origin&&CLIENT_ASSET.test(u.pathname));
@@ -214,7 +222,7 @@ export async function refreshGameData(data,sources,pageUrl,{fetch:request,parse,
     const saved=JSON.parse(storage?.getItem(key)||'null');
     const cache=saved&&{...saved,hot:saved.hot??data.hot,houseRooms:saved.houseRooms??data.houseRooms,houseRules:data.houseRules,houseTravel:data.houseTravel,
       farmGates:data.farmGates};
-    if(cache?.client===client&&cache.protocol===data.protocol&&validateGameData(cache)&&!cache.jobs.some(j=>j.retired))
+    if(cache?.client===client&&cache.protocol===data.protocol&&validateGameData(cache)&&cache.jobs.every(playableJob))
       return {updated:true,data:cache,message:`已加载本页校验数据：${client}`};
   } catch { /* A damaged cache never prevents a fresh public-data check. */ }
   try {
